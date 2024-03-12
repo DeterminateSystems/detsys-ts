@@ -102,7 +102,7 @@ class IdsToolbox {
   private getCachedVersion(version: string): undefined | string {
     const cachedPath = actions_tool_cache.find(
       `determinatesystems-${this.projectName}`,
-      version,
+      version.replace(/[^a-zA-Z0-9-+.]/g, "").replace(/^\./, "0."),
       this.architectureFetchSuffix,
     );
 
@@ -120,7 +120,7 @@ class IdsToolbox {
       toolPath,
       this.projectName,
       `determinatesystems-${this.projectName}`,
-      version,
+      version.replace(/[^a-zA-Z0-9-+.]/g, "").replace(/^\./, "0."),
       this.architectureFetchSuffix,
     );
   }
