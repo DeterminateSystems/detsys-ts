@@ -35000,14 +35000,15 @@ class IdsToolbox {
         return fetchUrl;
     }
     getCachedVersion(version) {
-        const cachedPath = _actions_tool_cache__WEBPACK_IMPORTED_MODULE_1__.find(`determinatesystems-${this.projectName}`, version.replace(/[^a-zA-Z0-9-+.]/g, "").replace(/^\./, '0.'), this.architectureFetchSuffix);
+        console.log(_actions_tool_cache__WEBPACK_IMPORTED_MODULE_1__.findAllVersions(`determinatesystems-${this.projectName}`, this.architectureFetchSuffix));
+        const cachedPath = _actions_tool_cache__WEBPACK_IMPORTED_MODULE_1__.find(`determinatesystems-${this.projectName}`, version.replace(/[^a-zA-Z0-9-+.]/g, "").replace(/^\./, "0."), this.architectureFetchSuffix);
         if (cachedPath === "") {
             return undefined;
         }
         return cachedPath;
     }
     async saveCachedVersion(version, toolPath) {
-        await _actions_tool_cache__WEBPACK_IMPORTED_MODULE_1__.cacheFile(toolPath, this.projectName, `determinatesystems-${this.projectName}`, version.replace(/[^a-zA-Z0-9-+.]/g, "").replace(/^\./, '0.'), this.architectureFetchSuffix);
+        await _actions_tool_cache__WEBPACK_IMPORTED_MODULE_1__.cacheFile(toolPath, this.projectName, `determinatesystems-${this.projectName}`, version.replace(/[^a-zA-Z0-9-+.]/g, "").replace(/^\./, "0."), this.architectureFetchSuffix);
     }
     async fetch() {
         _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(`Fetching from ${this.getUrl()}`);

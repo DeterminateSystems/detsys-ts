@@ -100,6 +100,11 @@ class IdsToolbox {
   }
 
   private getCachedVersion(version: string): undefined | string {
+    console.log(actions_tool_cache.findAllVersions(
+      `determinatesystems-${this.projectName}`,
+      this.architectureFetchSuffix
+    ));
+
     const cachedPath = actions_tool_cache.find(
       `determinatesystems-${this.projectName}`,
       version.replace(/[^a-zA-Z0-9-+.]/g, "").replace(/^\./, "0."),
