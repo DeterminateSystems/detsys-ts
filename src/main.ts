@@ -1,11 +1,12 @@
 import * as actions_core from "@actions/core";
-import * as actions_tool_cache from "@actions/tool-cache";
+import * as actionsCache from "@actions/cache";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 // eslint-disable-next-line import/no-unresolved
 import got from "got";
 import { v4 as uuidV4 } from "uuid";
 import { createWriteStream } from "node:fs";
+import { copyFile, mkdir } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { tmpdir } from "node:os";
 
@@ -99,35 +100,58 @@ class IdsToolbox {
     return fetchUrl;
   }
 
-  private getCachedVersion(version: string): undefined | string {
-    console.log(actions_tool_cache.findAllVersions(
-      `determinatesystems-${this.projectName}`,
-      this.architectureFetchSuffix
-    ));
+  private cacheKey(version: string): string {
+    const cleanedVersion = version.replace(/[^a-zA-Z0-9-+.]/g, "");
+    return `determinatesystem-${this.projectName}-${this.architectureFetchSuffix}-${cleanedVersion}`;
+  }
 
-    const cachedPath = actions_tool_cache.find(
-      `determinatesystems-${this.projectName}`,
-      version.replace(/[^a-zA-Z0-9-+.]/g, "").replace(/^\./, "0."),
-      this.architectureFetchSuffix,
-    );
+  private async getCachedVersion(version: string): Promise<undefined | string> {
+    const startCwd = process.cwd();
 
-    if (cachedPath === "") {
+    try {
+      const tempDir = this.getTemporaryName();
+      await mkdir(tempDir);
+      process.chdir(tempDir);
+
+      if (
+        await actionsCache.restoreCache(
+          [this.projectName],
+          this.cacheKey(version),
+          [],
+          undefined,
+          true,
+        )
+      ) {
+        return `${tempDir}/${this.projectName}`;
+      }
+
       return undefined;
+    } finally {
+      process.chdir(startCwd);
     }
-    return cachedPath;
   }
 
   private async saveCachedVersion(
     version: string,
     toolPath: string,
   ): Promise<void> {
-    await actions_tool_cache.cacheFile(
-      toolPath,
-      this.projectName,
-      `determinatesystems-${this.projectName}`,
-      version.replace(/[^a-zA-Z0-9-+.]/g, "").replace(/^\./, "0."),
-      this.architectureFetchSuffix,
-    );
+    const startCwd = process.cwd();
+
+    try {
+      const tempDir = this.getTemporaryName();
+      await mkdir(tempDir);
+      process.chdir(tempDir);
+      await copyFile(toolPath, `${tempDir}/${this.projectName}`);
+
+      await actionsCache.saveCache(
+        [this.projectName],
+        this.cacheKey(version),
+        undefined,
+        true,
+      );
+    } finally {
+      process.chdir(startCwd);
+    }
   }
 
   async fetch(): Promise<string> {
@@ -140,7 +164,7 @@ class IdsToolbox {
       actions_core.debug(
         `Checking the tool cache for ${this.getUrl()} at ${v}`,
       );
-      const cached = this.getCachedVersion(v);
+      const cached = await this.getCachedVersion(v);
       if (cached) {
         actions_core.debug(`Tool cache hit.`);
         return cached;
@@ -150,8 +174,8 @@ class IdsToolbox {
     actions_core.debug(
       `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`,
     );
-    const _tmpdir = process.env["RUNNER_TEMP"] || tmpdir();
-    const destFile = path.join(_tmpdir, `${this.projectName}-${uuidV4()}`);
+
+    const destFile = this.getTemporaryName();
 
     await pipeline(
       gotClient.stream(versionCheckup.url),
@@ -168,6 +192,11 @@ class IdsToolbox {
     }
 
     return destFile;
+  }
+
+  private getTemporaryName(): string {
+    const _tmpdir = process.env["RUNNER_TEMP"] || tmpdir();
+    return path.join(_tmpdir, `${this.projectName}-${uuidV4()}`);
   }
 }
 
