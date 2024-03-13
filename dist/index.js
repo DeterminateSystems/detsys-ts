@@ -1,4 +1,4 @@
-import './sourcemap-register.cjs';import { createRequire as __WEBPACK_EXTERNAL_createRequire } from "module";
+import { createRequire as __WEBPACK_EXTERNAL_createRequire } from "module";
 /******/ var __webpack_modules__ = ({
 
 /***/ 7799:
@@ -87130,14 +87130,14 @@ module.exports = parseParams
 function identify() {
     const ident = {
         correlation_source: "github-actions",
-        repository: hashEnvironmentVariables([
+        repository: hashEnvironmentVariables("GHR", [
             "GITHUB_SERVER_URL",
             "GITHUB_REPOSITORY_OWNER",
             "GITHUB_REPOSITORY_OWNER_ID",
             "GITHUB_REPOSITORY",
             "GITHUB_REPOSITORY_ID",
         ]),
-        workflow: hashEnvironmentVariables([
+        workflow: hashEnvironmentVariables("GHW", [
             "GITHUB_SERVER_URL",
             "GITHUB_REPOSITORY_OWNER",
             "GITHUB_REPOSITORY_OWNER_ID",
@@ -87145,7 +87145,7 @@ function identify() {
             "GITHUB_REPOSITORY_ID",
             "GITHUB_WORKFLOW",
         ]),
-        run: hashEnvironmentVariables([
+        run: hashEnvironmentVariables("GHWR", [
             "GITHUB_SERVER_URL",
             "GITHUB_REPOSITORY_OWNER",
             "GITHUB_REPOSITORY_OWNER_ID",
@@ -87153,7 +87153,7 @@ function identify() {
             "GITHUB_REPOSITORY_ID",
             "GITHUB_RUN_ID",
         ]),
-        run_differentiator: hashEnvironmentVariables([
+        run_differentiator: hashEnvironmentVariables("GHWA", [
             "GITHUB_SERVER_URL",
             "GITHUB_REPOSITORY_OWNER",
             "GITHUB_REPOSITORY_OWNER_ID",
@@ -87164,8 +87164,8 @@ function identify() {
             "GITHUB_RUN_ATTEMPT",
         ]),
         groups: {
-            "ci": "github-actions",
-            "github_organization": hashEnvironmentVariables([
+            ci: "github-actions",
+            github_organization: hashEnvironmentVariables("GHO", [
                 "GITHUB_SERVER_URL",
                 "GITHUB_REPOSITORY_OWNER",
                 "GITHUB_REPOSITORY_OWNER_ID",
@@ -87176,7 +87176,7 @@ function identify() {
     _actions_core__WEBPACK_IMPORTED_MODULE_1__.debug(JSON.stringify(ident, null, 2));
     return ident;
 }
-function hashEnvironmentVariables(variables) {
+function hashEnvironmentVariables(prefix, variables) {
     const hash = (0,node_crypto__WEBPACK_IMPORTED_MODULE_0__.createHash)("sha256");
     for (const varName of variables) {
         const value = process.env[varName];
@@ -87189,7 +87189,7 @@ function hashEnvironmentVariables(variables) {
             hash.update("\0");
         }
     }
-    return hash.digest("hex");
+    return `${prefix}-${hash.digest("hex")}`;
 }
 
 
@@ -94586,5 +94586,3 @@ module.exports = JSON.parse('[[[0,44],"disallowed_STD3_valid"],[[45,46],"valid"]
 /******/ var __webpack_exports__ = __nccwpck_require__(2092);
 /******/ __webpack_exports__ = await __webpack_exports__;
 /******/ 
-
-//# sourceMappingURL=index.js.map

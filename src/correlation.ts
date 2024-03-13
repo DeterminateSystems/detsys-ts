@@ -14,14 +14,14 @@ export function identify(): AnonymizedCorrelationHashes {
   const ident = {
     correlation_source: "github-actions",
 
-    repository: hashEnvironmentVariables([
+    repository: hashEnvironmentVariables("GHR", [
       "GITHUB_SERVER_URL",
       "GITHUB_REPOSITORY_OWNER",
       "GITHUB_REPOSITORY_OWNER_ID",
       "GITHUB_REPOSITORY",
       "GITHUB_REPOSITORY_ID",
     ]),
-    workflow: hashEnvironmentVariables([
+    workflow: hashEnvironmentVariables("GHW", [
       "GITHUB_SERVER_URL",
       "GITHUB_REPOSITORY_OWNER",
       "GITHUB_REPOSITORY_OWNER_ID",
@@ -29,7 +29,7 @@ export function identify(): AnonymizedCorrelationHashes {
       "GITHUB_REPOSITORY_ID",
       "GITHUB_WORKFLOW",
     ]),
-    run: hashEnvironmentVariables([
+    run: hashEnvironmentVariables("GHWR", [
       "GITHUB_SERVER_URL",
       "GITHUB_REPOSITORY_OWNER",
       "GITHUB_REPOSITORY_OWNER_ID",
@@ -37,7 +37,7 @@ export function identify(): AnonymizedCorrelationHashes {
       "GITHUB_REPOSITORY_ID",
       "GITHUB_RUN_ID",
     ]),
-    run_differentiator: hashEnvironmentVariables([
+    run_differentiator: hashEnvironmentVariables("GHWA", [
       "GITHUB_SERVER_URL",
       "GITHUB_REPOSITORY_OWNER",
       "GITHUB_REPOSITORY_OWNER_ID",
@@ -49,7 +49,7 @@ export function identify(): AnonymizedCorrelationHashes {
     ]),
     groups: {
       ci: "github-actions",
-      github_organization: hashEnvironmentVariables([
+      github_organization: hashEnvironmentVariables("GHO", [
         "GITHUB_SERVER_URL",
         "GITHUB_REPOSITORY_OWNER",
         "GITHUB_REPOSITORY_OWNER_ID",
@@ -63,7 +63,10 @@ export function identify(): AnonymizedCorrelationHashes {
   return ident;
 }
 
-function hashEnvironmentVariables(variables: string[]): undefined | string {
+function hashEnvironmentVariables(
+  prefix: string,
+  variables: string[],
+): undefined | string {
   const hash = createHash("sha256");
 
   for (const varName of variables) {
@@ -79,5 +82,5 @@ function hashEnvironmentVariables(variables: string[]): undefined | string {
     }
   }
 
-  return hash.digest("hex");
+  return `${prefix}-${hash.digest("hex")}`;
 }
