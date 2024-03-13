@@ -94304,24 +94304,33 @@ const gotClient = got_dist_source.extend({
         ],
     },
 });
+function makeOptionsConfident(options) {
+    return {
+        name: options.name,
+        idsProjectName: options.idsProjectName || options.name,
+        fetchStyle: options.fetchStyle,
+        legacySourcePrefix: options.legacySourcePrefix,
+    };
+}
 class IdsToolbox {
-    constructor(projectName, fetchStyle, legacySourcePrefix) {
-        this.projectName = projectName;
+    constructor(options) {
+        this.options = makeOptionsConfident(options);
+        this.identity = identify();
         this.archOs = getArchOs();
         this.nixSystem = getNixPlatform(this.archOs);
-        if (fetchStyle === "gh-env-style") {
+        if (options.fetchStyle === "gh-env-style") {
             this.architectureFetchSuffix = this.archOs;
         }
-        else if (fetchStyle === "nix-style") {
+        else if (options.fetchStyle === "nix-style") {
             this.architectureFetchSuffix = this.nixSystem;
         }
-        else if (fetchStyle === "universal") {
+        else if (options.fetchStyle === "universal") {
             this.architectureFetchSuffix = "universal";
         }
         else {
-            throw new Error(`fetchStyle ${fetchStyle} is not a valid style`);
+            throw new Error(`fetchStyle ${options.fetchStyle} is not a valid style`);
         }
-        this.sourceParameters = constructSourceParameters(legacySourcePrefix);
+        this.sourceParameters = constructSourceParameters(options.legacySourcePrefix);
     }
     getUrl() {
         const p = this.sourceParameters;
@@ -94329,7 +94338,7 @@ class IdsToolbox {
             return new URL(p.url);
         }
         const fetchUrl = new URL("https://install.determinate.systems/");
-        fetchUrl.pathname += this.projectName;
+        fetchUrl.pathname += this.options.idsProjectName;
         if (p.tag) {
             fetchUrl.pathname += `/tag/${p.tag}`;
         }
@@ -94350,7 +94359,7 @@ class IdsToolbox {
     }
     cacheKey(version) {
         const cleanedVersion = version.replace(/[^a-zA-Z0-9-+.]/g, "");
-        return `determinatesystem-${this.projectName}-${this.architectureFetchSuffix}-${cleanedVersion}`;
+        return `determinatesystem-${this.options.name}-${this.architectureFetchSuffix}-${cleanedVersion}`;
     }
     async getCachedVersion(version) {
         const startCwd = process.cwd();
@@ -94358,8 +94367,8 @@ class IdsToolbox {
             const tempDir = this.getTemporaryName();
             await (0,promises_namespaceObject.mkdir)(tempDir);
             process.chdir(tempDir);
-            if (await cache.restoreCache([this.projectName], this.cacheKey(version), [], undefined, true)) {
-                return `${tempDir}/${this.projectName}`;
+            if (await cache.restoreCache([this.options.name], this.cacheKey(version), [], undefined, true)) {
+                return `${tempDir}/${this.options.name}`;
             }
             return undefined;
         }
@@ -94373,8 +94382,8 @@ class IdsToolbox {
             const tempDir = this.getTemporaryName();
             await (0,promises_namespaceObject.mkdir)(tempDir);
             process.chdir(tempDir);
-            await (0,promises_namespaceObject.copyFile)(toolPath, `${tempDir}/${this.projectName}`);
-            await cache.saveCache([this.projectName], this.cacheKey(version), undefined, true);
+            await (0,promises_namespaceObject.copyFile)(toolPath, `${tempDir}/${this.options.name}`);
+            await cache.saveCache([this.options.name], this.cacheKey(version), undefined, true);
         }
         finally {
             process.chdir(startCwd);
@@ -94385,7 +94394,7 @@ class IdsToolbox {
         core.info(`Fetching from ${this.getUrl()}`);
         const correlatedUrl = this.getUrl();
         correlatedUrl.searchParams.set("ci", "github");
-        correlatedUrl.searchParams.set("correlation", JSON.stringify(identify()));
+        correlatedUrl.searchParams.set("correlation", JSON.stringify(this.identity));
         const versionCheckup = await gotClient.head(correlatedUrl);
         if (versionCheckup.headers.etag) {
             const v = versionCheckup.headers.etag;
@@ -94409,9 +94418,14 @@ class IdsToolbox {
         }
         return destFile;
     }
+    async fetchExecutable() {
+        const binaryPath = await this.fetch();
+        await (0,promises_namespaceObject.chmod)(binaryPath, promises_namespaceObject.constants.S_IXUSR | promises_namespaceObject.constants.S_IXGRP);
+        return binaryPath;
+    }
     getTemporaryName() {
         const _tmpdir = process.env["RUNNER_TEMP"] || (0,external_node_os_namespaceObject.tmpdir)();
-        return external_node_path_namespaceObject.join(_tmpdir, `${this.projectName}-${v4()}`);
+        return external_node_path_namespaceObject.join(_tmpdir, `${this.options.name}-${v4()}`);
     }
 }
 
