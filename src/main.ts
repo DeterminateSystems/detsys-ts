@@ -87,12 +87,6 @@ class IdsToolbox {
 
     fetchUrl.pathname += `/${this.architectureFetchSuffix}`;
 
-    fetchUrl.searchParams.set("ci", "github");
-    fetchUrl.searchParams.set(
-      "correlation",
-      JSON.stringify(correlation.identify()),
-    );
-
     return fetchUrl;
   }
 
@@ -153,7 +147,14 @@ class IdsToolbox {
   async fetch(): Promise<string> {
     actions_core.info(`Fetching from ${this.getUrl()}`);
 
-    const versionCheckup = await gotClient.head(this.getUrl());
+    const correlatedUrl = this.getUrl();
+    correlatedUrl.searchParams.set("ci", "github");
+    correlatedUrl.searchParams.set(
+      "correlation",
+      JSON.stringify(correlation.identify()),
+    );
+
+    const versionCheckup = await gotClient.head(correlatedUrl);
     if (versionCheckup.headers.etag) {
       const v = versionCheckup.headers.etag;
 

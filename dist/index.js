@@ -87285,8 +87285,6 @@ class IdsToolbox {
             fetchUrl.pathname += `/stable`;
         }
         fetchUrl.pathname += `/${this.architectureFetchSuffix}`;
-        fetchUrl.searchParams.set("ci", "github");
-        fetchUrl.searchParams.set("correlation", JSON.stringify(_correlation_js__WEBPACK_IMPORTED_MODULE_9__/* .identify */ .y()));
         return fetchUrl;
     }
     cacheKey(version) {
@@ -87323,7 +87321,10 @@ class IdsToolbox {
     }
     async fetch() {
         _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(`Fetching from ${this.getUrl()}`);
-        const versionCheckup = await gotClient.head(this.getUrl());
+        const correlatedUrl = this.getUrl();
+        correlatedUrl.searchParams.set("ci", "github");
+        correlatedUrl.searchParams.set("correlation", JSON.stringify(_correlation_js__WEBPACK_IMPORTED_MODULE_9__/* .identify */ .y()));
+        const versionCheckup = await gotClient.head(correlatedUrl);
         if (versionCheckup.headers.etag) {
             const v = versionCheckup.headers.etag;
             _actions_core__WEBPACK_IMPORTED_MODULE_0__.debug(`Checking the tool cache for ${this.getUrl()} at ${v}`);
