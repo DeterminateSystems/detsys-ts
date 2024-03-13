@@ -87128,7 +87128,7 @@ module.exports = parseParams
 
 
 function identify() {
-    return {
+    const ident = {
         correlation_source: "github-actions",
         repository: hashEnvironmentVariables([
             "GITHUB_SERVER_URL",
@@ -87175,6 +87175,9 @@ function identify() {
             ],
         ]),
     };
+    _actions_core__WEBPACK_IMPORTED_MODULE_1__.debug("Correlation data:");
+    _actions_core__WEBPACK_IMPORTED_MODULE_1__.debug(JSON.stringify(ident, null, 2));
+    return ident;
 }
 function hashEnvironmentVariables(variables) {
     const hash = (0,node_crypto__WEBPACK_IMPORTED_MODULE_0__.createHash)("sha256");

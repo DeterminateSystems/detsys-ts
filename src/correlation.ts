@@ -11,7 +11,7 @@ export type AnonymizedCorrelationHashes = {
 };
 
 export function identify(): AnonymizedCorrelationHashes {
-  return {
+  const ident = {
     correlation_source: "github-actions",
 
     repository: hashEnvironmentVariables([
@@ -59,6 +59,11 @@ export function identify(): AnonymizedCorrelationHashes {
       ],
     ]),
   };
+
+  actionsCore.debug("Correlation data:");
+  actionsCore.debug(JSON.stringify(ident, null, 2));
+
+  return ident;
 }
 
 function hashEnvironmentVariables(variables: string[]): undefined | string {
