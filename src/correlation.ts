@@ -7,7 +7,7 @@ export type AnonymizedCorrelationHashes = {
   run?: string;
   run_differentiator?: string;
   workflow?: string;
-  groups: Map<string, undefined | string>;
+  groups: Record<string, string | undefined>;
 };
 
 export function identify(): AnonymizedCorrelationHashes {
@@ -47,17 +47,14 @@ export function identify(): AnonymizedCorrelationHashes {
       "GITHUB_RUN_NUMBER",
       "GITHUB_RUN_ATTEMPT",
     ]),
-    groups: new Map([
-      ["ci", "github-actions"],
-      [
-        "github_organization",
-        hashEnvironmentVariables([
-          "GITHUB_SERVER_URL",
-          "GITHUB_REPOSITORY_OWNER",
-          "GITHUB_REPOSITORY_OWNER_ID",
-        ]),
-      ],
-    ]),
+    groups: {
+      ci: "github-actions",
+      github_organization: hashEnvironmentVariables([
+        "GITHUB_SERVER_URL",
+        "GITHUB_REPOSITORY_OWNER",
+        "GITHUB_REPOSITORY_OWNER_ID",
+      ]),
+    },
   };
 
   actionsCore.debug("Correlation data:");

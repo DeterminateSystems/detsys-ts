@@ -87163,17 +87163,14 @@ function identify() {
             "GITHUB_RUN_NUMBER",
             "GITHUB_RUN_ATTEMPT",
         ]),
-        groups: new Map([
-            ["ci", "github-actions"],
-            [
-                "github_organization",
-                hashEnvironmentVariables([
-                    "GITHUB_SERVER_URL",
-                    "GITHUB_REPOSITORY_OWNER",
-                    "GITHUB_REPOSITORY_OWNER_ID",
-                ]),
-            ],
-        ]),
+        groups: {
+            "ci": "github-actions",
+            "github_organization": hashEnvironmentVariables([
+                "GITHUB_SERVER_URL",
+                "GITHUB_REPOSITORY_OWNER",
+                "GITHUB_REPOSITORY_OWNER_ID",
+            ]),
+        },
     };
     _actions_core__WEBPACK_IMPORTED_MODULE_1__.debug("Correlation data:");
     _actions_core__WEBPACK_IMPORTED_MODULE_1__.debug(JSON.stringify(ident, null, 2));
