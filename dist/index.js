@@ -87125,12 +87125,13 @@ __nccwpck_require__.a(__webpack_module__, async (__webpack_handle_async_dependen
 /* harmony import */ var _actions_cache__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(7799);
 /* harmony import */ var node_crypto__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(6005);
 /* harmony import */ var node_path__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(9411);
-/* harmony import */ var got__WEBPACK_IMPORTED_MODULE_8__ = __nccwpck_require__(6277);
-/* harmony import */ var uuid__WEBPACK_IMPORTED_MODULE_9__ = __nccwpck_require__(3086);
+/* harmony import */ var got__WEBPACK_IMPORTED_MODULE_9__ = __nccwpck_require__(6277);
+/* harmony import */ var uuid__WEBPACK_IMPORTED_MODULE_10__ = __nccwpck_require__(3086);
 /* harmony import */ var node_fs__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(7561);
 /* harmony import */ var node_fs_promises__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(3977);
 /* harmony import */ var node_stream_promises__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(6402);
 /* harmony import */ var node_os__WEBPACK_IMPORTED_MODULE_7__ = __nccwpck_require__(612);
+/* harmony import */ var _sourcedef_js__WEBPACK_IMPORTED_MODULE_8__ = __nccwpck_require__(3701);
 
 
 
@@ -87142,7 +87143,9 @@ __nccwpck_require__.a(__webpack_module__, async (__webpack_handle_async_dependen
 
 
 
-const gotClient = got__WEBPACK_IMPORTED_MODULE_8__/* ["default"].extend */ .ZP.extend({
+// eslint-disable-next-line import/no-unresolved
+
+const gotClient = got__WEBPACK_IMPORTED_MODULE_9__/* ["default"].extend */ .ZP.extend({
     retry: {
         limit: 3,
         methods: ["GET", "HEAD"],
@@ -87173,7 +87176,7 @@ class IdsToolbox {
         else {
             throw new Error(`fetchStyle ${fetchStyle} is not a valid style`);
         }
-        this.sourceParameters = constructSourceParameters(legacySourcePrefix);
+        this.sourceParameters = (0,_sourcedef_js__WEBPACK_IMPORTED_MODULE_8__/* .constructSourceParameters */ .F)(legacySourcePrefix);
     }
     getUrl() {
         const p = this.sourceParameters;
@@ -87260,7 +87263,7 @@ class IdsToolbox {
     }
     getTemporaryName() {
         const _tmpdir = process.env["RUNNER_TEMP"] || (0,node_os__WEBPACK_IMPORTED_MODULE_7__.tmpdir)();
-        return node_path__WEBPACK_IMPORTED_MODULE_3__.join(_tmpdir, `${this.projectName}-${(0,uuid__WEBPACK_IMPORTED_MODULE_9__.v4)()}`);
+        return node_path__WEBPACK_IMPORTED_MODULE_3__.join(_tmpdir, `${this.projectName}-${(0,uuid__WEBPACK_IMPORTED_MODULE_10__.v4)()}`);
     }
 }
 function getArchOs() {
@@ -87290,6 +87293,30 @@ function getNixPlatform(archOs) {
         throw new Error(`Cannot convert ArchOs (${archOs}) to a supported Nix platform.`);
     }
 }
+async function main() {
+    let correlation = _actions_core__WEBPACK_IMPORTED_MODULE_0__.getState("correlation");
+    if (correlation === "") {
+        correlation = `GH-${(0,node_crypto__WEBPACK_IMPORTED_MODULE_2__.randomUUID)()}`;
+        _actions_core__WEBPACK_IMPORTED_MODULE_0__.saveState("correlation", correlation);
+    }
+    const installer = new IdsToolbox("magic-nix-cache-closure", "gh-env-style", correlation, "nix-installer");
+    _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(await installer.fetch());
+}
+await main();
+
+__webpack_async_result__();
+} catch(e) { __webpack_async_result__(e); } }, 1);
+
+/***/ }),
+
+/***/ 3701:
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
+
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   "F": () => (/* binding */ constructSourceParameters)
+/* harmony export */ });
+/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(2186);
+
 function constructSourceParameters(legacyPrefix) {
     const noisilyGetInput = (suffix) => {
         const preferredInput = inputStringOrUndef(`source-${suffix}`);
@@ -87329,19 +87356,7 @@ function inputStringOrUndef(name) {
         return value;
     }
 }
-async function main() {
-    let correlation = _actions_core__WEBPACK_IMPORTED_MODULE_0__.getState("correlation");
-    if (correlation === "") {
-        correlation = `GH-${(0,node_crypto__WEBPACK_IMPORTED_MODULE_2__.randomUUID)()}`;
-        _actions_core__WEBPACK_IMPORTED_MODULE_0__.saveState("correlation", correlation);
-    }
-    const installer = new IdsToolbox("magic-nix-cache-closure", "gh-env-style", correlation, "nix-installer");
-    _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(await installer.fetch());
-}
-await main();
 
-__webpack_async_result__();
-} catch(e) { __webpack_async_result__(e); } }, 1);
 
 /***/ }),
 
