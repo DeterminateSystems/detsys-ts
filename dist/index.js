@@ -87117,23 +87117,100 @@ module.exports = parseParams
 
 /***/ }),
 
+/***/ 1178:
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
+
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   "y": () => (/* binding */ identify)
+/* harmony export */ });
+/* harmony import */ var node_crypto__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(6005);
+/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(2186);
+
+
+function identify() {
+    return {
+        correlation_source: "github-actions",
+        repository: hashEnvironmentVariables([
+            "GITHUB_SERVER_URL",
+            "GITHUB_REPOSITORY_OWNER",
+            "GITHUB_REPOSITORY_OWNER_ID",
+            "GITHUB_REPOSITORY",
+            "GITHUB_REPOSITORY_ID",
+        ]),
+        workflow: hashEnvironmentVariables([
+            "GITHUB_SERVER_URL",
+            "GITHUB_REPOSITORY_OWNER",
+            "GITHUB_REPOSITORY_OWNER_ID",
+            "GITHUB_REPOSITORY",
+            "GITHUB_REPOSITORY_ID",
+            "GITHUB_WORKFLOW",
+        ]),
+        run: hashEnvironmentVariables([
+            "GITHUB_SERVER_URL",
+            "GITHUB_REPOSITORY_OWNER",
+            "GITHUB_REPOSITORY_OWNER_ID",
+            "GITHUB_REPOSITORY",
+            "GITHUB_REPOSITORY_ID",
+            "GITHUB_RUN_ID",
+        ]),
+        run_differentiator: hashEnvironmentVariables([
+            "GITHUB_SERVER_URL",
+            "GITHUB_REPOSITORY_OWNER",
+            "GITHUB_REPOSITORY_OWNER_ID",
+            "GITHUB_REPOSITORY",
+            "GITHUB_REPOSITORY_ID",
+            "GITHUB_RUN_ID",
+            "GITHUB_RUN_NUMBER",
+            "GITHUB_RUN_ATTEMPT",
+        ]),
+        groups: new Map([
+            ["ci", "github-actions"],
+            [
+                "github_organization",
+                hashEnvironmentVariables([
+                    "GITHUB_SERVER_URL",
+                    "GITHUB_REPOSITORY_OWNER",
+                    "GITHUB_REPOSITORY_OWNER_ID",
+                ]),
+            ],
+        ]),
+    };
+}
+function hashEnvironmentVariables(variables) {
+    const hash = (0,node_crypto__WEBPACK_IMPORTED_MODULE_0__.createHash)("sha256");
+    for (const varName of variables) {
+        const value = process.env[varName];
+        if (value === undefined) {
+            _actions_core__WEBPACK_IMPORTED_MODULE_1__.debug(`Environment variable not set: ${varName} -- can't generate the requested identity`);
+            return undefined;
+        }
+        else {
+            hash.update(value);
+            hash.update("\0");
+        }
+    }
+    return hash.digest("hex");
+}
+
+
+/***/ }),
+
 /***/ 2092:
 /***/ ((__webpack_module__, __unused_webpack___webpack_exports__, __nccwpck_require__) => {
 
 __nccwpck_require__.a(__webpack_module__, async (__webpack_handle_async_dependencies__, __webpack_async_result__) => { try {
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(2186);
 /* harmony import */ var _actions_cache__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(7799);
-/* harmony import */ var node_crypto__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(6005);
-/* harmony import */ var node_path__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(9411);
+/* harmony import */ var node_path__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(9411);
 /* harmony import */ var got__WEBPACK_IMPORTED_MODULE_10__ = __nccwpck_require__(6277);
 /* harmony import */ var uuid__WEBPACK_IMPORTED_MODULE_11__ = __nccwpck_require__(3086);
-/* harmony import */ var node_fs__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(7561);
-/* harmony import */ var node_fs_promises__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(3977);
-/* harmony import */ var node_stream_promises__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(6402);
-/* harmony import */ var node_os__WEBPACK_IMPORTED_MODULE_7__ = __nccwpck_require__(612);
-/* harmony import */ var _sourcedef_js__WEBPACK_IMPORTED_MODULE_8__ = __nccwpck_require__(3701);
-/* harmony import */ var _platform_js__WEBPACK_IMPORTED_MODULE_9__ = __nccwpck_require__(3713);
-
+/* harmony import */ var node_fs__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(7561);
+/* harmony import */ var node_fs_promises__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(3977);
+/* harmony import */ var node_stream_promises__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(6402);
+/* harmony import */ var node_os__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(612);
+/* harmony import */ var _sourcedef_js__WEBPACK_IMPORTED_MODULE_7__ = __nccwpck_require__(3701);
+/* harmony import */ var _platform_js__WEBPACK_IMPORTED_MODULE_8__ = __nccwpck_require__(3713);
+/* harmony import */ var _correlation_js__WEBPACK_IMPORTED_MODULE_9__ = __nccwpck_require__(1178);
 
 
 
@@ -87143,6 +87220,8 @@ __nccwpck_require__.a(__webpack_module__, async (__webpack_handle_async_dependen
 
 
 
+
+// eslint-disable-next-line import/no-unresolved
 
 // eslint-disable-next-line import/no-unresolved
 
@@ -87162,11 +87241,10 @@ const gotClient = got__WEBPACK_IMPORTED_MODULE_10__/* ["default"].extend */ .ZP.
     },
 });
 class IdsToolbox {
-    constructor(projectName, fetchStyle, correlation, legacySourcePrefix) {
+    constructor(projectName, fetchStyle, legacySourcePrefix) {
         this.projectName = projectName;
-        this.correlation = correlation;
-        this.archOs = _platform_js__WEBPACK_IMPORTED_MODULE_9__/* .getArchOs */ .T();
-        this.nixSystem = _platform_js__WEBPACK_IMPORTED_MODULE_9__/* .getNixPlatform */ .I(this.archOs);
+        this.archOs = _platform_js__WEBPACK_IMPORTED_MODULE_8__/* .getArchOs */ .T();
+        this.nixSystem = _platform_js__WEBPACK_IMPORTED_MODULE_8__/* .getNixPlatform */ .I(this.archOs);
         if (fetchStyle === "gh-env-style") {
             this.architectureFetchSuffix = this.archOs;
         }
@@ -87179,7 +87257,7 @@ class IdsToolbox {
         else {
             throw new Error(`fetchStyle ${fetchStyle} is not a valid style`);
         }
-        this.sourceParameters = (0,_sourcedef_js__WEBPACK_IMPORTED_MODULE_8__/* .constructSourceParameters */ .F)(legacySourcePrefix);
+        this.sourceParameters = (0,_sourcedef_js__WEBPACK_IMPORTED_MODULE_7__/* .constructSourceParameters */ .F)(legacySourcePrefix);
     }
     getUrl() {
         const p = this.sourceParameters;
@@ -87205,7 +87283,7 @@ class IdsToolbox {
         }
         fetchUrl.pathname += `/${this.architectureFetchSuffix}`;
         fetchUrl.searchParams.set("ci", "github");
-        fetchUrl.searchParams.set("correlation", this.correlation);
+        fetchUrl.searchParams.set("correlation", JSON.stringify(_correlation_js__WEBPACK_IMPORTED_MODULE_9__/* .identify */ .y()));
         return fetchUrl;
     }
     cacheKey(version) {
@@ -87216,7 +87294,7 @@ class IdsToolbox {
         const startCwd = process.cwd();
         try {
             const tempDir = this.getTemporaryName();
-            await (0,node_fs_promises__WEBPACK_IMPORTED_MODULE_5__.mkdir)(tempDir);
+            await (0,node_fs_promises__WEBPACK_IMPORTED_MODULE_4__.mkdir)(tempDir);
             process.chdir(tempDir);
             if (await _actions_cache__WEBPACK_IMPORTED_MODULE_1__.restoreCache([this.projectName], this.cacheKey(version), [], undefined, true)) {
                 return `${tempDir}/${this.projectName}`;
@@ -87231,9 +87309,9 @@ class IdsToolbox {
         const startCwd = process.cwd();
         try {
             const tempDir = this.getTemporaryName();
-            await (0,node_fs_promises__WEBPACK_IMPORTED_MODULE_5__.mkdir)(tempDir);
+            await (0,node_fs_promises__WEBPACK_IMPORTED_MODULE_4__.mkdir)(tempDir);
             process.chdir(tempDir);
-            await (0,node_fs_promises__WEBPACK_IMPORTED_MODULE_5__.copyFile)(toolPath, `${tempDir}/${this.projectName}`);
+            await (0,node_fs_promises__WEBPACK_IMPORTED_MODULE_4__.copyFile)(toolPath, `${tempDir}/${this.projectName}`);
             await _actions_cache__WEBPACK_IMPORTED_MODULE_1__.saveCache([this.projectName], this.cacheKey(version), undefined, true);
         }
         finally {
@@ -87254,7 +87332,7 @@ class IdsToolbox {
         }
         _actions_core__WEBPACK_IMPORTED_MODULE_0__.debug(`No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`);
         const destFile = this.getTemporaryName();
-        await (0,node_stream_promises__WEBPACK_IMPORTED_MODULE_6__.pipeline)(gotClient.stream(versionCheckup.url), (0,node_fs__WEBPACK_IMPORTED_MODULE_4__.createWriteStream)(destFile, {
+        await (0,node_stream_promises__WEBPACK_IMPORTED_MODULE_5__.pipeline)(gotClient.stream(versionCheckup.url), (0,node_fs__WEBPACK_IMPORTED_MODULE_3__.createWriteStream)(destFile, {
             encoding: "binary",
             mode: 0o755,
         }));
@@ -87265,17 +87343,12 @@ class IdsToolbox {
         return destFile;
     }
     getTemporaryName() {
-        const _tmpdir = process.env["RUNNER_TEMP"] || (0,node_os__WEBPACK_IMPORTED_MODULE_7__.tmpdir)();
-        return node_path__WEBPACK_IMPORTED_MODULE_3__.join(_tmpdir, `${this.projectName}-${(0,uuid__WEBPACK_IMPORTED_MODULE_11__.v4)()}`);
+        const _tmpdir = process.env["RUNNER_TEMP"] || (0,node_os__WEBPACK_IMPORTED_MODULE_6__.tmpdir)();
+        return node_path__WEBPACK_IMPORTED_MODULE_2__.join(_tmpdir, `${this.projectName}-${(0,uuid__WEBPACK_IMPORTED_MODULE_11__.v4)()}`);
     }
 }
 async function main() {
-    let correlation = _actions_core__WEBPACK_IMPORTED_MODULE_0__.getState("correlation");
-    if (correlation === "") {
-        correlation = `GH-${(0,node_crypto__WEBPACK_IMPORTED_MODULE_2__.randomUUID)()}`;
-        _actions_core__WEBPACK_IMPORTED_MODULE_0__.saveState("correlation", correlation);
-    }
-    const installer = new IdsToolbox("magic-nix-cache-closure", "gh-env-style", correlation, "nix-installer");
+    const installer = new IdsToolbox("magic-nix-cache-closure", "gh-env-style", "nix-installer");
     _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(await installer.fetch());
 }
 await main();

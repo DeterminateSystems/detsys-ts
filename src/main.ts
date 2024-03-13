@@ -1,6 +1,5 @@
 import * as actions_core from "@actions/core";
 import * as actionsCache from "@actions/cache";
-import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 // eslint-disable-next-line import/no-unresolved
 import got from "got";
@@ -13,6 +12,8 @@ import { tmpdir } from "node:os";
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 // eslint-disable-next-line import/no-unresolved
 import * as platform from "./platform.js";
+// eslint-disable-next-line import/no-unresolved
+import * as correlation from "./correlation.js";
 
 const gotClient = got.extend({
   retry: {
@@ -37,17 +38,14 @@ class IdsToolbox {
   archOs: string;
   nixSystem: string;
   architectureFetchSuffix: string;
-  correlation: string;
   sourceParameters: SourceDef;
 
   constructor(
     projectName: string,
     fetchStyle: FetchSuffixStyle,
-    correlation: string,
     legacySourcePrefix?: string,
   ) {
     this.projectName = projectName;
-    this.correlation = correlation;
 
     this.archOs = platform.getArchOs();
     this.nixSystem = platform.getNixPlatform(this.archOs);
@@ -90,7 +88,10 @@ class IdsToolbox {
     fetchUrl.pathname += `/${this.architectureFetchSuffix}`;
 
     fetchUrl.searchParams.set("ci", "github");
-    fetchUrl.searchParams.set("correlation", this.correlation);
+    fetchUrl.searchParams.set(
+      "correlation",
+      JSON.stringify(correlation.identify()),
+    );
 
     return fetchUrl;
   }
@@ -196,16 +197,9 @@ class IdsToolbox {
 }
 
 async function main(): Promise<void> {
-  let correlation: string = actions_core.getState("correlation");
-  if (correlation === "") {
-    correlation = `GH-${randomUUID()}`;
-    actions_core.saveState("correlation", correlation);
-  }
-
   const installer = new IdsToolbox(
     "magic-nix-cache-closure",
     "gh-env-style",
-    correlation,
     "nix-installer",
   );
 
