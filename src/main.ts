@@ -11,6 +11,8 @@ import { pipeline } from "node:stream/promises";
 import { tmpdir } from "node:os";
 // eslint-disable-next-line import/no-unresolved
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
+// eslint-disable-next-line import/no-unresolved
+import * as platform from "./platform.js";
 
 const gotClient = got.extend({
   retry: {
@@ -47,8 +49,8 @@ class IdsToolbox {
     this.projectName = projectName;
     this.correlation = correlation;
 
-    this.archOs = getArchOs();
-    this.nixSystem = getNixPlatform(this.archOs);
+    this.archOs = platform.getArchOs();
+    this.nixSystem = platform.getNixPlatform(this.archOs);
 
     if (fetchStyle === "gh-env-style") {
       this.architectureFetchSuffix = this.archOs;
@@ -190,41 +192,6 @@ class IdsToolbox {
   private getTemporaryName(): string {
     const _tmpdir = process.env["RUNNER_TEMP"] || tmpdir();
     return path.join(_tmpdir, `${this.projectName}-${uuidV4()}`);
-  }
-}
-
-function getArchOs(): string {
-  const envArch = process.env.RUNNER_ARCH;
-  const envOs = process.env.RUNNER_OS;
-
-  if (envArch && envOs) {
-    return `${envArch}-${envOs}`;
-  } else {
-    actions_core.error(
-      `Can't identify the platform: RUNNER_ARCH or RUNNER_OS undefined (${envArch}-${envOs})`,
-    );
-    throw new Error("RUNNER_ARCH and/or RUNNER_OS is not defined");
-  }
-}
-
-function getNixPlatform(archOs: string): string {
-  const archOsMap: Map<string, string> = new Map([
-    ["X64-macOS", "x86_64-darwin"],
-    ["ARM64-macOS", "aarch64-darwin"],
-    ["X64-Linux", "X64-linux"],
-    ["ARM64-Linux", "aarch64-linux"],
-  ]);
-
-  const mappedTo = archOsMap.get(archOs);
-  if (mappedTo) {
-    return mappedTo;
-  } else {
-    actions_core.error(
-      `ArchOs (${archOs}) doesn't map to a supported Nix platform.`,
-    );
-    throw new Error(
-      `Cannot convert ArchOs (${archOs}) to a supported Nix platform.`,
-    );
   }
 }
 
