@@ -2,7 +2,8 @@
   "name": "idslib",
   "version": "1.0.0",
   "description": "An interface to install.determinate.systems.",
-  "main": "lib/main.js",
+  "main": "./lib/main.js",
+  "types": "./lib/main.d.ts",
   "type": "module",
   "scripts": {
     "build": "tsc",

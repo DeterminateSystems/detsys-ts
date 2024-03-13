@@ -31,9 +31,9 @@ const gotClient = got.extend({
   },
 });
 
-type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
+export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 
-class IdsToolbox {
+export class IdsToolbox {
   projectName: string;
   archOs: string;
   nixSystem: string;
@@ -197,15 +197,3 @@ class IdsToolbox {
     return path.join(_tmpdir, `${this.projectName}-${uuidV4()}`);
   }
 }
-
-async function main(): Promise<void> {
-  const installer = new IdsToolbox(
-    "magic-nix-cache-closure",
-    "gh-env-style",
-    "nix-installer",
-  );
-
-  actions_core.info(await installer.fetch());
-}
-
-await main();
