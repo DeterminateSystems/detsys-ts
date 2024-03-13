@@ -173,17 +173,18 @@ class IdsToolbox {
     );
 
     const destFile = this.getTemporaryName();
+    const fetchStream = gotClient.stream(versionCheckup.url);
 
     await pipeline(
-      gotClient.stream(versionCheckup.url),
+      fetchStream,
       createWriteStream(destFile, {
         encoding: "binary",
         mode: 0o755,
       }),
     );
 
-    if (versionCheckup.headers.etag) {
-      const v = versionCheckup.headers.etag;
+    if (fetchStream.response?.headers.etag) {
+      const v = fetchStream.response.headers.etag;
 
       await this.saveCachedVersion(v, destFile);
     }

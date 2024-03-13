@@ -87317,6 +87317,7 @@ class IdsToolbox {
         }
     }
     async fetch() {
+        var _a;
         _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(`Fetching from ${this.getUrl()}`);
         const correlatedUrl = this.getUrl();
         correlatedUrl.searchParams.set("ci", "github");
@@ -87333,12 +87334,13 @@ class IdsToolbox {
         }
         _actions_core__WEBPACK_IMPORTED_MODULE_0__.debug(`No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`);
         const destFile = this.getTemporaryName();
-        await (0,node_stream_promises__WEBPACK_IMPORTED_MODULE_5__.pipeline)(gotClient.stream(versionCheckup.url), (0,node_fs__WEBPACK_IMPORTED_MODULE_3__.createWriteStream)(destFile, {
+        const fetchStream = gotClient.stream(versionCheckup.url);
+        await (0,node_stream_promises__WEBPACK_IMPORTED_MODULE_5__.pipeline)(fetchStream, (0,node_fs__WEBPACK_IMPORTED_MODULE_3__.createWriteStream)(destFile, {
             encoding: "binary",
             mode: 0o755,
         }));
-        if (versionCheckup.headers.etag) {
-            const v = versionCheckup.headers.etag;
+        if ((_a = fetchStream.response) === null || _a === void 0 ? void 0 : _a.headers.etag) {
+            const v = fetchStream.response.headers.etag;
             await this.saveCachedVersion(v, destFile);
         }
         return destFile;
