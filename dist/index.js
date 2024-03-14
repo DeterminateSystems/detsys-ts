@@ -94193,7 +94193,7 @@ function getNixPlatform(archOs) {
     const archOsMap = new Map([
         ["X64-macOS", "x86_64-darwin"],
         ["ARM64-macOS", "aarch64-darwin"],
-        ["X64-Linux", "X64-linux"],
+        ["X64-Linux", "x86_64-linux"],
         ["ARM64-Linux", "aarch64-linux"],
     ]);
     const mappedTo = archOsMap.get(archOs);
@@ -94359,6 +94359,7 @@ class IdsToolbox {
     constructor(options) {
         this.options = makeOptionsConfident(options);
         this.facts = {};
+        this.events = [];
         this.identity = identify();
         this.archOs = getArchOs();
         this.nixSystem = getNixPlatform(this.archOs);
@@ -94434,16 +94435,26 @@ class IdsToolbox {
         }
     }
     async recordEvent(event_name, context = {}) {
+        this.events.push({
+            event_name: `${this.options.eventPrefix}${event_name}`,
+            context,
+            correlation: this.identity,
+            facts: this.facts,
+            timestamp: new Date(),
+        });
+    }
+    async submitEvents() {
         if (!this.options.diagnosticsUrl) {
+            core.debug("Diagnostics are disabled. Not sending the following events:");
+            core.debug(JSON.stringify(this.events, undefined, 2));
             return;
         }
         try {
             await gotClient.post(this.options.diagnosticsUrl, {
                 json: {
-                    event_name: `${this.options.eventPrefix}${event_name}`,
-                    context,
-                    correlation: this.identity,
-                    facts: this.facts,
+                    type: "eventlog",
+                    sent_at: new Date(),
+                    events: this.events,
                 },
             });
         }

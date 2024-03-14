@@ -139,6 +139,14 @@ function determineDiagnosticsUrl(
   return undefined;
 }
 
+type DiagnosticEvent = {
+  event_name: string;
+  correlation: correlation.AnonymizedCorrelationHashes;
+  facts: Record<string, string | boolean>;
+  context: Record<string, unknown>;
+  timestamp: Date;
+};
+
 export class IdsToolbox {
   identity: correlation.AnonymizedCorrelationHashes;
   options: ConfidentOptions;
@@ -147,10 +155,12 @@ export class IdsToolbox {
   architectureFetchSuffix: string;
   sourceParameters: SourceDef;
   facts: Record<string, string | boolean>;
+  events: DiagnosticEvent[];
 
   constructor(options: Options) {
     this.options = makeOptionsConfident(options);
     this.facts = {};
+    this.events = [];
 
     this.identity = correlation.identify();
     this.archOs = platform.getArchOs();
@@ -256,17 +266,30 @@ export class IdsToolbox {
     event_name: string,
     context: Record<string, unknown> = {},
   ): Promise<void> {
+    this.events.push({
+      event_name: `${this.options.eventPrefix}${event_name}`,
+      context,
+      correlation: this.identity,
+      facts: this.facts,
+      timestamp: new Date(),
+    });
+  }
+
+  async submitEvents(): Promise<void> {
     if (!this.options.diagnosticsUrl) {
+      actions_core.debug(
+        "Diagnostics are disabled. Not sending the following events:",
+      );
+      actions_core.debug(JSON.stringify(this.events, undefined, 2));
       return;
     }
 
     try {
       await gotClient.post(this.options.diagnosticsUrl, {
         json: {
-          event_name: `${this.options.eventPrefix}${event_name}`,
-          context,
-          correlation: this.identity,
-          facts: this.facts,
+          type: "eventlog",
+          sent_at: new Date(),
+          events: this.events,
         },
       });
     } catch (error) {
