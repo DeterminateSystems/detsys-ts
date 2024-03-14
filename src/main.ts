@@ -15,6 +15,8 @@ import * as platform from "./platform.js";
 // eslint-disable-next-line import/no-unresolved
 import * as correlation from "./correlation.js";
 
+const IDS_HOST = process.env.IDS_HOST || "https://install.determinate.systems";
+
 const gotClient = got.extend({
   retry: {
     limit: 3,
@@ -34,27 +36,107 @@ const gotClient = got.extend({
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 
 export type Options = {
+  // Name of the project generally, and the name of the binary on disk.
   name: string;
+
+  // Defaults to `name`, Corresponds to the ProjectHost entry on i.d.s.
   idsProjectName?: string;
+
+  // Defaults to `action:${name}:`
+  eventPrefix?: string;
+
+  // The "architecture" URL component expected by I.D.S. for the ProjectHost.
   fetchStyle: FetchSuffixStyle;
+
+  // IdsToolbox assumes the GitHub Action exposes source overrides, like branch/pr/etc. to be named `source-*`.
+  // This prefix adds a fallback name, prefixed by `${legacySourcePrefix}-`.
+  // Users who configure legacySourcePrefix will get warnings asking them to change to `source-*`.
   legacySourcePrefix?: string;
+
+  // The URL to send diagnostics events to.
+  // Specifically:
+  //  * `undefined` -> Attempt to read the `diagnostic-enpdoint` action input, and calculate the default diagnostics URL for IDS from there.
+  //  * `null` -> Disable sending diagnostics altogether.
+  //  * URL(...) -> Send diagnostics to this other URL instead
+  diagnosticsUrl?: URL | null;
 };
 
 // A confident version of Options, where defaults have been processed
 type ConfidentOptions = {
   name: string;
   idsProjectName: string;
+  eventPrefix: string;
   fetchStyle: FetchSuffixStyle;
   legacySourcePrefix?: string;
+  diagnosticsUrl?: URL;
 };
 
 function makeOptionsConfident(options: Options): ConfidentOptions {
-  return {
+  const finalOpts: ConfidentOptions = {
     name: options.name,
     idsProjectName: options.idsProjectName || options.name,
+    eventPrefix: options.eventPrefix || `action:${options.name}:`,
     fetchStyle: options.fetchStyle,
     legacySourcePrefix: options.legacySourcePrefix,
+    diagnosticsUrl: undefined,
   };
+
+  finalOpts.diagnosticsUrl = determineDiagnosticsUrl(
+    finalOpts.idsProjectName,
+    options.diagnosticsUrl,
+  );
+
+  return finalOpts;
+}
+
+function determineDiagnosticsUrl(
+  idsProjectName: string,
+  urlOption?: URL | null,
+): undefined | URL {
+  if (urlOption === null) {
+    // Disable diagnostict events
+    return undefined;
+  }
+
+  if (urlOption !== undefined) {
+    // Caller specified a specific diagnostics URL
+    return urlOption;
+  }
+
+  {
+    // Attempt to use the action input's diagnostic-endpoint option.
+
+    // Note: we don't use actions_core.getInput('diagnostic-endpoint') on purpose:
+    // getInput silently converts absent data to an empty string.
+    const providedDiagnosticEndpoint = process.env.INPUT_DIAGNOSTIC_ENDPOINT;
+    if (providedDiagnosticEndpoint === "") {
+      // User probably explicitly turned it off
+      return undefined;
+    }
+
+    if (providedDiagnosticEndpoint !== undefined) {
+      try {
+        return new URL(providedDiagnosticEndpoint);
+      } catch (e) {
+        actions_core.info(
+          `User-provided diagnostic endpoint ignored: not a valid URL: ${e}`,
+        );
+      }
+    }
+  }
+
+  try {
+    const diagnosticUrl = new URL(IDS_HOST);
+    diagnosticUrl.pathname += idsProjectName;
+    diagnosticUrl.pathname += "/diagnostics";
+    return diagnosticUrl;
+  } catch (e) {
+    actions_core.info(
+      `Generated diagnostic endpoint ignored: not a valid URL: ${e}`,
+    );
+  }
+
+  return undefined;
 }
 
 export class IdsToolbox {
@@ -64,9 +146,11 @@ export class IdsToolbox {
   nixSystem: string;
   architectureFetchSuffix: string;
   sourceParameters: SourceDef;
+  facts: Record<string, string | boolean>;
 
   constructor(options: Options) {
     this.options = makeOptionsConfident(options);
+    this.facts = {};
 
     this.identity = correlation.identify();
     this.archOs = platform.getArchOs();
@@ -94,7 +178,7 @@ export class IdsToolbox {
       return new URL(p.url);
     }
 
-    const fetchUrl = new URL("https://install.determinate.systems/");
+    const fetchUrl = new URL(IDS_HOST);
     fetchUrl.pathname += this.options.idsProjectName;
 
     if (p.tag) {
@@ -168,6 +252,28 @@ export class IdsToolbox {
     }
   }
 
+  async recordEvent(
+    event_name: string,
+    context: Record<string, unknown> = {},
+  ): Promise<void> {
+    if (!this.options.diagnosticsUrl) {
+      return;
+    }
+
+    try {
+      await gotClient.post(this.options.diagnosticsUrl, {
+        json: {
+          event_name: `${this.options.eventPrefix}${event_name}`,
+          context,
+          correlation: this.identity,
+          facts: this.facts,
+        },
+      });
+    } catch (error) {
+      actions_core.debug(`Error submitting diagnostics event: ${error}`);
+    }
+  }
+
   async fetch(): Promise<string> {
     actions_core.info(`Fetching from ${this.getUrl()}`);
 
@@ -187,10 +293,13 @@ export class IdsToolbox {
       );
       const cached = await this.getCachedVersion(v);
       if (cached) {
+        this.facts["artifact_fetched_from_cache"] = true;
         actions_core.debug(`Tool cache hit.`);
         return cached;
       }
     }
+
+    this.facts["artifact_fetched_from_cache"] = false;
 
     actions_core.debug(
       `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`,

@@ -94291,6 +94291,7 @@ function hashEnvironmentVariables(prefix, variables) {
 
 // eslint-disable-next-line import/no-unresolved
 
+const IDS_HOST = process.env.IDS_HOST || "https://install.determinate.systems";
 const gotClient = got_dist_source.extend({
     retry: {
         limit: 3,
@@ -94305,16 +94306,59 @@ const gotClient = got_dist_source.extend({
     },
 });
 function makeOptionsConfident(options) {
-    return {
+    const finalOpts = {
         name: options.name,
         idsProjectName: options.idsProjectName || options.name,
+        eventPrefix: options.eventPrefix || `action:${options.name}:`,
         fetchStyle: options.fetchStyle,
         legacySourcePrefix: options.legacySourcePrefix,
+        diagnosticsUrl: undefined,
     };
+    finalOpts.diagnosticsUrl = determineDiagnosticsUrl(finalOpts.idsProjectName, options.diagnosticsUrl);
+    return finalOpts;
+}
+function determineDiagnosticsUrl(idsProjectName, urlOption) {
+    if (urlOption === null) {
+        // Disable diagnostict events
+        return undefined;
+    }
+    if (urlOption !== undefined) {
+        // Caller specified a specific diagnostics URL
+        return urlOption;
+    }
+    {
+        // Attempt to use the action input's diagnostic-endpoint option.
+        // Note: we don't use actions_core.getInput('diagnostic-endpoint') on purpose:
+        // getInput silently converts absent data to an empty string.
+        const providedDiagnosticEndpoint = process.env.INPUT_DIAGNOSTIC_ENDPOINT;
+        if (providedDiagnosticEndpoint === "") {
+            // User probably explicitly turned it off
+            return undefined;
+        }
+        if (providedDiagnosticEndpoint !== undefined) {
+            try {
+                return new URL(providedDiagnosticEndpoint);
+            }
+            catch (e) {
+                core.info(`User-provided diagnostic endpoint ignored: not a valid URL: ${e}`);
+            }
+        }
+    }
+    try {
+        const diagnosticUrl = new URL(IDS_HOST);
+        diagnosticUrl.pathname += idsProjectName;
+        diagnosticUrl.pathname += "/diagnostics";
+        return diagnosticUrl;
+    }
+    catch (e) {
+        core.info(`Generated diagnostic endpoint ignored: not a valid URL: ${e}`);
+    }
+    return undefined;
 }
 class IdsToolbox {
     constructor(options) {
         this.options = makeOptionsConfident(options);
+        this.facts = {};
         this.identity = identify();
         this.archOs = getArchOs();
         this.nixSystem = getNixPlatform(this.archOs);
@@ -94337,7 +94381,7 @@ class IdsToolbox {
         if (p.url) {
             return new URL(p.url);
         }
-        const fetchUrl = new URL("https://install.determinate.systems/");
+        const fetchUrl = new URL(IDS_HOST);
         fetchUrl.pathname += this.options.idsProjectName;
         if (p.tag) {
             fetchUrl.pathname += `/tag/${p.tag}`;
@@ -94389,6 +94433,24 @@ class IdsToolbox {
             process.chdir(startCwd);
         }
     }
+    async recordEvent(event_name, context = {}) {
+        if (!this.options.diagnosticsUrl) {
+            return;
+        }
+        try {
+            await gotClient.post(this.options.diagnosticsUrl, {
+                json: {
+                    event_name: `${this.options.eventPrefix}${event_name}`,
+                    context,
+                    correlation: this.identity,
+                    facts: this.facts,
+                },
+            });
+        }
+        catch (error) {
+            core.debug(`Error submitting diagnostics event: ${error}`);
+        }
+    }
     async fetch() {
         var _a;
         core.info(`Fetching from ${this.getUrl()}`);
@@ -94401,10 +94463,12 @@ class IdsToolbox {
             core.debug(`Checking the tool cache for ${this.getUrl()} at ${v}`);
             const cached = await this.getCachedVersion(v);
             if (cached) {
+                this.facts["artifact_fetched_from_cache"] = true;
                 core.debug(`Tool cache hit.`);
                 return cached;
             }
         }
+        this.facts["artifact_fetched_from_cache"] = false;
         core.debug(`No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`);
         const destFile = this.getTemporaryName();
         const fetchStream = gotClient.stream(versionCheckup.url);
