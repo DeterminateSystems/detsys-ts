@@ -70,7 +70,6 @@ export class IdsToolbox {
   nixSystem: string;
   architectureFetchSuffix: string;
   sourceParameters: SourceDef;
-  cacheKeyPrefix: string;
 
   constructor(options: Options) {
     this.options = makeOptionsConfident(options);
@@ -123,7 +122,7 @@ export class IdsToolbox {
 
   private cacheKey(version: string): string {
     const cleanedVersion = version.replace(/[^a-zA-Z0-9-+.]/g, "");
-    return `${this.cacheKeyPrefix}-${this.options.name}-${this.architectureFetchSuffix}-${cleanedVersion}`;
+    return `${this.options.cacheKeyPrefix}-${this.options.name}-${this.architectureFetchSuffix}-${cleanedVersion}`;
   }
 
   private async getCachedVersion(version: string): Promise<undefined | string> {
