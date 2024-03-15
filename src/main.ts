@@ -5,6 +5,7 @@ import * as platform from "./platform.js";
 // eslint-disable-next-line import/no-unresolved
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
+import { DownloadOptions, UploadOptions } from "@actions/cache/lib/options.js";
 import * as actions_core from "@actions/core";
 // eslint-disable-next-line import/no-unresolved
 import got from "got";
@@ -14,6 +15,8 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { v4 as uuidV4 } from "uuid";
+
+const DEFAULT_CACHE_KEY_PREFIX = "determinatesystems";
 
 const gotClient = got.extend({
   retry: {
@@ -35,9 +38,10 @@ export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 
 export type Options = {
   name: string;
-  idsProjectName?: string;
   fetchStyle: FetchSuffixStyle;
+  idsProjectName?: string;
   legacySourcePrefix?: string;
+  cacheKeyPrefix?: string;
 };
 
 // A confident version of Options, where defaults have been processed
@@ -45,6 +49,7 @@ type ConfidentOptions = {
   name: string;
   idsProjectName: string;
   fetchStyle: FetchSuffixStyle;
+  cacheKeyPrefix: string;
   legacySourcePrefix?: string;
 };
 
@@ -53,6 +58,7 @@ function makeOptionsConfident(options: Options): ConfidentOptions {
     name: options.name,
     idsProjectName: options.idsProjectName || options.name,
     fetchStyle: options.fetchStyle,
+    cacheKeyPrefix: options.cacheKeyPrefix || DEFAULT_CACHE_KEY_PREFIX,
     legacySourcePrefix: options.legacySourcePrefix,
   };
 }
@@ -64,6 +70,7 @@ export class IdsToolbox {
   nixSystem: string;
   architectureFetchSuffix: string;
   sourceParameters: SourceDef;
+  cacheKeyPrefix: string;
 
   constructor(options: Options) {
     this.options = makeOptionsConfident(options);
@@ -116,27 +123,44 @@ export class IdsToolbox {
 
   private cacheKey(version: string): string {
     const cleanedVersion = version.replace(/[^a-zA-Z0-9-+.]/g, "");
-    return `determinatesystem-${this.options.name}-${this.architectureFetchSuffix}-${cleanedVersion}`;
+    return `${this.cacheKeyPrefix}-${this.options.name}-${this.architectureFetchSuffix}-${cleanedVersion}`;
   }
 
   private async getCachedVersion(version: string): Promise<undefined | string> {
+    type RestoreCacheOptions = {
+      paths: string[];
+      primaryKey: string;
+      restoreKeys: string[];
+      downloadOptions: DownloadOptions | undefined;
+      enableCrossOsArchive: boolean;
+    };
+
     const startCwd = process.cwd();
+    const name = this.options.name;
 
     try {
       const tempDir = this.getTemporaryName();
       await mkdir(tempDir);
       process.chdir(tempDir);
 
+      const options: RestoreCacheOptions = {
+        paths: [name],
+        primaryKey: this.cacheKey(version),
+        restoreKeys: [],
+        downloadOptions: undefined,
+        enableCrossOsArchive: true,
+      };
+
       if (
         await actionsCache.restoreCache(
-          [this.options.name],
-          this.cacheKey(version),
-          [],
-          undefined,
-          true,
+          options.paths,
+          options.primaryKey,
+          options.restoreKeys,
+          options.downloadOptions,
+          options.enableCrossOsArchive,
         )
       ) {
-        return `${tempDir}/${this.options.name}`;
+        return `${tempDir}/${name}`;
       }
 
       return undefined;
@@ -149,7 +173,15 @@ export class IdsToolbox {
     version: string,
     toolPath: string,
   ): Promise<void> {
+    type SaveCacheOptions = {
+      paths: string[];
+      key: string;
+      uploadOptions: UploadOptions | undefined;
+      enableCrossOsArchive: boolean;
+    };
+
     const startCwd = process.cwd();
+    const name = this.options.name;
 
     try {
       const tempDir = this.getTemporaryName();
@@ -157,11 +189,18 @@ export class IdsToolbox {
       process.chdir(tempDir);
       await copyFile(toolPath, `${tempDir}/${this.options.name}`);
 
+      const options: SaveCacheOptions = {
+        paths: [name],
+        key: this.cacheKey(version),
+        uploadOptions: undefined,
+        enableCrossOsArchive: true,
+      };
+
       await actionsCache.saveCache(
-        [this.options.name],
-        this.cacheKey(version),
-        undefined,
-        true,
+        options.paths,
+        options.key,
+        options.uploadOptions,
+        options.enableCrossOsArchive,
       );
     } finally {
       process.chdir(startCwd);
