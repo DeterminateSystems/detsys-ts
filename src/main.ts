@@ -1,14 +1,16 @@
-// eslint-disable-next-line import/no-unresolved
-import * as correlation from "./correlation.js";
+import {
+  AnonymizedWorkflowCorrelationHashes,
+  identifyWorkflow,
+} from "./correlation";
 // eslint-disable-next-line import/no-unresolved
 import * as platform from "./platform.js";
 // eslint-disable-next-line import/no-unresolved
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
-import { DownloadOptions, UploadOptions } from "@actions/cache/lib/options.js";
+import { DownloadOptions, UploadOptions } from "@actions/cache/lib/options";
 import * as actions_core from "@actions/core";
 // eslint-disable-next-line import/no-unresolved
-import got from "got";
+import got, { Got } from "got";
 import { createWriteStream } from "node:fs";
 import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -18,34 +20,18 @@ import { v4 as uuidV4 } from "uuid";
 
 const DEFAULT_CACHE_KEY_PREFIX = "determinatesystems";
 
-const gotClient = got.extend({
-  retry: {
-    limit: 3,
-    methods: ["GET", "HEAD"],
-  },
-  hooks: {
-    beforeRetry: [
-      (error, retryCount) => {
-        actions_core.info(
-          `Retrying after error ${error.code}, retry #: ${retryCount}`,
-        );
-      },
-    ],
-  },
-});
-
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 
-export type Options = {
+export type WorkflowOptions = {
   name: string;
   fetchStyle: FetchSuffixStyle;
-  idsProjectName?: string;
+  detSysProjectName?: string;
   legacySourcePrefix?: string;
   cacheKeyPrefix?: string;
 };
 
 // A confident version of Options, where defaults have been processed
-type ConfidentOptions = {
+type ConfidentWorkflowOptions = {
   name: string;
   idsProjectName: string;
   fetchStyle: FetchSuffixStyle;
@@ -53,30 +39,48 @@ type ConfidentOptions = {
   legacySourcePrefix?: string;
 };
 
-function makeOptionsConfident(options: Options): ConfidentOptions {
+function makeOptionsConfident(
+  options: WorkflowOptions,
+): ConfidentWorkflowOptions {
   return {
     name: options.name,
-    idsProjectName: options.idsProjectName || options.name,
+    idsProjectName: options.detSysProjectName || options.name,
     fetchStyle: options.fetchStyle,
     cacheKeyPrefix: options.cacheKeyPrefix || DEFAULT_CACHE_KEY_PREFIX,
     legacySourcePrefix: options.legacySourcePrefix,
   };
 }
 
-export class IdsToolbox {
-  identity: correlation.AnonymizedCorrelationHashes;
-  options: ConfidentOptions;
+export class DetSysToolbox {
+  identity: AnonymizedWorkflowCorrelationHashes;
+  options: ConfidentWorkflowOptions;
   archOs: string;
   nixSystem: string;
   architectureFetchSuffix: string;
   sourceParameters: SourceDef;
+  client: Got;
 
-  constructor(options: Options) {
+  constructor(options: WorkflowOptions) {
     this.options = makeOptionsConfident(options);
 
-    this.identity = correlation.identify();
+    this.identity = identifyWorkflow();
     this.archOs = platform.getArchOs();
     this.nixSystem = platform.getNixPlatform(this.archOs);
+    this.client = got.extend({
+      retry: {
+        limit: 3,
+        methods: ["GET", "HEAD"],
+      },
+      hooks: {
+        beforeRetry: [
+          (error, retryCount) => {
+            actions_core.info(
+              `Retrying after error ${error.code}, retry #: ${retryCount}`,
+            );
+          },
+        ],
+      },
+    });
 
     if (options.fetchStyle === "gh-env-style") {
       this.architectureFetchSuffix = this.archOs;
@@ -91,6 +95,65 @@ export class IdsToolbox {
     this.sourceParameters = constructSourceParameters(
       options.legacySourcePrefix,
     );
+  }
+
+  private async fetch(): Promise<string> {
+    actions_core.info(`Fetching from ${this.getUrl()}`);
+
+    const correlatedUrl = this.getUrl();
+    correlatedUrl.searchParams.set("ci", "github");
+    correlatedUrl.searchParams.set(
+      "correlation",
+      JSON.stringify(this.identity),
+    );
+
+    const versionCheckup = await this.client.head(correlatedUrl);
+    if (versionCheckup.headers.etag) {
+      const v = versionCheckup.headers.etag;
+
+      actions_core.debug(
+        `Checking the tool cache for ${this.getUrl()} at ${v}`,
+      );
+      const cached = await this.getCachedVersion(v);
+      if (cached) {
+        actions_core.debug(`Tool cache hit.`);
+        return cached;
+      }
+    }
+
+    actions_core.debug(
+      `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`,
+    );
+
+    const destFile = this.getTemporaryName();
+    const fetchStream = this.client.stream(versionCheckup.url);
+
+    await pipeline(
+      fetchStream,
+      createWriteStream(destFile, {
+        encoding: "binary",
+        mode: 0o755,
+      }),
+    );
+
+    if (fetchStream.response?.headers.etag) {
+      const v = fetchStream.response.headers.etag;
+
+      await this.saveCachedVersion(v, destFile);
+    }
+
+    return destFile;
+  }
+
+  private async fetchExecutable(): Promise<string> {
+    const binaryPath = await this.fetch();
+    await chmod(binaryPath, fs.constants.S_IXUSR | fs.constants.S_IXGRP);
+    return binaryPath;
+  }
+
+  private getTemporaryName(): string {
+    const _tmpdir = process.env["RUNNER_TEMP"] || tmpdir();
+    return path.join(_tmpdir, `${this.options.name}-${uuidV4()}`);
   }
 
   private getUrl(): URL {
@@ -204,64 +267,5 @@ export class IdsToolbox {
     } finally {
       process.chdir(startCwd);
     }
-  }
-
-  async fetch(): Promise<string> {
-    actions_core.info(`Fetching from ${this.getUrl()}`);
-
-    const correlatedUrl = this.getUrl();
-    correlatedUrl.searchParams.set("ci", "github");
-    correlatedUrl.searchParams.set(
-      "correlation",
-      JSON.stringify(this.identity),
-    );
-
-    const versionCheckup = await gotClient.head(correlatedUrl);
-    if (versionCheckup.headers.etag) {
-      const v = versionCheckup.headers.etag;
-
-      actions_core.debug(
-        `Checking the tool cache for ${this.getUrl()} at ${v}`,
-      );
-      const cached = await this.getCachedVersion(v);
-      if (cached) {
-        actions_core.debug(`Tool cache hit.`);
-        return cached;
-      }
-    }
-
-    actions_core.debug(
-      `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`,
-    );
-
-    const destFile = this.getTemporaryName();
-    const fetchStream = gotClient.stream(versionCheckup.url);
-
-    await pipeline(
-      fetchStream,
-      createWriteStream(destFile, {
-        encoding: "binary",
-        mode: 0o755,
-      }),
-    );
-
-    if (fetchStream.response?.headers.etag) {
-      const v = fetchStream.response.headers.etag;
-
-      await this.saveCachedVersion(v, destFile);
-    }
-
-    return destFile;
-  }
-
-  async fetchExecutable(): Promise<string> {
-    const binaryPath = await this.fetch();
-    await chmod(binaryPath, fs.constants.S_IXUSR | fs.constants.S_IXGRP);
-    return binaryPath;
-  }
-
-  private getTemporaryName(): string {
-    const _tmpdir = process.env["RUNNER_TEMP"] || tmpdir();
-    return path.join(_tmpdir, `${this.options.name}-${uuidV4()}`);
   }
 }

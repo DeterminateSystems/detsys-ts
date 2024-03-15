@@ -1,7 +1,7 @@
 import * as actionsCore from "@actions/core";
 import { createHash } from "node:crypto";
 
-export type AnonymizedCorrelationHashes = {
+export type AnonymizedWorkflowCorrelationHashes = {
   correlation_source: string;
   repository?: string;
   run?: string;
@@ -10,7 +10,7 @@ export type AnonymizedCorrelationHashes = {
   groups: Record<string, string | undefined>;
 };
 
-export function identify(): AnonymizedCorrelationHashes {
+export function identifyWorkflow(): AnonymizedWorkflowCorrelationHashes {
   const ident = {
     correlation_source: "github-actions",
 
