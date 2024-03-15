@@ -1,5 +1,5 @@
 {
-  description = "Development environment for idslib.";
+  description = "Development environment for detsys-ts.";
 
   inputs = {
     flake-schemas.url = "https://flakehub.com/f/DeterminateSystems/flake-schemas/*.tar.gz";

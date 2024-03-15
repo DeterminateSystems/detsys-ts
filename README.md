@@ -1,3 +1,3 @@
-# idslib
+# detsys-ts
 
-An interface to install.determinate.systems.
+Shared TypeScript libraries for Determinate Systems.
