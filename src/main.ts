@@ -170,7 +170,7 @@ export class IdsToolbox {
 
     {
       const phase = actions_core.getState("idstoolbox_execution_phase");
-      if (phase == "") {
+      if (phase === "") {
         actions_core.saveState("idstoolbox_execution_phase", "post");
         this.executionPhase = "action";
       } else {
@@ -249,11 +249,11 @@ export class IdsToolbox {
           true,
         )
       ) {
-        await this.recordEvent("artifact_cache_hit");
+        this.recordEvent("artifact_cache_hit");
         return `${tempDir}/${this.options.name}`;
       }
 
-      await this.recordEvent("artifact_cache_miss");
+      this.recordEvent("artifact_cache_miss");
       return undefined;
     } finally {
       process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
@@ -284,7 +284,7 @@ export class IdsToolbox {
         undefined,
         true,
       );
-      await this.recordEvent("artifact_cache_hit");
+      this.recordEvent("artifact_cache_hit");
     } finally {
       process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
       delete process.env.GITHUB_WORKSPACE_BACKUP;
@@ -292,10 +292,7 @@ export class IdsToolbox {
     }
   }
 
-  async recordEvent(
-    event_name: string,
-    context: Record<string, unknown> = {},
-  ): Promise<void> {
+  recordEvent(event_name: string, context: Record<string, unknown> = {}): void {
     this.events.push({
       event_name: `${this.options.eventPrefix}${event_name}`,
       context,

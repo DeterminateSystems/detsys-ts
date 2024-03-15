@@ -1,3 +1,6 @@
+// eslint-disable-next-line import/no-unresolved
+import { IdsToolbox } from "./main.js";
+
 process.env["RUNNER_ARCH"] = "ARM64";
 process.env["RUNNER_OS"] = "macOS";
 process.env["IDS_HOST"] = "http://localhost:8080";
@@ -10,8 +13,6 @@ process.env["GITHUB_WORKFLOW"] = "My Workflow";
 process.env["GITHUB_RUN_ID"] = "58";
 process.env["GITHUB_RUN_NUMBER"] = "78";
 process.env["GITHUB_RUN_ATTEMPT"] = "1";
-
-import { IdsToolbox } from "./main.js";
 
 async function main(): Promise<void> {
   {

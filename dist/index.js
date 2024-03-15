@@ -94209,7 +94209,7 @@ function getNixPlatform(archOs) {
 ;// CONCATENATED MODULE: ./lib/correlation.js
 
 
-function identify() {
+function identify(projectName) {
     const ident = {
         correlation_source: "github-actions",
         repository: hashEnvironmentVariables("GHR", [
@@ -94247,6 +94247,7 @@ function identify() {
         ]),
         groups: {
             ci: "github-actions",
+            project: projectName,
             github_organization: hashEnvironmentVariables("GHO", [
                 "GITHUB_SERVER_URL",
                 "GITHUB_REPOSITORY_OWNER",
@@ -94360,9 +94361,20 @@ class IdsToolbox {
         this.options = makeOptionsConfident(options);
         this.facts = {};
         this.events = [];
-        this.identity = identify();
+        this.identity = identify(this.options.name);
         this.archOs = getArchOs();
         this.nixSystem = getNixPlatform(this.archOs);
+        {
+            const phase = core.getState("idstoolbox_execution_phase");
+            if (phase === "") {
+                core.saveState("idstoolbox_execution_phase", "post");
+                this.executionPhase = "action";
+            }
+            else {
+                this.executionPhase = "post";
+            }
+            this.facts.execution_phase = this.executionPhase;
+        }
         if (options.fetchStyle === "gh-env-style") {
             this.architectureFetchSuffix = this.archOs;
         }
@@ -94376,6 +94388,7 @@ class IdsToolbox {
             throw new Error(`fetchStyle ${options.fetchStyle} is not a valid style`);
         }
         this.sourceParameters = constructSourceParameters(options.legacySourcePrefix);
+        this.recordEvent(`start_${this.executionPhase}`);
     }
     getUrl() {
         const p = this.sourceParameters;
@@ -94412,12 +94425,19 @@ class IdsToolbox {
             const tempDir = this.getTemporaryName();
             await (0,promises_namespaceObject.mkdir)(tempDir);
             process.chdir(tempDir);
+            // extremely evil shit right here:
+            process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
+            delete process.env.GITHUB_WORKSPACE;
             if (await cache.restoreCache([this.options.name], this.cacheKey(version), [], undefined, true)) {
+                this.recordEvent("artifact_cache_hit");
                 return `${tempDir}/${this.options.name}`;
             }
+            this.recordEvent("artifact_cache_miss");
             return undefined;
         }
         finally {
+            process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
+            delete process.env.GITHUB_WORKSPACE_BACKUP;
             process.chdir(startCwd);
         }
     }
@@ -94428,13 +94448,19 @@ class IdsToolbox {
             await (0,promises_namespaceObject.mkdir)(tempDir);
             process.chdir(tempDir);
             await (0,promises_namespaceObject.copyFile)(toolPath, `${tempDir}/${this.options.name}`);
+            // extremely evil shit right here:
+            process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
+            delete process.env.GITHUB_WORKSPACE;
             await cache.saveCache([this.options.name], this.cacheKey(version), undefined, true);
+            this.recordEvent("artifact_cache_hit");
         }
         finally {
+            process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
+            delete process.env.GITHUB_WORKSPACE_BACKUP;
             process.chdir(startCwd);
         }
     }
-    async recordEvent(event_name, context = {}) {
+    recordEvent(event_name, context = {}) {
         this.events.push({
             event_name: `${this.options.eventPrefix}${event_name}`,
             context,
@@ -94442,6 +94468,10 @@ class IdsToolbox {
             facts: this.facts,
             timestamp: new Date(),
         });
+    }
+    async complete() {
+        this.recordEvent(`complete_${this.executionPhase}`);
+        await this.submitEvents();
     }
     async submitEvents() {
         if (!this.options.diagnosticsUrl) {
@@ -94461,6 +94491,7 @@ class IdsToolbox {
         catch (error) {
             core.debug(`Error submitting diagnostics event: ${error}`);
         }
+        this.events = [];
     }
     async fetch() {
         var _a;
@@ -94489,7 +94520,12 @@ class IdsToolbox {
         }));
         if ((_a = fetchStream.response) === null || _a === void 0 ? void 0 : _a.headers.etag) {
             const v = fetchStream.response.headers.etag;
-            await this.saveCachedVersion(v, destFile);
+            try {
+                await this.saveCachedVersion(v, destFile);
+            }
+            catch (e) {
+                core.debug(`Error caching the artifact: ${e}`);
+            }
         }
         return destFile;
     }
