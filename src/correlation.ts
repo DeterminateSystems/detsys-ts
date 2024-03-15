@@ -10,7 +10,7 @@ export type AnonymizedCorrelationHashes = {
   groups: Record<string, string | undefined>;
 };
 
-export function identify(): AnonymizedCorrelationHashes {
+export function identify(projectName: string): AnonymizedCorrelationHashes {
   const ident = {
     correlation_source: "github-actions",
 
@@ -49,6 +49,7 @@ export function identify(): AnonymizedCorrelationHashes {
     ]),
     groups: {
       ci: "github-actions",
+      project: projectName,
       github_organization: hashEnvironmentVariables("GHO", [
         "GITHUB_SERVER_URL",
         "GITHUB_REPOSITORY_OWNER",

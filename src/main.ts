@@ -34,6 +34,7 @@ const gotClient = got.extend({
 });
 
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
+export type ExecutionPhase = "action" | "post";
 
 export type Options = {
   // Name of the project generally, and the name of the binary on disk.
@@ -153,6 +154,7 @@ export class IdsToolbox {
   archOs: string;
   nixSystem: string;
   architectureFetchSuffix: string;
+  executionPhase: ExecutionPhase;
   sourceParameters: SourceDef;
   facts: Record<string, string | boolean>;
   events: DiagnosticEvent[];
@@ -162,9 +164,20 @@ export class IdsToolbox {
     this.facts = {};
     this.events = [];
 
-    this.identity = correlation.identify();
+    this.identity = correlation.identify(this.options.name);
     this.archOs = platform.getArchOs();
     this.nixSystem = platform.getNixPlatform(this.archOs);
+
+    {
+      const phase = actions_core.getState("idstoolbox_execution_phase");
+      if (phase == "") {
+        actions_core.saveState("idstoolbox_execution_phase", "post");
+        this.executionPhase = "action";
+      } else {
+        this.executionPhase = "post";
+      }
+      this.facts.execution_phase = this.executionPhase;
+    }
 
     if (options.fetchStyle === "gh-env-style") {
       this.architectureFetchSuffix = this.archOs;
@@ -179,6 +192,8 @@ export class IdsToolbox {
     this.sourceParameters = constructSourceParameters(
       options.legacySourcePrefix,
     );
+
+    this.recordEvent(`start_${this.executionPhase}`);
   }
 
   private getUrl(): URL {
@@ -275,6 +290,11 @@ export class IdsToolbox {
     });
   }
 
+  async complete(): Promise<void> {
+    this.recordEvent(`complete_${this.executionPhase}`);
+    await this.submitEvents();
+  }
+
   async submitEvents(): Promise<void> {
     if (!this.options.diagnosticsUrl) {
       actions_core.debug(
@@ -295,6 +315,7 @@ export class IdsToolbox {
     } catch (error) {
       actions_core.debug(`Error submitting diagnostics event: ${error}`);
     }
+    this.events = [];
   }
 
   async fetch(): Promise<string> {
@@ -342,7 +363,11 @@ export class IdsToolbox {
     if (fetchStream.response?.headers.etag) {
       const v = fetchStream.response.headers.etag;
 
-      await this.saveCachedVersion(v, destFile);
+      try {
+        await this.saveCachedVersion(v, destFile);
+      } catch (e) {
+        actions_core.debug(`Error caching the artifact: ${e}`);
+      }
     }
 
     return destFile;
