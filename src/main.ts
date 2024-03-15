@@ -236,6 +236,10 @@ export class IdsToolbox {
       await mkdir(tempDir);
       process.chdir(tempDir);
 
+      // extremely evil shit right here:
+      process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
+      delete process.env.GITHUB_WORKSPACE;
+
       if (
         await actionsCache.restoreCache(
           [this.options.name],
@@ -245,11 +249,15 @@ export class IdsToolbox {
           true,
         )
       ) {
+        await this.recordEvent("artifact_cache_hit");
         return `${tempDir}/${this.options.name}`;
       }
 
+      await this.recordEvent("artifact_cache_miss");
       return undefined;
     } finally {
+      process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
+      delete process.env.GITHUB_WORKSPACE_BACKUP;
       process.chdir(startCwd);
     }
   }
@@ -266,13 +274,20 @@ export class IdsToolbox {
       process.chdir(tempDir);
       await copyFile(toolPath, `${tempDir}/${this.options.name}`);
 
+      // extremely evil shit right here:
+      process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
+      delete process.env.GITHUB_WORKSPACE;
+
       await actionsCache.saveCache(
         [this.options.name],
         this.cacheKey(version),
         undefined,
         true,
       );
+      await this.recordEvent("artifact_cache_hit");
     } finally {
+      process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
+      delete process.env.GITHUB_WORKSPACE_BACKUP;
       process.chdir(startCwd);
     }
   }
