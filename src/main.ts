@@ -1,19 +1,19 @@
-import * as actions_core from "@actions/core";
-import * as actionsCache from "@actions/cache";
-import * as path from "node:path";
 // eslint-disable-next-line import/no-unresolved
-import got from "got";
-import { v4 as uuidV4 } from "uuid";
-import { createWriteStream } from "node:fs";
-import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
-import { pipeline } from "node:stream/promises";
-import { tmpdir } from "node:os";
-// eslint-disable-next-line import/no-unresolved
-import { SourceDef, constructSourceParameters } from "./sourcedef.js";
+import * as correlation from "./correlation.js";
 // eslint-disable-next-line import/no-unresolved
 import * as platform from "./platform.js";
 // eslint-disable-next-line import/no-unresolved
-import * as correlation from "./correlation.js";
+import { SourceDef, constructSourceParameters } from "./sourcedef.js";
+import * as actionsCache from "@actions/cache";
+import * as actions_core from "@actions/core";
+// eslint-disable-next-line import/no-unresolved
+import got from "got";
+import { createWriteStream } from "node:fs";
+import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
+import { pipeline } from "node:stream/promises";
+import { v4 as uuidV4 } from "uuid";
 
 const gotClient = got.extend({
   retry: {
