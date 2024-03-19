@@ -2,7 +2,7 @@ import * as correlation from "./correlation";
 import * as platform from "./platform";
 import { SourceDef, constructSourceParameters } from "./sourcedef";
 import * as actionsCache from "@actions/cache";
-import * as actions_core from "@actions/core";
+import * as actionsCore from "@actions/core";
 import got, { Got } from "got";
 import { createWriteStream } from "node:fs";
 import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
@@ -84,7 +84,7 @@ export class IdsToolbox {
       hooks: {
         beforeRetry: [
           (error, retryCount) => {
-            actions_core.info(
+            actionsCore.info(
               `Retrying after error ${error.code}, retry #: ${retryCount}`,
             );
           },
@@ -97,9 +97,9 @@ export class IdsToolbox {
     this.nixSystem = platform.getNixPlatform(this.archOs);
 
     {
-      const phase = actions_core.getState("idstoolbox_execution_phase");
+      const phase = actionsCore.getState("idstoolbox_execution_phase");
       if (phase === "") {
-        actions_core.saveState("idstoolbox_execution_phase", "post");
+        actionsCore.saveState("idstoolbox_execution_phase", "post");
         this.executionPhase = "action";
       } else {
         this.executionPhase = "post";
@@ -124,10 +124,7 @@ export class IdsToolbox {
     this.recordEvent(`start_${this.executionPhase}`);
   }
 
-  public recordEvent(
-    event_name: string,
-    context: Record<string, unknown> = {},
-  ): void {
+  recordEvent(event_name: string, context: Record<string, unknown> = {}): void {
     this.events.push({
       event_name: `${this.options.eventPrefix}${event_name}`,
       context,
@@ -137,8 +134,8 @@ export class IdsToolbox {
     });
   }
 
-  public async fetch(): Promise<string> {
-    actions_core.info(`Fetching from ${this.getUrl()}`);
+  async fetch(): Promise<string> {
+    actionsCore.info(`Fetching from ${this.getUrl()}`);
 
     const correlatedUrl = this.getUrl();
     correlatedUrl.searchParams.set("ci", "github");
@@ -151,20 +148,18 @@ export class IdsToolbox {
     if (versionCheckup.headers.etag) {
       const v = versionCheckup.headers.etag;
 
-      actions_core.debug(
-        `Checking the tool cache for ${this.getUrl()} at ${v}`,
-      );
+      actionsCore.debug(`Checking the tool cache for ${this.getUrl()} at ${v}`);
       const cached = await this.getCachedVersion(v);
       if (cached) {
         this.facts["artifact_fetched_from_cache"] = true;
-        actions_core.debug(`Tool cache hit.`);
+        actionsCore.debug(`Tool cache hit.`);
         return cached;
       }
     }
 
     this.facts["artifact_fetched_from_cache"] = false;
 
-    actions_core.debug(
+    actionsCore.debug(
       `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`,
     );
 
@@ -185,14 +180,14 @@ export class IdsToolbox {
       try {
         await this.saveCachedVersion(v, destFile);
       } catch (e) {
-        actions_core.debug(`Error caching the artifact: ${e}`);
+        actionsCore.debug(`Error caching the artifact: ${e}`);
       }
     }
 
     return destFile;
   }
 
-  public async complete(): Promise<void> {
+  async complete(): Promise<void> {
     this.recordEvent(`complete_${this.executionPhase}`);
     await this.submitEvents();
   }
@@ -295,10 +290,10 @@ export class IdsToolbox {
 
   async submitEvents(): Promise<void> {
     if (!this.options.diagnosticsUrl) {
-      actions_core.debug(
+      actionsCore.debug(
         "Diagnostics are disabled. Not sending the following events:",
       );
-      actions_core.debug(JSON.stringify(this.events, undefined, 2));
+      actionsCore.debug(JSON.stringify(this.events, undefined, 2));
       return;
     }
 
@@ -311,7 +306,7 @@ export class IdsToolbox {
         },
       });
     } catch (error) {
-      actions_core.debug(`Error submitting diagnostics event: ${error}`);
+      actionsCore.debug(`Error submitting diagnostics event: ${error}`);
     }
     this.events = [];
   }
@@ -363,7 +358,7 @@ function determineDiagnosticsUrl(
   {
     // Attempt to use the action input's diagnostic-endpoint option.
 
-    // Note: we don't use actions_core.getInput('diagnostic-endpoint') on purpose:
+    // Note: we don't use actionsCore.getInput('diagnostic-endpoint') on purpose:
     // getInput silently converts absent data to an empty string.
     const providedDiagnosticEndpoint = process.env.INPUT_DIAGNOSTIC_ENDPOINT;
     if (providedDiagnosticEndpoint === "") {
@@ -375,7 +370,7 @@ function determineDiagnosticsUrl(
       try {
         return new URL(providedDiagnosticEndpoint);
       } catch (e) {
-        actions_core.info(
+        actionsCore.info(
           `User-provided diagnostic endpoint ignored: not a valid URL: ${e}`,
         );
       }
@@ -388,7 +383,7 @@ function determineDiagnosticsUrl(
     diagnosticUrl.pathname += "/diagnostics";
     return diagnosticUrl;
   } catch (e) {
-    actions_core.info(
+    actionsCore.info(
       `Generated diagnostic endpoint ignored: not a valid URL: ${e}`,
     );
   }
