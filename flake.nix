@@ -1,5 +1,5 @@
 {
-  description = "Development environment for idslib.";
+  description = "Development environment for detsys-ts";
 
   inputs = {
     flake-schemas.url = "https://flakehub.com/f/DeterminateSystems/flake-schemas/*.tar.gz";
@@ -8,7 +8,7 @@
 
   outputs = { self, flake-schemas, nixpkgs }:
     let
-      supportedSystems = [ "x86_64-linux" "aarch64-darwin" ];
+      supportedSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forEachSupportedSystem = f: nixpkgs.lib.genAttrs supportedSystems (system: f {
         pkgs = import nixpkgs { inherit system; };
       });

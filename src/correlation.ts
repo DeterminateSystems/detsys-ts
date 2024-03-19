@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import * as actionsCore from "@actions/core";
+import { createHash } from "node:crypto";
 
 export type AnonymizedCorrelationHashes = {
   correlation_source: string;
