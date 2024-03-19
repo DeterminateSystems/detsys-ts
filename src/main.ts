@@ -1,13 +1,9 @@
-// eslint-disable-next-line import/no-unresolved
-import * as correlation from "./correlation.js";
-// eslint-disable-next-line import/no-unresolved
-import * as platform from "./platform.js";
-// eslint-disable-next-line import/no-unresolved
-import { SourceDef, constructSourceParameters } from "./sourcedef.js";
+import * as correlation from "./correlation";
+import * as platform from "./platform";
+import { SourceDef, constructSourceParameters } from "./sourcedef";
 import * as actionsCache from "@actions/cache";
 import * as actions_core from "@actions/core";
-// eslint-disable-next-line import/no-unresolved
-import got from "got";
+import got, { Got } from "got";
 import { createWriteStream } from "node:fs";
 import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,26 +13,10 @@ import { v4 as uuidV4 } from "uuid";
 
 const IDS_HOST = process.env.IDS_HOST || "https://install.determinate.systems";
 
-const gotClient = got.extend({
-  retry: {
-    limit: 3,
-    methods: ["GET", "HEAD"],
-  },
-  hooks: {
-    beforeRetry: [
-      (error, retryCount) => {
-        actions_core.info(
-          `Retrying after error ${error.code}, retry #: ${retryCount}`,
-        );
-      },
-    ],
-  },
-});
-
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 export type ExecutionPhase = "action" | "post";
 
-export type Options = {
+export type ActionOptions = {
   // Name of the project generally, and the name of the binary on disk.
   name: string;
 
@@ -63,7 +43,7 @@ export type Options = {
 };
 
 // A confident version of Options, where defaults have been processed
-type ConfidentOptions = {
+type ConfidentActionOptions = {
   name: string;
   idsProjectName: string;
   eventPrefix: string;
@@ -71,74 +51,6 @@ type ConfidentOptions = {
   legacySourcePrefix?: string;
   diagnosticsUrl?: URL;
 };
-
-function makeOptionsConfident(options: Options): ConfidentOptions {
-  const finalOpts: ConfidentOptions = {
-    name: options.name,
-    idsProjectName: options.idsProjectName || options.name,
-    eventPrefix: options.eventPrefix || `action:${options.name}:`,
-    fetchStyle: options.fetchStyle,
-    legacySourcePrefix: options.legacySourcePrefix,
-    diagnosticsUrl: undefined,
-  };
-
-  finalOpts.diagnosticsUrl = determineDiagnosticsUrl(
-    finalOpts.idsProjectName,
-    options.diagnosticsUrl,
-  );
-
-  return finalOpts;
-}
-
-function determineDiagnosticsUrl(
-  idsProjectName: string,
-  urlOption?: URL | null,
-): undefined | URL {
-  if (urlOption === null) {
-    // Disable diagnostict events
-    return undefined;
-  }
-
-  if (urlOption !== undefined) {
-    // Caller specified a specific diagnostics URL
-    return urlOption;
-  }
-
-  {
-    // Attempt to use the action input's diagnostic-endpoint option.
-
-    // Note: we don't use actions_core.getInput('diagnostic-endpoint') on purpose:
-    // getInput silently converts absent data to an empty string.
-    const providedDiagnosticEndpoint = process.env.INPUT_DIAGNOSTIC_ENDPOINT;
-    if (providedDiagnosticEndpoint === "") {
-      // User probably explicitly turned it off
-      return undefined;
-    }
-
-    if (providedDiagnosticEndpoint !== undefined) {
-      try {
-        return new URL(providedDiagnosticEndpoint);
-      } catch (e) {
-        actions_core.info(
-          `User-provided diagnostic endpoint ignored: not a valid URL: ${e}`,
-        );
-      }
-    }
-  }
-
-  try {
-    const diagnosticUrl = new URL(IDS_HOST);
-    diagnosticUrl.pathname += idsProjectName;
-    diagnosticUrl.pathname += "/diagnostics";
-    return diagnosticUrl;
-  } catch (e) {
-    actions_core.info(
-      `Generated diagnostic endpoint ignored: not a valid URL: ${e}`,
-    );
-  }
-
-  return undefined;
-}
 
 type DiagnosticEvent = {
   event_name: string;
@@ -149,20 +61,36 @@ type DiagnosticEvent = {
 };
 
 export class IdsToolbox {
-  identity: correlation.AnonymizedCorrelationHashes;
-  options: ConfidentOptions;
-  archOs: string;
-  nixSystem: string;
-  architectureFetchSuffix: string;
-  executionPhase: ExecutionPhase;
-  sourceParameters: SourceDef;
-  facts: Record<string, string | boolean>;
-  events: DiagnosticEvent[];
+  private identity: correlation.AnonymizedCorrelationHashes;
+  private options: ConfidentActionOptions;
+  private archOs: string;
+  private nixSystem: string;
+  private architectureFetchSuffix: string;
+  private executionPhase: ExecutionPhase;
+  private sourceParameters: SourceDef;
+  private facts: Record<string, string | boolean>;
+  private events: DiagnosticEvent[];
+  private client: Got;
 
-  constructor(options: Options) {
+  constructor(options: ActionOptions) {
     this.options = makeOptionsConfident(options);
     this.facts = {};
     this.events = [];
+    this.client = got.extend({
+      retry: {
+        limit: 3,
+        methods: ["GET", "HEAD"],
+      },
+      hooks: {
+        beforeRetry: [
+          (error, retryCount) => {
+            actions_core.info(
+              `Retrying after error ${error.code}, retry #: ${retryCount}`,
+            );
+          },
+        ],
+      },
+    });
 
     this.identity = correlation.identify(this.options.name);
     this.archOs = platform.getArchOs();
@@ -194,6 +122,79 @@ export class IdsToolbox {
     );
 
     this.recordEvent(`start_${this.executionPhase}`);
+  }
+
+  public recordEvent(
+    event_name: string,
+    context: Record<string, unknown> = {},
+  ): void {
+    this.events.push({
+      event_name: `${this.options.eventPrefix}${event_name}`,
+      context,
+      correlation: this.identity,
+      facts: this.facts,
+      timestamp: new Date(),
+    });
+  }
+
+  public async fetch(): Promise<string> {
+    actions_core.info(`Fetching from ${this.getUrl()}`);
+
+    const correlatedUrl = this.getUrl();
+    correlatedUrl.searchParams.set("ci", "github");
+    correlatedUrl.searchParams.set(
+      "correlation",
+      JSON.stringify(this.identity),
+    );
+
+    const versionCheckup = await this.client.head(correlatedUrl);
+    if (versionCheckup.headers.etag) {
+      const v = versionCheckup.headers.etag;
+
+      actions_core.debug(
+        `Checking the tool cache for ${this.getUrl()} at ${v}`,
+      );
+      const cached = await this.getCachedVersion(v);
+      if (cached) {
+        this.facts["artifact_fetched_from_cache"] = true;
+        actions_core.debug(`Tool cache hit.`);
+        return cached;
+      }
+    }
+
+    this.facts["artifact_fetched_from_cache"] = false;
+
+    actions_core.debug(
+      `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`,
+    );
+
+    const destFile = this.getTemporaryName();
+    const fetchStream = this.client.stream(versionCheckup.url);
+
+    await pipeline(
+      fetchStream,
+      createWriteStream(destFile, {
+        encoding: "binary",
+        mode: 0o755,
+      }),
+    );
+
+    if (fetchStream.response?.headers.etag) {
+      const v = fetchStream.response.headers.etag;
+
+      try {
+        await this.saveCachedVersion(v, destFile);
+      } catch (e) {
+        actions_core.debug(`Error caching the artifact: ${e}`);
+      }
+    }
+
+    return destFile;
+  }
+
+  public async complete(): Promise<void> {
+    this.recordEvent(`complete_${this.executionPhase}`);
+    await this.submitEvents();
   }
 
   private getUrl(): URL {
@@ -292,21 +293,6 @@ export class IdsToolbox {
     }
   }
 
-  recordEvent(event_name: string, context: Record<string, unknown> = {}): void {
-    this.events.push({
-      event_name: `${this.options.eventPrefix}${event_name}`,
-      context,
-      correlation: this.identity,
-      facts: this.facts,
-      timestamp: new Date(),
-    });
-  }
-
-  async complete(): Promise<void> {
-    this.recordEvent(`complete_${this.executionPhase}`);
-    await this.submitEvents();
-  }
-
   async submitEvents(): Promise<void> {
     if (!this.options.diagnosticsUrl) {
       actions_core.debug(
@@ -317,7 +303,7 @@ export class IdsToolbox {
     }
 
     try {
-      await gotClient.post(this.options.diagnosticsUrl, {
+      await this.client.post(this.options.diagnosticsUrl, {
         json: {
           type: "eventlog",
           sent_at: new Date(),
@@ -330,61 +316,6 @@ export class IdsToolbox {
     this.events = [];
   }
 
-  async fetch(): Promise<string> {
-    actions_core.info(`Fetching from ${this.getUrl()}`);
-
-    const correlatedUrl = this.getUrl();
-    correlatedUrl.searchParams.set("ci", "github");
-    correlatedUrl.searchParams.set(
-      "correlation",
-      JSON.stringify(this.identity),
-    );
-
-    const versionCheckup = await gotClient.head(correlatedUrl);
-    if (versionCheckup.headers.etag) {
-      const v = versionCheckup.headers.etag;
-
-      actions_core.debug(
-        `Checking the tool cache for ${this.getUrl()} at ${v}`,
-      );
-      const cached = await this.getCachedVersion(v);
-      if (cached) {
-        this.facts["artifact_fetched_from_cache"] = true;
-        actions_core.debug(`Tool cache hit.`);
-        return cached;
-      }
-    }
-
-    this.facts["artifact_fetched_from_cache"] = false;
-
-    actions_core.debug(
-      `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`,
-    );
-
-    const destFile = this.getTemporaryName();
-    const fetchStream = gotClient.stream(versionCheckup.url);
-
-    await pipeline(
-      fetchStream,
-      createWriteStream(destFile, {
-        encoding: "binary",
-        mode: 0o755,
-      }),
-    );
-
-    if (fetchStream.response?.headers.etag) {
-      const v = fetchStream.response.headers.etag;
-
-      try {
-        await this.saveCachedVersion(v, destFile);
-      } catch (e) {
-        actions_core.debug(`Error caching the artifact: ${e}`);
-      }
-    }
-
-    return destFile;
-  }
-
   async fetchExecutable(): Promise<string> {
     const binaryPath = await this.fetch();
     await chmod(binaryPath, fs.constants.S_IXUSR | fs.constants.S_IXGRP);
@@ -395,4 +326,72 @@ export class IdsToolbox {
     const _tmpdir = process.env["RUNNER_TEMP"] || tmpdir();
     return path.join(_tmpdir, `${this.options.name}-${uuidV4()}`);
   }
+}
+
+function makeOptionsConfident(options: ActionOptions): ConfidentActionOptions {
+  const finalOpts: ConfidentActionOptions = {
+    name: options.name,
+    idsProjectName: options.idsProjectName || options.name,
+    eventPrefix: options.eventPrefix || `action:${options.name}:`,
+    fetchStyle: options.fetchStyle,
+    legacySourcePrefix: options.legacySourcePrefix,
+    diagnosticsUrl: undefined,
+  };
+
+  finalOpts.diagnosticsUrl = determineDiagnosticsUrl(
+    finalOpts.idsProjectName,
+    options.diagnosticsUrl,
+  );
+
+  return finalOpts;
+}
+
+function determineDiagnosticsUrl(
+  idsProjectName: string,
+  urlOption?: URL | null,
+): undefined | URL {
+  if (urlOption === null) {
+    // Disable diagnostict events
+    return undefined;
+  }
+
+  if (urlOption !== undefined) {
+    // Caller specified a specific diagnostics URL
+    return urlOption;
+  }
+
+  {
+    // Attempt to use the action input's diagnostic-endpoint option.
+
+    // Note: we don't use actions_core.getInput('diagnostic-endpoint') on purpose:
+    // getInput silently converts absent data to an empty string.
+    const providedDiagnosticEndpoint = process.env.INPUT_DIAGNOSTIC_ENDPOINT;
+    if (providedDiagnosticEndpoint === "") {
+      // User probably explicitly turned it off
+      return undefined;
+    }
+
+    if (providedDiagnosticEndpoint !== undefined) {
+      try {
+        return new URL(providedDiagnosticEndpoint);
+      } catch (e) {
+        actions_core.info(
+          `User-provided diagnostic endpoint ignored: not a valid URL: ${e}`,
+        );
+      }
+    }
+  }
+
+  try {
+    const diagnosticUrl = new URL(IDS_HOST);
+    diagnosticUrl.pathname += idsProjectName;
+    diagnosticUrl.pathname += "/diagnostics";
+    return diagnosticUrl;
+  } catch (e) {
+    actions_core.info(
+      `Generated diagnostic endpoint ignored: not a valid URL: ${e}`,
+    );
+  }
+
+  return undefined;
 }
