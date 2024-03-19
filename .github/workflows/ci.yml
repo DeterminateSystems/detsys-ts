@@ -15,7 +15,7 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           flakehub: true
-      - uses: DeterminateSystems/magic-nix-cache-action-priv@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
       - run: nix develop --command pnpm install
       - run: nix develop --command pnpm run all
       - run: git status --porcelain=v1
