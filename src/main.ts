@@ -5,13 +5,14 @@ import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import got, { Got } from "got";
 import { createWriteStream } from "node:fs";
-import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
+import { copyFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { v4 as uuidV4 } from "uuid";
 
-const IDS_HOST = process.env.IDS_HOST || "https://install.determinate.systems";
+const IDS_HOST =
+  process.env["IDS_HOST"] ?? "https://install.determinate.systems";
 
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 export type ExecutionPhase = "action" | "post";
@@ -42,7 +43,7 @@ export type ActionOptions = {
   diagnosticsUrl?: URL | null;
 };
 
-// A confident version of Options, where defaults have been processed
+// A confident version of ActionOptions where defaults have been resolved into final values
 type ConfidentActionOptions = {
   name: string;
   idsProjectName: string;
@@ -288,7 +289,7 @@ export class IdsToolbox {
     }
   }
 
-  async submitEvents(): Promise<void> {
+  private async submitEvents(): Promise<void> {
     if (!this.options.diagnosticsUrl) {
       actionsCore.debug(
         "Diagnostics are disabled. Not sending the following events:",
@@ -309,12 +310,6 @@ export class IdsToolbox {
       actionsCore.debug(`Error submitting diagnostics event: ${error}`);
     }
     this.events = [];
-  }
-
-  async fetchExecutable(): Promise<string> {
-    const binaryPath = await this.fetch();
-    await chmod(binaryPath, fs.constants.S_IXUSR | fs.constants.S_IXGRP);
-    return binaryPath;
   }
 
   private getTemporaryName(): string {
