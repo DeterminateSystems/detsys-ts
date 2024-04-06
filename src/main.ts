@@ -109,7 +109,7 @@ function determineDiagnosticsUrl(
 
     // Note: we don't use actions_core.getInput('diagnostic-endpoint') on purpose:
     // getInput silently converts absent data to an empty string.
-    const providedDiagnosticEndpoint = process.env.INPUT_DIAGNOSTIC_ENDPOINT;
+    const providedDiagnosticEndpoint = process.env["INPUT_DIAGNOSTIC-ENDPOINT"];
     if (providedDiagnosticEndpoint === "") {
       // User probably explicitly turned it off
       return undefined;
