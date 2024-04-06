@@ -94023,7 +94023,8 @@ function hashEnvironmentVariables(prefix, variables) {
 
 // eslint-disable-next-line import/no-unresolved
 
-const IDS_HOST = process.env.IDS_HOST || "https://install.determinate.systems";
+const DEFAULT_IDS_HOST = "https://install.determinate.systems";
+const IDS_HOST = process.env.IDS_HOST || DEFAULT_IDS_HOST;
 const gotClient = got_dist_source.extend({
     retry: {
         limit: 3,
@@ -94069,7 +94070,7 @@ function determineDiagnosticsUrl(idsProjectName, urlOption) {
         }
         if (providedDiagnosticEndpoint !== undefined) {
             try {
-                return new URL(providedDiagnosticEndpoint);
+                return mungeDiagnosticEndpoint(new URL(providedDiagnosticEndpoint));
             }
             catch (e) {
                 core.info(`User-provided diagnostic endpoint ignored: not a valid URL: ${e}`);
@@ -94086,6 +94087,27 @@ function determineDiagnosticsUrl(idsProjectName, urlOption) {
         core.info(`Generated diagnostic endpoint ignored: not a valid URL: ${e}`);
     }
     return undefined;
+}
+function mungeDiagnosticEndpoint(inputUrl) {
+    if (DEFAULT_IDS_HOST === IDS_HOST) {
+        return inputUrl;
+    }
+    try {
+        const defaultIdsHost = new URL(DEFAULT_IDS_HOST);
+        const currentIdsHost = new URL(IDS_HOST);
+        if (inputUrl.origin !== defaultIdsHost.origin) {
+            return inputUrl;
+        }
+        inputUrl.protocol = currentIdsHost.protocol;
+        inputUrl.host = currentIdsHost.host;
+        inputUrl.username = currentIdsHost.username;
+        inputUrl.password = currentIdsHost.password;
+        return inputUrl;
+    }
+    catch (e) {
+        core.info(`Default or overridden IDS host isn't a valid URL: ${e}`);
+    }
+    return inputUrl;
 }
 class IdsToolbox {
     constructor(options) {

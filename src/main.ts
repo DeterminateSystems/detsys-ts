@@ -15,7 +15,8 @@ import * as platform from "./platform.js";
 // eslint-disable-next-line import/no-unresolved
 import * as correlation from "./correlation.js";
 
-const IDS_HOST = process.env.IDS_HOST || "https://install.determinate.systems";
+const DEFAULT_IDS_HOST = "https://install.determinate.systems";
+const IDS_HOST = process.env.IDS_HOST || DEFAULT_IDS_HOST;
 
 const gotClient = got.extend({
   retry: {
@@ -117,7 +118,7 @@ function determineDiagnosticsUrl(
 
     if (providedDiagnosticEndpoint !== undefined) {
       try {
-        return new URL(providedDiagnosticEndpoint);
+        return mungeDiagnosticEndpoint(new URL(providedDiagnosticEndpoint));
       } catch (e) {
         actions_core.info(
           `User-provided diagnostic endpoint ignored: not a valid URL: ${e}`,
@@ -138,6 +139,32 @@ function determineDiagnosticsUrl(
   }
 
   return undefined;
+}
+
+function mungeDiagnosticEndpoint(inputUrl: URL): URL {
+  if (DEFAULT_IDS_HOST === IDS_HOST) {
+    return inputUrl;
+  }
+
+  try {
+    const defaultIdsHost = new URL(DEFAULT_IDS_HOST);
+    const currentIdsHost = new URL(IDS_HOST);
+
+    if (inputUrl.origin !== defaultIdsHost.origin) {
+      return inputUrl;
+    }
+
+    inputUrl.protocol = currentIdsHost.protocol;
+    inputUrl.host = currentIdsHost.host;
+    inputUrl.username = currentIdsHost.username;
+    inputUrl.password = currentIdsHost.password;
+
+    return inputUrl;
+  } catch (e) {
+    actions_core.info(`Default or overridden IDS host isn't a valid URL: ${e}`);
+  }
+
+  return inputUrl;
 }
 
 type DiagnosticEvent = {
