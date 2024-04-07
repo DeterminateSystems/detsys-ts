@@ -94006,6 +94006,8 @@ function hashEnvironmentVariables(prefix, variables) {
     return `${prefix}-${hash.digest("hex")}`;
 }
 
+;// CONCATENATED MODULE: ./lib/package.json
+const package_namespaceObject = {"i8":"1.0.0"};
 ;// CONCATENATED MODULE: ./lib/main.js
 
 
@@ -94022,6 +94024,7 @@ function hashEnvironmentVariables(prefix, variables) {
 // eslint-disable-next-line import/no-unresolved
 
 // eslint-disable-next-line import/no-unresolved
+
 
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const IDS_HOST = process.env.IDS_HOST || DEFAULT_IDS_HOST;
@@ -94042,12 +94045,14 @@ function makeOptionsConfident(options) {
     const finalOpts = {
         name: options.name,
         idsProjectName: options.idsProjectName || options.name,
-        eventPrefix: options.eventPrefix || `action:${options.name}:`,
+        eventPrefix: options.eventPrefix || `action:`,
         fetchStyle: options.fetchStyle,
         legacySourcePrefix: options.legacySourcePrefix,
         diagnosticsUrl: undefined,
     };
     finalOpts.diagnosticsUrl = determineDiagnosticsUrl(finalOpts.idsProjectName, options.diagnosticsUrl);
+    core.debug("idslib options:");
+    core.debug(JSON.stringify(finalOpts, undefined, 2));
     return finalOpts;
 }
 function determineDiagnosticsUrl(idsProjectName, urlOption) {
@@ -94112,16 +94117,36 @@ function mungeDiagnosticEndpoint(inputUrl) {
 class IdsToolbox {
     constructor(options) {
         this.options = makeOptionsConfident(options);
-        this.facts = {};
         this.events = [];
+        this.facts = {
+            $lib: "idslib",
+            $lib_version: package_namespaceObject.i8,
+            project: this.options.name,
+            ids_project: this.options.idsProjectName,
+        };
+        const params = [
+            ["github_action_ref", "GITHUB_ACTION_REF"],
+            ["github_action_repository", "GITHUB_ACTION_REPOSITORY"],
+            ["github_event_name", "GITHUB_EVENT_NAME"],
+            ["$os", "RUNNER_OS"],
+            ["arch", "RUNNER_ARCH"],
+        ];
+        for (const [target, env] of params) {
+            const value = process.env[env];
+            if (value) {
+                this.facts[target] = value;
+            }
+        }
         this.identity = identify(this.options.name);
         this.archOs = getArchOs();
         this.nixSystem = getNixPlatform(this.archOs);
+        this.facts.arch_os = this.archOs;
+        this.facts.nix_system = this.nixSystem;
         {
             const phase = core.getState("idstoolbox_execution_phase");
             if (phase === "") {
                 core.saveState("idstoolbox_execution_phase", "post");
-                this.executionPhase = "action";
+                this.executionPhase = "main";
             }
             else {
                 this.executionPhase = "post";
@@ -94141,7 +94166,7 @@ class IdsToolbox {
             throw new Error(`fetchStyle ${options.fetchStyle} is not a valid style`);
         }
         this.sourceParameters = constructSourceParameters(options.legacySourcePrefix);
-        this.recordEvent(`start_${this.executionPhase}`);
+        this.recordEvent(`begin_${this.executionPhase}`);
     }
     getUrl() {
         const p = this.sourceParameters;
@@ -94232,13 +94257,14 @@ class IdsToolbox {
             core.debug(JSON.stringify(this.events, undefined, 2));
             return;
         }
+        const batch = {
+            type: "eventlog",
+            sent_at: new Date(),
+            events: this.events,
+        };
         try {
             await gotClient.post(this.options.diagnosticsUrl, {
-                json: {
-                    type: "eventlog",
-                    sent_at: new Date(),
-                    events: this.events,
-                },
+                json: batch,
             });
         }
         catch (error) {

@@ -1,5 +1,6 @@
 import * as actions_core from "@actions/core";
 import * as actionsCache from "@actions/cache";
+
 import * as path from "node:path";
 // eslint-disable-next-line import/no-unresolved
 import got from "got";
@@ -14,6 +15,7 @@ import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as platform from "./platform.js";
 // eslint-disable-next-line import/no-unresolved
 import * as correlation from "./correlation.js";
+import pkg from "./package.json";
 
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const IDS_HOST = process.env.IDS_HOST || DEFAULT_IDS_HOST;
@@ -35,7 +37,7 @@ const gotClient = got.extend({
 });
 
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
-export type ExecutionPhase = "action" | "post";
+export type ExecutionPhase = "main" | "post";
 
 export type Options = {
   // Name of the project generally, and the name of the binary on disk.
@@ -44,7 +46,7 @@ export type Options = {
   // Defaults to `name`, Corresponds to the ProjectHost entry on i.d.s.
   idsProjectName?: string;
 
-  // Defaults to `action:${name}:`
+  // Defaults to `action:`
   eventPrefix?: string;
 
   // The "architecture" URL component expected by I.D.S. for the ProjectHost.
@@ -77,7 +79,7 @@ function makeOptionsConfident(options: Options): ConfidentOptions {
   const finalOpts: ConfidentOptions = {
     name: options.name,
     idsProjectName: options.idsProjectName || options.name,
-    eventPrefix: options.eventPrefix || `action:${options.name}:`,
+    eventPrefix: options.eventPrefix || `action:`,
     fetchStyle: options.fetchStyle,
     legacySourcePrefix: options.legacySourcePrefix,
     diagnosticsUrl: undefined,
@@ -87,6 +89,9 @@ function makeOptionsConfident(options: Options): ConfidentOptions {
     finalOpts.idsProjectName,
     options.diagnosticsUrl,
   );
+
+  actions_core.debug("idslib options:");
+  actions_core.debug(JSON.stringify(finalOpts, undefined, 2));
 
   return finalOpts;
 }
@@ -188,18 +193,40 @@ export class IdsToolbox {
 
   constructor(options: Options) {
     this.options = makeOptionsConfident(options);
-    this.facts = {};
     this.events = [];
+    this.facts = {
+      $lib: "idslib",
+      $lib_version: pkg.version,
+      project: this.options.name,
+      ids_project: this.options.idsProjectName,
+    };
+
+    const params = [
+      ["github_action_ref", "GITHUB_ACTION_REF"],
+      ["github_action_repository", "GITHUB_ACTION_REPOSITORY"],
+      ["github_event_name", "GITHUB_EVENT_NAME"],
+      ["$os", "RUNNER_OS"],
+      ["arch", "RUNNER_ARCH"],
+    ];
+    for (const [target, env] of params) {
+      const value = process.env[env];
+      if (value) {
+        this.facts[target] = value;
+      }
+    }
 
     this.identity = correlation.identify(this.options.name);
     this.archOs = platform.getArchOs();
     this.nixSystem = platform.getNixPlatform(this.archOs);
 
+    this.facts.arch_os = this.archOs;
+    this.facts.nix_system = this.nixSystem;
+
     {
       const phase = actions_core.getState("idstoolbox_execution_phase");
       if (phase === "") {
         actions_core.saveState("idstoolbox_execution_phase", "post");
-        this.executionPhase = "action";
+        this.executionPhase = "main";
       } else {
         this.executionPhase = "post";
       }
@@ -220,7 +247,7 @@ export class IdsToolbox {
       options.legacySourcePrefix,
     );
 
-    this.recordEvent(`start_${this.executionPhase}`);
+    this.recordEvent(`begin_${this.executionPhase}`);
   }
 
   private getUrl(): URL {
@@ -343,13 +370,15 @@ export class IdsToolbox {
       return;
     }
 
+    const batch = {
+      type: "eventlog",
+      sent_at: new Date(),
+      events: this.events,
+    };
+
     try {
       await gotClient.post(this.options.diagnosticsUrl, {
-        json: {
-          type: "eventlog",
-          sent_at: new Date(),
-          events: this.events,
-        },
+        json: batch,
       });
     } catch (error) {
       actions_core.debug(`Error submitting diagnostics event: ${error}`);
