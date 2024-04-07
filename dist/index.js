@@ -94127,7 +94127,7 @@ const parse = uuid_dist/* parse */.Qc;
 
 
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
-const IDS_HOST = process.env.IDS_HOST || DEFAULT_IDS_HOST;
+const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 const gotClient = got_dist_source.extend({
     retry: {
         limit: 3,

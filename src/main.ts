@@ -14,7 +14,7 @@ import { pipeline } from "node:stream/promises";
 import { v4 as uuidV4 } from "uuid";
 
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
-const IDS_HOST = process.env.IDS_HOST || DEFAULT_IDS_HOST;
+const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 
 const gotClient = got.extend({
   retry: {
@@ -61,7 +61,7 @@ export type ActionOptions = {
   diagnosticsUrl?: URL | null;
 };
 
-// A confident version of Options, where defaults have been processed
+// A confident version of Options, where defaults have been resolved into final values
 type ConfidentActionOptions = {
   name: string;
   idsProjectName: string;
