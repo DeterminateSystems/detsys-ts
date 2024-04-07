@@ -94142,8 +94142,8 @@ const gotClient = got_dist_source.extend({
     },
 });
 class IdsToolbox {
-    constructor(options) {
-        this.options = makeOptionsConfident(options);
+    constructor(actionOptions) {
+        this.actionOptions = makeOptionsConfident(actionOptions);
         this.events = [];
         this.client = got_dist_source.extend({
             retry: {
@@ -94161,8 +94161,8 @@ class IdsToolbox {
         this.facts = {
             $lib: "idslib",
             $lib_version: package_namespaceObject.i8,
-            project: this.options.name,
-            ids_project: this.options.idsProjectName,
+            project: this.actionOptions.name,
+            ids_project: this.actionOptions.idsProjectName,
         };
         const params = [
             ["github_action_ref", "GITHUB_ACTION_REF"],
@@ -94177,7 +94177,7 @@ class IdsToolbox {
                 this.facts[target] = value;
             }
         }
-        this.identity = _notfoundcorrelation.identify(this.options.name);
+        this.identity = _notfoundcorrelation.identify(this.actionOptions.name);
         this.archOs = _notfoundplatform.getArchOs();
         this.nixSystem = _notfoundplatform.getNixPlatform(this.archOs);
         this.facts.arch_os = this.archOs;
@@ -94193,24 +94193,24 @@ class IdsToolbox {
             }
             this.facts.execution_phase = this.executionPhase;
         }
-        if (options.fetchStyle === "gh-env-style") {
+        if (this.actionOptions.fetchStyle === "gh-env-style") {
             this.architectureFetchSuffix = this.archOs;
         }
-        else if (options.fetchStyle === "nix-style") {
+        else if (this.actionOptions.fetchStyle === "nix-style") {
             this.architectureFetchSuffix = this.nixSystem;
         }
-        else if (options.fetchStyle === "universal") {
+        else if (this.actionOptions.fetchStyle === "universal") {
             this.architectureFetchSuffix = "universal";
         }
         else {
-            throw new Error(`fetchStyle ${options.fetchStyle} is not a valid style`);
+            throw new Error(`fetchStyle ${this.actionOptions.fetchStyle} is not a valid style`);
         }
-        this.sourceParameters = (0,_notfoundsourcedef.constructSourceParameters)(options.legacySourcePrefix);
+        this.sourceParameters = (0,_notfoundsourcedef.constructSourceParameters)(this.actionOptions.legacySourcePrefix);
         this.recordEvent(`begin_${this.executionPhase}`);
     }
-    recordEvent(event_name, context = {}) {
+    recordEvent(eventName, context = {}) {
         this.events.push({
-            event_name: `${this.options.eventPrefix}${event_name}`,
+            event_name: `${this.actionOptions.eventPrefix}${eventName}`,
             context,
             correlation: this.identity,
             facts: this.facts,
@@ -94267,7 +94267,7 @@ class IdsToolbox {
             return new URL(p.url);
         }
         const fetchUrl = new URL(IDS_HOST);
-        fetchUrl.pathname += this.options.idsProjectName;
+        fetchUrl.pathname += this.actionOptions.idsProjectName;
         if (p.tag) {
             fetchUrl.pathname += `/tag/${p.tag}`;
         }
@@ -94288,7 +94288,7 @@ class IdsToolbox {
     }
     cacheKey(version) {
         const cleanedVersion = version.replace(/[^a-zA-Z0-9-+.]/g, "");
-        return `determinatesystem-${this.options.name}-${this.architectureFetchSuffix}-${cleanedVersion}`;
+        return `determinatesystem-${this.actionOptions.name}-${this.architectureFetchSuffix}-${cleanedVersion}`;
     }
     async getCachedVersion(version) {
         const startCwd = process.cwd();
@@ -94299,9 +94299,9 @@ class IdsToolbox {
             // extremely evil shit right here:
             process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
             delete process.env.GITHUB_WORKSPACE;
-            if (await cache.restoreCache([this.options.name], this.cacheKey(version), [], undefined, true)) {
+            if (await cache.restoreCache([this.actionOptions.name], this.cacheKey(version), [], undefined, true)) {
                 this.recordEvent("artifact_cache_hit");
-                return `${tempDir}/${this.options.name}`;
+                return `${tempDir}/${this.actionOptions.name}`;
             }
             this.recordEvent("artifact_cache_miss");
             return undefined;
@@ -94318,11 +94318,11 @@ class IdsToolbox {
             const tempDir = this.getTemporaryName();
             await (0,promises_namespaceObject.mkdir)(tempDir);
             process.chdir(tempDir);
-            await (0,promises_namespaceObject.copyFile)(toolPath, `${tempDir}/${this.options.name}`);
+            await (0,promises_namespaceObject.copyFile)(toolPath, `${tempDir}/${this.actionOptions.name}`);
             // extremely evil shit right here:
             process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
             delete process.env.GITHUB_WORKSPACE;
-            await cache.saveCache([this.options.name], this.cacheKey(version), undefined, true);
+            await cache.saveCache([this.actionOptions.name], this.cacheKey(version), undefined, true);
             this.recordEvent("artifact_cache_hit");
         }
         finally {
@@ -94332,7 +94332,7 @@ class IdsToolbox {
         }
     }
     async submitEvents() {
-        if (!this.options.diagnosticsUrl) {
+        if (!this.actionOptions.diagnosticsUrl) {
             core.debug("Diagnostics are disabled. Not sending the following events:");
             core.debug(JSON.stringify(this.events, undefined, 2));
             return;
@@ -94343,7 +94343,7 @@ class IdsToolbox {
             events: this.events,
         };
         try {
-            await gotClient.post(this.options.diagnosticsUrl, {
+            await gotClient.post(this.actionOptions.diagnosticsUrl, {
                 json: batch,
             });
         }
@@ -94354,19 +94354,19 @@ class IdsToolbox {
     }
     getTemporaryName() {
         const _tmpdir = process.env["RUNNER_TEMP"] || (0,external_node_os_.tmpdir)();
-        return external_node_path_namespaceObject.join(_tmpdir, `${this.options.name}-${v4()}`);
+        return external_node_path_namespaceObject.join(_tmpdir, `${this.actionOptions.name}-${v4()}`);
     }
 }
-function makeOptionsConfident(options) {
+function makeOptionsConfident(actionOptions) {
+    const idsProjectName = actionOptions.idsProjectName ?? actionOptions.name;
     const finalOpts = {
-        name: options.name,
-        idsProjectName: options.idsProjectName || options.name,
-        eventPrefix: options.eventPrefix || `action:`,
-        fetchStyle: options.fetchStyle,
-        legacySourcePrefix: options.legacySourcePrefix,
-        diagnosticsUrl: undefined,
+        name: actionOptions.name,
+        idsProjectName,
+        eventPrefix: actionOptions.eventPrefix || "action:",
+        fetchStyle: actionOptions.fetchStyle,
+        legacySourcePrefix: actionOptions.legacySourcePrefix,
+        diagnosticsUrl: determineDiagnosticsUrl(idsProjectName, actionOptions.diagnosticsUrl),
     };
-    finalOpts.diagnosticsUrl = determineDiagnosticsUrl(finalOpts.idsProjectName, options.diagnosticsUrl);
     core.debug("idslib options:");
     core.debug(JSON.stringify(finalOpts, undefined, 2));
     return finalOpts;

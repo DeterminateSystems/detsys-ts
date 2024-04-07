@@ -81,7 +81,7 @@ type DiagnosticEvent = {
 
 export class IdsToolbox {
   private identity: correlation.AnonymizedCorrelationHashes;
-  private options: ConfidentActionOptions;
+  private actionOptions: ConfidentActionOptions;
   private archOs: string;
   private nixSystem: string;
   private architectureFetchSuffix: string;
@@ -91,8 +91,8 @@ export class IdsToolbox {
   private events: DiagnosticEvent[];
   private client: Got;
 
-  constructor(options: ActionOptions) {
-    this.options = makeOptionsConfident(options);
+  constructor(actionOptions: ActionOptions) {
+    this.actionOptions = makeOptionsConfident(actionOptions);
     this.events = [];
     this.client = got.extend({
       retry: {
@@ -113,8 +113,8 @@ export class IdsToolbox {
     this.facts = {
       $lib: "idslib",
       $lib_version: pkg.version,
-      project: this.options.name,
-      ids_project: this.options.idsProjectName,
+      project: this.actionOptions.name,
+      ids_project: this.actionOptions.idsProjectName,
     };
 
     const params = [
@@ -131,7 +131,7 @@ export class IdsToolbox {
       }
     }
 
-    this.identity = correlation.identify(this.options.name);
+    this.identity = correlation.identify(this.actionOptions.name);
     this.archOs = platform.getArchOs();
     this.nixSystem = platform.getNixPlatform(this.archOs);
 
@@ -149,26 +149,28 @@ export class IdsToolbox {
       this.facts.execution_phase = this.executionPhase;
     }
 
-    if (options.fetchStyle === "gh-env-style") {
+    if (this.actionOptions.fetchStyle === "gh-env-style") {
       this.architectureFetchSuffix = this.archOs;
-    } else if (options.fetchStyle === "nix-style") {
+    } else if (this.actionOptions.fetchStyle === "nix-style") {
       this.architectureFetchSuffix = this.nixSystem;
-    } else if (options.fetchStyle === "universal") {
+    } else if (this.actionOptions.fetchStyle === "universal") {
       this.architectureFetchSuffix = "universal";
     } else {
-      throw new Error(`fetchStyle ${options.fetchStyle} is not a valid style`);
+      throw new Error(
+        `fetchStyle ${this.actionOptions.fetchStyle} is not a valid style`,
+      );
     }
 
     this.sourceParameters = constructSourceParameters(
-      options.legacySourcePrefix,
+      this.actionOptions.legacySourcePrefix,
     );
 
     this.recordEvent(`begin_${this.executionPhase}`);
   }
 
-  recordEvent(event_name: string, context: Record<string, unknown> = {}): void {
+  recordEvent(eventName: string, context: Record<string, unknown> = {}): void {
     this.events.push({
-      event_name: `${this.options.eventPrefix}${event_name}`,
+      event_name: `${this.actionOptions.eventPrefix}${eventName}`,
       context,
       correlation: this.identity,
       facts: this.facts,
@@ -248,7 +250,7 @@ export class IdsToolbox {
     }
 
     const fetchUrl = new URL(IDS_HOST);
-    fetchUrl.pathname += this.options.idsProjectName;
+    fetchUrl.pathname += this.actionOptions.idsProjectName;
 
     if (p.tag) {
       fetchUrl.pathname += `/tag/${p.tag}`;
@@ -269,7 +271,7 @@ export class IdsToolbox {
 
   private cacheKey(version: string): string {
     const cleanedVersion = version.replace(/[^a-zA-Z0-9-+.]/g, "");
-    return `determinatesystem-${this.options.name}-${this.architectureFetchSuffix}-${cleanedVersion}`;
+    return `determinatesystem-${this.actionOptions.name}-${this.architectureFetchSuffix}-${cleanedVersion}`;
   }
 
   private async getCachedVersion(version: string): Promise<undefined | string> {
@@ -286,7 +288,7 @@ export class IdsToolbox {
 
       if (
         await actionsCache.restoreCache(
-          [this.options.name],
+          [this.actionOptions.name],
           this.cacheKey(version),
           [],
           undefined,
@@ -294,7 +296,7 @@ export class IdsToolbox {
         )
       ) {
         this.recordEvent("artifact_cache_hit");
-        return `${tempDir}/${this.options.name}`;
+        return `${tempDir}/${this.actionOptions.name}`;
       }
 
       this.recordEvent("artifact_cache_miss");
@@ -316,14 +318,14 @@ export class IdsToolbox {
       const tempDir = this.getTemporaryName();
       await mkdir(tempDir);
       process.chdir(tempDir);
-      await copyFile(toolPath, `${tempDir}/${this.options.name}`);
+      await copyFile(toolPath, `${tempDir}/${this.actionOptions.name}`);
 
       // extremely evil shit right here:
       process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
       delete process.env.GITHUB_WORKSPACE;
 
       await actionsCache.saveCache(
-        [this.options.name],
+        [this.actionOptions.name],
         this.cacheKey(version),
         undefined,
         true,
@@ -337,7 +339,7 @@ export class IdsToolbox {
   }
 
   private async submitEvents(): Promise<void> {
-    if (!this.options.diagnosticsUrl) {
+    if (!this.actionOptions.diagnosticsUrl) {
       actionsCore.debug(
         "Diagnostics are disabled. Not sending the following events:",
       );
@@ -352,7 +354,7 @@ export class IdsToolbox {
     };
 
     try {
-      await gotClient.post(this.options.diagnosticsUrl, {
+      await gotClient.post(this.actionOptions.diagnosticsUrl, {
         json: batch,
       });
     } catch (error) {
@@ -363,24 +365,26 @@ export class IdsToolbox {
 
   private getTemporaryName(): string {
     const _tmpdir = process.env["RUNNER_TEMP"] || tmpdir();
-    return path.join(_tmpdir, `${this.options.name}-${uuidV4()}`);
+    return path.join(_tmpdir, `${this.actionOptions.name}-${uuidV4()}`);
   }
 }
 
-function makeOptionsConfident(options: ActionOptions): ConfidentActionOptions {
-  const finalOpts: ConfidentActionOptions = {
-    name: options.name,
-    idsProjectName: options.idsProjectName || options.name,
-    eventPrefix: options.eventPrefix || `action:`,
-    fetchStyle: options.fetchStyle,
-    legacySourcePrefix: options.legacySourcePrefix,
-    diagnosticsUrl: undefined,
-  };
+function makeOptionsConfident(
+  actionOptions: ActionOptions,
+): ConfidentActionOptions {
+  const idsProjectName = actionOptions.idsProjectName ?? actionOptions.name;
 
-  finalOpts.diagnosticsUrl = determineDiagnosticsUrl(
-    finalOpts.idsProjectName,
-    options.diagnosticsUrl,
-  );
+  const finalOpts: ConfidentActionOptions = {
+    name: actionOptions.name,
+    idsProjectName,
+    eventPrefix: actionOptions.eventPrefix || "action:",
+    fetchStyle: actionOptions.fetchStyle,
+    legacySourcePrefix: actionOptions.legacySourcePrefix,
+    diagnosticsUrl: determineDiagnosticsUrl(
+      idsProjectName,
+      actionOptions.diagnosticsUrl,
+    ),
+  };
 
   actionsCore.debug("idslib options:");
   actionsCore.debug(JSON.stringify(finalOpts, undefined, 2));
