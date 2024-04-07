@@ -1,10 +1,7 @@
-// eslint-disable-next-line import/no-unresolved
-import * as correlation from "./correlation.js";
+import * as correlation from "./correlation";
 import pkg from "./package.json";
-// eslint-disable-next-line import/no-unresolved
-import * as platform from "./platform.js";
-// eslint-disable-next-line import/no-unresolved
-import { SourceDef, constructSourceParameters } from "./sourcedef.js";
+import * as platform from "./platform";
+import { SourceDef, constructSourceParameters } from "./sourcedef";
 import * as actionsCache from "@actions/cache";
 import * as actions_core from "@actions/core";
 // eslint-disable-next-line import/no-unresolved
@@ -38,7 +35,7 @@ const gotClient = got.extend({
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 export type ExecutionPhase = "main" | "post";
 
-export type Options = {
+export type ActionOptions = {
   // Name of the project generally, and the name of the binary on disk.
   name: string;
 
@@ -65,7 +62,7 @@ export type Options = {
 };
 
 // A confident version of Options, where defaults have been processed
-type ConfidentOptions = {
+type ConfidentActionOptions = {
   name: string;
   idsProjectName: string;
   eventPrefix: string;
@@ -74,8 +71,8 @@ type ConfidentOptions = {
   diagnosticsUrl?: URL;
 };
 
-function makeOptionsConfident(options: Options): ConfidentOptions {
-  const finalOpts: ConfidentOptions = {
+function makeOptionsConfident(options: ActionOptions): ConfidentActionOptions {
+  const finalOpts: ConfidentActionOptions = {
     name: options.name,
     idsProjectName: options.idsProjectName || options.name,
     eventPrefix: options.eventPrefix || `action:`,
@@ -181,7 +178,7 @@ type DiagnosticEvent = {
 
 export class IdsToolbox {
   identity: correlation.AnonymizedCorrelationHashes;
-  options: ConfidentOptions;
+  options: ConfidentActionOptions;
   archOs: string;
   nixSystem: string;
   architectureFetchSuffix: string;
@@ -190,7 +187,7 @@ export class IdsToolbox {
   facts: Record<string, string | boolean>;
   events: DiagnosticEvent[];
 
-  constructor(options: Options) {
+  constructor(options: ActionOptions) {
     this.options = makeOptionsConfident(options);
     this.events = [];
     this.facts = {

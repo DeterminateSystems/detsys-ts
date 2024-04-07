@@ -82693,6 +82693,30 @@ module.exports.implForWrapper = function (wrapper) {
 
 /***/ }),
 
+/***/ 4579:
+/***/ ((module) => {
+
+module.exports = eval("require")("./correlation");
+
+
+/***/ }),
+
+/***/ 7510:
+/***/ ((module) => {
+
+module.exports = eval("require")("./platform");
+
+
+/***/ }),
+
+/***/ 5334:
+/***/ ((module) => {
+
+module.exports = eval("require")("./sourcedef");
+
+
+/***/ }),
+
 /***/ 326:
 /***/ ((module) => {
 
@@ -87098,155 +87122,18 @@ __nccwpck_require__.d(__webpack_exports__, {
   "_": () => (/* binding */ IdsToolbox)
 });
 
-// EXTERNAL MODULE: ./node_modules/.pnpm/@actions+core@1.10.1/node_modules/@actions/core/lib/core.js
-var core = __nccwpck_require__(6733);
-;// CONCATENATED MODULE: external "node:crypto"
-const external_node_crypto_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:crypto");
-;// CONCATENATED MODULE: ./lib/correlation.js
-
-
-function identify(projectName) {
-    const ident = {
-        correlation_source: "github-actions",
-        repository: hashEnvironmentVariables("GHR", [
-            "GITHUB_SERVER_URL",
-            "GITHUB_REPOSITORY_OWNER",
-            "GITHUB_REPOSITORY_OWNER_ID",
-            "GITHUB_REPOSITORY",
-            "GITHUB_REPOSITORY_ID",
-        ]),
-        workflow: hashEnvironmentVariables("GHW", [
-            "GITHUB_SERVER_URL",
-            "GITHUB_REPOSITORY_OWNER",
-            "GITHUB_REPOSITORY_OWNER_ID",
-            "GITHUB_REPOSITORY",
-            "GITHUB_REPOSITORY_ID",
-            "GITHUB_WORKFLOW",
-        ]),
-        run: hashEnvironmentVariables("GHWR", [
-            "GITHUB_SERVER_URL",
-            "GITHUB_REPOSITORY_OWNER",
-            "GITHUB_REPOSITORY_OWNER_ID",
-            "GITHUB_REPOSITORY",
-            "GITHUB_REPOSITORY_ID",
-            "GITHUB_RUN_ID",
-        ]),
-        run_differentiator: hashEnvironmentVariables("GHWA", [
-            "GITHUB_SERVER_URL",
-            "GITHUB_REPOSITORY_OWNER",
-            "GITHUB_REPOSITORY_OWNER_ID",
-            "GITHUB_REPOSITORY",
-            "GITHUB_REPOSITORY_ID",
-            "GITHUB_RUN_ID",
-            "GITHUB_RUN_NUMBER",
-            "GITHUB_RUN_ATTEMPT",
-        ]),
-        groups: {
-            ci: "github-actions",
-            project: projectName,
-            github_organization: hashEnvironmentVariables("GHO", [
-                "GITHUB_SERVER_URL",
-                "GITHUB_REPOSITORY_OWNER",
-                "GITHUB_REPOSITORY_OWNER_ID",
-            ]),
-        },
-    };
-    core.debug("Correlation data:");
-    core.debug(JSON.stringify(ident, null, 2));
-    return ident;
-}
-function hashEnvironmentVariables(prefix, variables) {
-    const hash = (0,external_node_crypto_namespaceObject.createHash)("sha256");
-    for (const varName of variables) {
-        const value = process.env[varName];
-        if (value === undefined) {
-            core.debug(`Environment variable not set: ${varName} -- can't generate the requested identity`);
-            return undefined;
-        }
-        else {
-            hash.update(value);
-            hash.update("\0");
-        }
-    }
-    return `${prefix}-${hash.digest("hex")}`;
-}
-
+// EXTERNAL MODULE: ./node_modules/.pnpm/@vercel+ncc@0.36.1/node_modules/@vercel/ncc/dist/ncc/@@notfound.js?./correlation
+var _notfoundcorrelation = __nccwpck_require__(4579);
 ;// CONCATENATED MODULE: ./lib/package.json
 const package_namespaceObject = {"i8":"1.0.0"};
-;// CONCATENATED MODULE: ./lib/platform.js
-
-function getArchOs() {
-    const envArch = process.env.RUNNER_ARCH;
-    const envOs = process.env.RUNNER_OS;
-    if (envArch && envOs) {
-        return `${envArch}-${envOs}`;
-    }
-    else {
-        core.error(`Can't identify the platform: RUNNER_ARCH or RUNNER_OS undefined (${envArch}-${envOs})`);
-        throw new Error("RUNNER_ARCH and/or RUNNER_OS is not defined");
-    }
-}
-function getNixPlatform(archOs) {
-    const archOsMap = new Map([
-        ["X64-macOS", "x86_64-darwin"],
-        ["ARM64-macOS", "aarch64-darwin"],
-        ["X64-Linux", "x86_64-linux"],
-        ["ARM64-Linux", "aarch64-linux"],
-    ]);
-    const mappedTo = archOsMap.get(archOs);
-    if (mappedTo) {
-        return mappedTo;
-    }
-    else {
-        core.error(`ArchOs (${archOs}) doesn't map to a supported Nix platform.`);
-        throw new Error(`Cannot convert ArchOs (${archOs}) to a supported Nix platform.`);
-    }
-}
-
-;// CONCATENATED MODULE: ./lib/sourcedef.js
-
-function constructSourceParameters(legacyPrefix) {
-    const noisilyGetInput = (suffix) => {
-        const preferredInput = inputStringOrUndef(`source-${suffix}`);
-        if (!legacyPrefix) {
-            return preferredInput;
-        }
-        // Remaining is for handling cases where the legacy prefix
-        // should be examined.
-        const legacyInput = inputStringOrUndef(`${legacyPrefix}-${suffix}`);
-        if (preferredInput && legacyInput) {
-            core.warning(`The supported option source-${suffix} and the legacy option ${legacyPrefix}-${suffix} are both set. Preferring source-${suffix}. Please stop setting ${legacyPrefix}-${suffix}.`);
-            return preferredInput;
-        }
-        else if (legacyInput) {
-            core.warning(`The legacy option ${legacyPrefix}-${suffix} is set. Please migrate to source-${suffix}.`);
-            return legacyInput;
-        }
-        else {
-            return preferredInput;
-        }
-    };
-    return {
-        path: noisilyGetInput("path"),
-        url: noisilyGetInput("url"),
-        tag: noisilyGetInput("tag"),
-        pr: noisilyGetInput("pr"),
-        branch: noisilyGetInput("branch"),
-        revision: noisilyGetInput("revision"),
-    };
-}
-function inputStringOrUndef(name) {
-    const value = core.getInput(name);
-    if (value === "") {
-        return undefined;
-    }
-    else {
-        return value;
-    }
-}
-
+// EXTERNAL MODULE: ./node_modules/.pnpm/@vercel+ncc@0.36.1/node_modules/@vercel/ncc/dist/ncc/@@notfound.js?./platform
+var _notfoundplatform = __nccwpck_require__(7510);
+// EXTERNAL MODULE: ./node_modules/.pnpm/@vercel+ncc@0.36.1/node_modules/@vercel/ncc/dist/ncc/@@notfound.js?./sourcedef
+var _notfoundsourcedef = __nccwpck_require__(5334);
 // EXTERNAL MODULE: ./node_modules/.pnpm/@actions+cache@3.2.4/node_modules/@actions/cache/lib/cache.js
 var cache = __nccwpck_require__(4330);
+// EXTERNAL MODULE: ./node_modules/.pnpm/@actions+core@1.10.1/node_modules/@actions/core/lib/core.js
+var core = __nccwpck_require__(6733);
 ;// CONCATENATED MODULE: ./node_modules/.pnpm/@sindresorhus+is@6.2.0/node_modules/@sindresorhus/is/dist/index.js
 const typedArrayTypeNames = [
     'Int8Array',
@@ -88943,6 +88830,8 @@ const timer = (request) => {
 
 ;// CONCATENATED MODULE: external "node:url"
 const external_node_url_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:url");
+;// CONCATENATED MODULE: external "node:crypto"
+const external_node_crypto_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:crypto");
 ;// CONCATENATED MODULE: ./node_modules/.pnpm/normalize-url@8.0.1/node_modules/normalize-url/index.js
 // https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/Data_URIs
 const DATA_URL_DEFAULT_MIME_TYPE = 'text/plain';
@@ -94223,12 +94112,9 @@ const stringify = uuid_dist/* stringify */.Pz;
 const parse = uuid_dist/* parse */.Qc;
 
 ;// CONCATENATED MODULE: ./lib/main.js
-// eslint-disable-next-line import/no-unresolved
 
 
-// eslint-disable-next-line import/no-unresolved
 
-// eslint-disable-next-line import/no-unresolved
 
 
 
@@ -94351,9 +94237,9 @@ class IdsToolbox {
                 this.facts[target] = value;
             }
         }
-        this.identity = identify(this.options.name);
-        this.archOs = getArchOs();
-        this.nixSystem = getNixPlatform(this.archOs);
+        this.identity = _notfoundcorrelation.identify(this.options.name);
+        this.archOs = _notfoundplatform.getArchOs();
+        this.nixSystem = _notfoundplatform.getNixPlatform(this.archOs);
         this.facts.arch_os = this.archOs;
         this.facts.nix_system = this.nixSystem;
         {
@@ -94379,7 +94265,7 @@ class IdsToolbox {
         else {
             throw new Error(`fetchStyle ${options.fetchStyle} is not a valid style`);
         }
-        this.sourceParameters = constructSourceParameters(options.legacySourcePrefix);
+        this.sourceParameters = (0,_notfoundsourcedef.constructSourceParameters)(options.legacySourcePrefix);
         this.recordEvent(`begin_${this.executionPhase}`);
     }
     getUrl() {
@@ -94487,7 +94373,6 @@ class IdsToolbox {
         this.events = [];
     }
     async fetch() {
-        var _a;
         core.info(`Fetching from ${this.getUrl()}`);
         const correlatedUrl = this.getUrl();
         correlatedUrl.searchParams.set("ci", "github");
@@ -94511,7 +94396,7 @@ class IdsToolbox {
             encoding: "binary",
             mode: 0o755,
         }));
-        if ((_a = fetchStream.response) === null || _a === void 0 ? void 0 : _a.headers.etag) {
+        if (fetchStream.response?.headers.etag) {
             const v = fetchStream.response.headers.etag;
             try {
                 await this.saveCachedVersion(v, destFile);
