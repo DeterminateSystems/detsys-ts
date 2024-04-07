@@ -2,16 +2,15 @@
   "name": "detsys-ts",
   "version": "1.0.0",
   "description": "TypeScript goodies for DetSys projects",
-  "main": "./lib/main.js",
-  "types": "./lib/main.d.ts",
+  "main": "./dist/main.cjs",
+  "types": "./dist/main.d.cts",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsup",
     "format": "prettier --write .",
     "lint": "eslint src/**/*.ts",
     "prebuild": "cp package.json ./src/package.json",
-    "package": "ncc build --license licenses.txt",
-    "all": "npm run build && npm run format && npm run lint && npm run package"
+    "all": "pnpm run format && pnpm run lint && pnpm run build"
   },
   "repository": {
     "type": "git",
@@ -39,13 +38,13 @@
     "@types/node": "^18.19.30",
     "@types/uuid": "^9.0.8",
     "@typescript-eslint/eslint-plugin": "^7.2.0",
-    "@vercel/ncc": "^0.36.1",
     "eslint": "^8.57.0",
     "eslint-import-resolver-typescript": "^3.6.1",
     "eslint-plugin-github": "^4.3.6",
     "eslint-plugin-import": "^2.29.1",
     "eslint-plugin-prettier": "^5.0.0-alpha.1",
     "prettier": "^3.0.0",
+    "tsup": "^8.0.2",
     "typescript": "^5.1.6"
   }
 }
