@@ -94113,12 +94113,12 @@ const parse = uuid_dist/* parse */.Qc;
 
 ;// CONCATENATED MODULE: ./lib/main.js
 
+// eslint-disable-next-line import/extensions
 
 
 
 
 
-// eslint-disable-next-line import/no-unresolved
 
 
 
@@ -94141,83 +94141,23 @@ const gotClient = got_dist_source.extend({
         ],
     },
 });
-function makeOptionsConfident(options) {
-    const finalOpts = {
-        name: options.name,
-        idsProjectName: options.idsProjectName || options.name,
-        eventPrefix: options.eventPrefix || `action:`,
-        fetchStyle: options.fetchStyle,
-        legacySourcePrefix: options.legacySourcePrefix,
-        diagnosticsUrl: undefined,
-    };
-    finalOpts.diagnosticsUrl = determineDiagnosticsUrl(finalOpts.idsProjectName, options.diagnosticsUrl);
-    core.debug("idslib options:");
-    core.debug(JSON.stringify(finalOpts, undefined, 2));
-    return finalOpts;
-}
-function determineDiagnosticsUrl(idsProjectName, urlOption) {
-    if (urlOption === null) {
-        // Disable diagnostict events
-        return undefined;
-    }
-    if (urlOption !== undefined) {
-        // Caller specified a specific diagnostics URL
-        return urlOption;
-    }
-    {
-        // Attempt to use the action input's diagnostic-endpoint option.
-        // Note: we don't use actions_core.getInput('diagnostic-endpoint') on purpose:
-        // getInput silently converts absent data to an empty string.
-        const providedDiagnosticEndpoint = process.env["INPUT_DIAGNOSTIC-ENDPOINT"];
-        if (providedDiagnosticEndpoint === "") {
-            // User probably explicitly turned it off
-            return undefined;
-        }
-        if (providedDiagnosticEndpoint !== undefined) {
-            try {
-                return mungeDiagnosticEndpoint(new URL(providedDiagnosticEndpoint));
-            }
-            catch (e) {
-                core.info(`User-provided diagnostic endpoint ignored: not a valid URL: ${e}`);
-            }
-        }
-    }
-    try {
-        const diagnosticUrl = new URL(IDS_HOST);
-        diagnosticUrl.pathname += idsProjectName;
-        diagnosticUrl.pathname += "/diagnostics";
-        return diagnosticUrl;
-    }
-    catch (e) {
-        core.info(`Generated diagnostic endpoint ignored: not a valid URL: ${e}`);
-    }
-    return undefined;
-}
-function mungeDiagnosticEndpoint(inputUrl) {
-    if (DEFAULT_IDS_HOST === IDS_HOST) {
-        return inputUrl;
-    }
-    try {
-        const defaultIdsHost = new URL(DEFAULT_IDS_HOST);
-        const currentIdsHost = new URL(IDS_HOST);
-        if (inputUrl.origin !== defaultIdsHost.origin) {
-            return inputUrl;
-        }
-        inputUrl.protocol = currentIdsHost.protocol;
-        inputUrl.host = currentIdsHost.host;
-        inputUrl.username = currentIdsHost.username;
-        inputUrl.password = currentIdsHost.password;
-        return inputUrl;
-    }
-    catch (e) {
-        core.info(`Default or overridden IDS host isn't a valid URL: ${e}`);
-    }
-    return inputUrl;
-}
 class IdsToolbox {
     constructor(options) {
         this.options = makeOptionsConfident(options);
         this.events = [];
+        this.client = got_dist_source.extend({
+            retry: {
+                limit: 3,
+                methods: ["GET", "HEAD"],
+            },
+            hooks: {
+                beforeRetry: [
+                    (error, retryCount) => {
+                        core.info(`Retrying after error ${error.code}, retry #: ${retryCount}`);
+                    },
+                ],
+            },
+        });
         this.facts = {
             $lib: "idslib",
             $lib_version: package_namespaceObject.i8,
@@ -94267,6 +94207,59 @@ class IdsToolbox {
         }
         this.sourceParameters = (0,_notfoundsourcedef.constructSourceParameters)(options.legacySourcePrefix);
         this.recordEvent(`begin_${this.executionPhase}`);
+    }
+    recordEvent(event_name, context = {}) {
+        this.events.push({
+            event_name: `${this.options.eventPrefix}${event_name}`,
+            context,
+            correlation: this.identity,
+            facts: this.facts,
+            timestamp: new Date(),
+        });
+    }
+    async fetch() {
+        core.info(`Fetching from ${this.getUrl()}`);
+        const correlatedUrl = this.getUrl();
+        correlatedUrl.searchParams.set("ci", "github");
+        correlatedUrl.searchParams.set("correlation", JSON.stringify(this.identity));
+        const versionCheckup = await gotClient.head(correlatedUrl);
+        if (versionCheckup.headers.etag) {
+            const v = versionCheckup.headers.etag;
+            core.debug(`Checking the tool cache for ${this.getUrl()} at ${v}`);
+            const cached = await this.getCachedVersion(v);
+            if (cached) {
+                this.facts["artifact_fetched_from_cache"] = true;
+                core.debug(`Tool cache hit.`);
+                return cached;
+            }
+        }
+        this.facts["artifact_fetched_from_cache"] = false;
+        core.debug(`No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`);
+        const destFile = this.getTemporaryName();
+        const fetchStream = gotClient.stream(versionCheckup.url);
+        await (0,external_node_stream_promises_namespaceObject.pipeline)(fetchStream, (0,external_node_fs_namespaceObject.createWriteStream)(destFile, {
+            encoding: "binary",
+            mode: 0o755,
+        }));
+        if (fetchStream.response?.headers.etag) {
+            const v = fetchStream.response.headers.etag;
+            try {
+                await this.saveCachedVersion(v, destFile);
+            }
+            catch (e) {
+                core.debug(`Error caching the artifact: ${e}`);
+            }
+        }
+        return destFile;
+    }
+    async fetchExecutable() {
+        const binaryPath = await this.fetch();
+        await (0,promises_namespaceObject.chmod)(binaryPath, promises_namespaceObject.constants.S_IXUSR | promises_namespaceObject.constants.S_IXGRP);
+        return binaryPath;
+    }
+    async complete() {
+        this.recordEvent(`complete_${this.executionPhase}`);
+        await this.submitEvents();
     }
     getUrl() {
         const p = this.sourceParameters;
@@ -94338,19 +94331,6 @@ class IdsToolbox {
             process.chdir(startCwd);
         }
     }
-    recordEvent(event_name, context = {}) {
-        this.events.push({
-            event_name: `${this.options.eventPrefix}${event_name}`,
-            context,
-            correlation: this.identity,
-            facts: this.facts,
-            timestamp: new Date(),
-        });
-    }
-    async complete() {
-        this.recordEvent(`complete_${this.executionPhase}`);
-        await this.submitEvents();
-    }
     async submitEvents() {
         if (!this.options.diagnosticsUrl) {
             core.debug("Diagnostics are disabled. Not sending the following events:");
@@ -94372,50 +94352,83 @@ class IdsToolbox {
         }
         this.events = [];
     }
-    async fetch() {
-        core.info(`Fetching from ${this.getUrl()}`);
-        const correlatedUrl = this.getUrl();
-        correlatedUrl.searchParams.set("ci", "github");
-        correlatedUrl.searchParams.set("correlation", JSON.stringify(this.identity));
-        const versionCheckup = await gotClient.head(correlatedUrl);
-        if (versionCheckup.headers.etag) {
-            const v = versionCheckup.headers.etag;
-            core.debug(`Checking the tool cache for ${this.getUrl()} at ${v}`);
-            const cached = await this.getCachedVersion(v);
-            if (cached) {
-                this.facts["artifact_fetched_from_cache"] = true;
-                core.debug(`Tool cache hit.`);
-                return cached;
-            }
-        }
-        this.facts["artifact_fetched_from_cache"] = false;
-        core.debug(`No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`);
-        const destFile = this.getTemporaryName();
-        const fetchStream = gotClient.stream(versionCheckup.url);
-        await (0,external_node_stream_promises_namespaceObject.pipeline)(fetchStream, (0,external_node_fs_namespaceObject.createWriteStream)(destFile, {
-            encoding: "binary",
-            mode: 0o755,
-        }));
-        if (fetchStream.response?.headers.etag) {
-            const v = fetchStream.response.headers.etag;
-            try {
-                await this.saveCachedVersion(v, destFile);
-            }
-            catch (e) {
-                core.debug(`Error caching the artifact: ${e}`);
-            }
-        }
-        return destFile;
-    }
-    async fetchExecutable() {
-        const binaryPath = await this.fetch();
-        await (0,promises_namespaceObject.chmod)(binaryPath, promises_namespaceObject.constants.S_IXUSR | promises_namespaceObject.constants.S_IXGRP);
-        return binaryPath;
-    }
     getTemporaryName() {
         const _tmpdir = process.env["RUNNER_TEMP"] || (0,external_node_os_.tmpdir)();
         return external_node_path_namespaceObject.join(_tmpdir, `${this.options.name}-${v4()}`);
     }
+}
+function makeOptionsConfident(options) {
+    const finalOpts = {
+        name: options.name,
+        idsProjectName: options.idsProjectName || options.name,
+        eventPrefix: options.eventPrefix || `action:`,
+        fetchStyle: options.fetchStyle,
+        legacySourcePrefix: options.legacySourcePrefix,
+        diagnosticsUrl: undefined,
+    };
+    finalOpts.diagnosticsUrl = determineDiagnosticsUrl(finalOpts.idsProjectName, options.diagnosticsUrl);
+    core.debug("idslib options:");
+    core.debug(JSON.stringify(finalOpts, undefined, 2));
+    return finalOpts;
+}
+function determineDiagnosticsUrl(idsProjectName, urlOption) {
+    if (urlOption === null) {
+        // Disable diagnostict events
+        return undefined;
+    }
+    if (urlOption !== undefined) {
+        // Caller specified a specific diagnostics URL
+        return urlOption;
+    }
+    {
+        // Attempt to use the action input's diagnostic-endpoint option.
+        // Note: we don't use actionsCore.getInput('diagnostic-endpoint') on purpose:
+        // getInput silently converts absent data to an empty string.
+        const providedDiagnosticEndpoint = process.env["INPUT_DIAGNOSTIC-ENDPOINT"];
+        if (providedDiagnosticEndpoint === "") {
+            // User probably explicitly turned it off
+            return undefined;
+        }
+        if (providedDiagnosticEndpoint !== undefined) {
+            try {
+                return mungeDiagnosticEndpoint(new URL(providedDiagnosticEndpoint));
+            }
+            catch (e) {
+                core.info(`User-provided diagnostic endpoint ignored: not a valid URL: ${e}`);
+            }
+        }
+    }
+    try {
+        const diagnosticUrl = new URL(IDS_HOST);
+        diagnosticUrl.pathname += idsProjectName;
+        diagnosticUrl.pathname += "/diagnostics";
+        return diagnosticUrl;
+    }
+    catch (e) {
+        core.info(`Generated diagnostic endpoint ignored: not a valid URL: ${e}`);
+    }
+    return undefined;
+}
+function mungeDiagnosticEndpoint(inputUrl) {
+    if (DEFAULT_IDS_HOST === IDS_HOST) {
+        return inputUrl;
+    }
+    try {
+        const defaultIdsHost = new URL(DEFAULT_IDS_HOST);
+        const currentIdsHost = new URL(IDS_HOST);
+        if (inputUrl.origin !== defaultIdsHost.origin) {
+            return inputUrl;
+        }
+        inputUrl.protocol = currentIdsHost.protocol;
+        inputUrl.host = currentIdsHost.host;
+        inputUrl.username = currentIdsHost.username;
+        inputUrl.password = currentIdsHost.password;
+        return inputUrl;
+    }
+    catch (e) {
+        core.info(`Default or overridden IDS host isn't a valid URL: ${e}`);
+    }
+    return inputUrl;
 }
 
 })();
