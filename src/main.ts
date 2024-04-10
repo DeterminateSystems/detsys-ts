@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { v4 as uuidV4 } from "uuid";
+import { randomUUID } from "node:crypto";
 
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
@@ -166,6 +167,18 @@ export class IdsToolbox {
     );
 
     this.recordEvent(`begin_${this.executionPhase}`);
+  }
+
+  addFact(key: string, value: string | boolean): void {
+    this.facts[key] = value;
+  }
+
+  getDiagnosticsUrl(): URL | undefined {
+    return this.actionOptions.diagnosticsUrl;
+  }
+
+  getUniqueId(): string {
+    return this.identity.run_differentiator || process.env.RUNNER_TRACKING_ID || randomUUID();
   }
 
   recordEvent(eventName: string, context: Record<string, unknown> = {}): void {
