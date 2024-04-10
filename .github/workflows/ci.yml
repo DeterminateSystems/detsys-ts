@@ -8,7 +8,7 @@ on:
 
 jobs:
   checks:
-    name: Lint and check formatting
+    name: Run all checks
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
