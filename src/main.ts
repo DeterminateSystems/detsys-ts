@@ -6,6 +6,7 @@ import { SourceDef, constructSourceParameters } from "./sourcedef";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import got, { Got } from "got";
+import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -166,6 +167,26 @@ export class IdsToolbox {
     );
 
     this.recordEvent(`begin_${this.executionPhase}`);
+  }
+
+  addFact(key: string, value: string | boolean): void {
+    this.facts[key] = value;
+  }
+
+  getDiagnosticsUrl(): URL | undefined {
+    return this.actionOptions.diagnosticsUrl;
+  }
+
+  getUniqueId(): string {
+    return (
+      this.identity.run_differentiator ||
+      process.env.RUNNER_TRACKING_ID ||
+      randomUUID()
+    );
+  }
+
+  getCorrelationHashes(): correlation.AnonymizedCorrelationHashes {
+    return this.identity;
   }
 
   recordEvent(eventName: string, context: Record<string, unknown> = {}): void {
