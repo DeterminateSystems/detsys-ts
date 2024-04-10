@@ -1,3 +1,12 @@
+type AnonymizedCorrelationHashes = {
+    correlation_source: string;
+    repository?: string;
+    run?: string;
+    run_differentiator?: string;
+    workflow?: string;
+    groups: Record<string, string | undefined>;
+};
+
 type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 type ExecutionPhase = "main" | "post";
 type ActionOptions = {
@@ -20,6 +29,10 @@ declare class IdsToolbox {
     private events;
     private client;
     constructor(actionOptions: ActionOptions);
+    addFact(key: string, value: string | boolean): void;
+    getDiagnosticsUrl(): URL | undefined;
+    getUniqueId(): string;
+    getCorrelationHashes(): AnonymizedCorrelationHashes;
     recordEvent(eventName: string, context?: Record<string, unknown>): void;
     fetch(): Promise<string>;
     fetchExecutable(): Promise<string>;
