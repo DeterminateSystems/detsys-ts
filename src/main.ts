@@ -185,6 +185,10 @@ export class IdsToolbox {
     );
   }
 
+  getCorrelationHashes(): correlation.AnonymizedCorrelationHashes {
+    return this.identity;
+  }
+
   recordEvent(eventName: string, context: Record<string, unknown> = {}): void {
     this.events.push({
       event_name: `${this.actionOptions.eventPrefix}${eventName}`,
