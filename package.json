@@ -11,7 +11,7 @@
     "format": "prettier --write .",
     "lint": "eslint src/**/*.ts",
     "prebuild": "cp package.json ./src/package.json",
-    "all": "pnpm run check-fmt && pnpm run lint && pnpm run prebuild && pnpm run build"
+    "all": "pnpm run format && pnpm run lint && pnpm run prebuild && pnpm run build"
   },
   "repository": {
     "type": "git",
