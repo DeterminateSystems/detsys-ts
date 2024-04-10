@@ -20,6 +20,9 @@ declare class IdsToolbox {
     private events;
     private client;
     constructor(actionOptions: ActionOptions);
+    addFact(key: string, value: string | boolean): void;
+    getDiagnosticsUrl(): URL | undefined;
+    getUniqueId(): string;
     recordEvent(eventName: string, context?: Record<string, unknown>): void;
     fetch(): Promise<string>;
     fetchExecutable(): Promise<string>;

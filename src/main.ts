@@ -6,13 +6,13 @@ import { SourceDef, constructSourceParameters } from "./sourcedef";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import got, { Got } from "got";
+import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { v4 as uuidV4 } from "uuid";
-import { randomUUID } from "node:crypto";
 
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
@@ -178,7 +178,11 @@ export class IdsToolbox {
   }
 
   getUniqueId(): string {
-    return this.identity.run_differentiator || process.env.RUNNER_TRACKING_ID || randomUUID();
+    return (
+      this.identity.run_differentiator ||
+      process.env.RUNNER_TRACKING_ID ||
+      randomUUID()
+    );
   }
 
   recordEvent(eventName: string, context: Record<string, unknown> = {}): void {
