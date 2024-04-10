@@ -18,12 +18,12 @@ jobs:
         run: nix develop --command pnpm install
       - name: Check formatting
         run: nix develop --command pnpm run check-fmt
+      - name: Run pre-build
+        run: nix develop --command pnpm run prebuild
       - name: Lint
         run: nix develop --command pnpm run lint
       - name: Build
-        run: |
-          nix develop --command pnpm run prebuild
-          nix develop --command pnpm run build
+        run: nix develop --command pnpm run build
       - name: Check git status
         run: git status --porcelain=v1
       - name: Ensure no staged changes
