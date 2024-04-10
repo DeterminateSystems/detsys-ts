@@ -1,4 +1,0 @@
-name: IDSActionTest
-runs:
-  using: "node20"
-  main: "./dist/index.js"

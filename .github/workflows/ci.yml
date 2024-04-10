@@ -12,13 +12,9 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - run: npm install --no-save
-      - run: npm run all
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix develop --command pnpm install
+      - run: nix develop --command pnpm run all
       - run: git status --porcelain=v1
       - run: test $(git status --porcelain=v1 2>/dev/null | wc -l) -eq 0
-  self:
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.
-     

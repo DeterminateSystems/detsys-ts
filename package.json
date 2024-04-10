@@ -1,48 +1,50 @@
 {
-  "name": "idslib",
+  "name": "detsys-ts",
   "version": "1.0.0",
-  "description": "An interface to install.determinate.systems.",
-  "main": "./lib/main.js",
-  "types": "./lib/main.d.ts",
+  "description": "TypeScript goodies for DetSys projects",
+  "main": "./dist/main.cjs",
+  "types": "./dist/main.d.cts",
   "type": "module",
   "scripts": {
-    "build": "tsc",
-    "format": "prettier --write '**/*.ts'",
-    "lint": "eslint src/**/*.ts",
-    "package": "ncc build --license licenses.txt",
-    "all": "npm run build && npm run format && npm run lint && npm run package"
+    "build": "tsup",
+    "format": "prettier --write .",
+    "lint": "pnpm run prebuild && eslint src/**/*.ts",
+    "prebuild": "cp package.json ./src/package.json",
+    "all": "pnpm run format && pnpm run lint && pnpm run build"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/DeterminateSystems/idslib.git"
+    "url": "git+https://github.com/DeterminateSystems/detsys-ts.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/DeterminateSystems/idslib/issues"
+    "url": "https://github.com/DeterminateSystems/detsys-ts/issues"
   },
-  "homepage": "https://github.com/DeterminateSystems/idslib#readme",
+  "homepage": "https://github.com/DeterminateSystems/detsys-ts#readme",
   "dependencies": {
+    "@actions/cache": "^3.2.4",
     "@actions/core": "^1.10.0",
     "@actions/exec": "^1.1.1",
     "@actions/github": "^5.1.1",
-    "@actions/cache": "^3.2.4",
     "fetch-retry": "^5.0.6",
     "got": "^14.2.1",
     "string-argv": "^0.3.2",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "@types/node": "^18.16.3",
+    "@trivago/prettier-plugin-sort-imports": "^4.3.0",
+    "@types/node": "^18.19.30",
     "@types/uuid": "^9.0.8",
     "@typescript-eslint/eslint-plugin": "^7.2.0",
-    "@vercel/ncc": "^0.36.1",
     "eslint": "^8.57.0",
+    "eslint-import-resolver-typescript": "^3.6.1",
     "eslint-plugin-github": "^4.3.6",
     "eslint-plugin-import": "^2.29.1",
     "eslint-plugin-prettier": "^5.0.0-alpha.1",
     "prettier": "^3.0.0",
+    "tsup": "^8.0.2",
     "typescript": "^5.1.6"
   }
 }
