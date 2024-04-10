@@ -7,10 +7,11 @@
   "type": "module",
   "scripts": {
     "build": "tsup",
+    "check-fmt": "prettier --check .",
     "format": "prettier --write .",
-    "lint": "pnpm run prebuild && eslint src/**/*.ts",
+    "lint": "eslint src/**/*.ts",
     "prebuild": "cp package.json ./src/package.json",
-    "all": "pnpm run format && pnpm run lint && pnpm run build"
+    "all": "pnpm run format && pnpm run lint && pnpm run prebuild && pnpm run build"
   },
   "repository": {
     "type": "git",

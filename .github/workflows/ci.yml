@@ -7,14 +7,24 @@ on:
   workflow_dispatch:
 
 jobs:
-  check-dist-up-to-date:
-    name: Check the dist/ folder is up to date
+  checks:
+    name: Run all checks
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
-      - run: nix develop --command pnpm install
-      - run: nix develop --command pnpm run all
-      - run: git status --porcelain=v1
-      - run: test $(git status --porcelain=v1 2>/dev/null | wc -l) -eq 0
+      - name: Install pnpm dependencies
+        run: nix develop --command pnpm install
+      - name: Check formatting
+        run: nix develop --command pnpm run check-fmt
+      - name: Run pre-build
+        run: nix develop --command pnpm run prebuild
+      - name: Lint
+        run: nix develop --command pnpm run lint
+      - name: Build
+        run: nix develop --command pnpm run build
+      - name: Check git status
+        run: git status --porcelain=v1
+      - name: Ensure no staged changes
+        run: test $(git status --porcelain=v1 2>/dev/null | wc -l) -eq 0
