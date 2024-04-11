@@ -33,4 +33,4 @@ jobs:
       - name: Build docs
         run: |
           rm -rf dist
-          pnpm run docs
+          nix develop --command pnpm run docs
