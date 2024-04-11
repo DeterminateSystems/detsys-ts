@@ -17,22 +17,6 @@ import { v4 as uuidV4 } from "uuid";
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 
-const gotClient = got.extend({
-  retry: {
-    limit: 3,
-    methods: ["GET", "HEAD"],
-  },
-  hooks: {
-    beforeRetry: [
-      (error, retryCount) => {
-        actionsCore.info(
-          `Retrying after error ${error.code}, retry #: ${retryCount}`,
-        );
-      },
-    ],
-  },
-});
-
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 export type ExecutionPhase = "main" | "post";
 
@@ -209,7 +193,7 @@ export class IdsToolbox {
       JSON.stringify(this.identity),
     );
 
-    const versionCheckup = await gotClient.head(correlatedUrl);
+    const versionCheckup = await this.client.head(correlatedUrl);
     if (versionCheckup.headers.etag) {
       const v = versionCheckup.headers.etag;
 
@@ -229,7 +213,7 @@ export class IdsToolbox {
     );
 
     const destFile = this.getTemporaryName();
-    const fetchStream = gotClient.stream(versionCheckup.url);
+    const fetchStream = this.client.stream(versionCheckup.url);
 
     await pipeline(
       fetchStream,
@@ -375,7 +359,7 @@ export class IdsToolbox {
     };
 
     try {
-      await gotClient.post(this.actionOptions.diagnosticsUrl, {
+      await this.client.post(this.actionOptions.diagnosticsUrl, {
         json: batch,
       });
     } catch (error) {

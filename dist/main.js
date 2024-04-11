@@ -15,19 +15,6 @@ import { pipeline } from "node:stream/promises";
 import { v4 as uuidV4 } from "uuid";
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
-const gotClient = got.extend({
-    retry: {
-        limit: 3,
-        methods: ["GET", "HEAD"],
-    },
-    hooks: {
-        beforeRetry: [
-            (error, retryCount) => {
-                actionsCore.info(`Retrying after error ${error.code}, retry #: ${retryCount}`);
-            },
-        ],
-    },
-});
 export class IdsToolbox {
     constructor(actionOptions) {
         this.actionOptions = makeOptionsConfident(actionOptions);
@@ -123,7 +110,7 @@ export class IdsToolbox {
         const correlatedUrl = this.getUrl();
         correlatedUrl.searchParams.set("ci", "github");
         correlatedUrl.searchParams.set("correlation", JSON.stringify(this.identity));
-        const versionCheckup = await gotClient.head(correlatedUrl);
+        const versionCheckup = await this.client.head(correlatedUrl);
         if (versionCheckup.headers.etag) {
             const v = versionCheckup.headers.etag;
             actionsCore.debug(`Checking the tool cache for ${this.getUrl()} at ${v}`);
@@ -137,7 +124,7 @@ export class IdsToolbox {
         this.facts["artifact_fetched_from_cache"] = false;
         actionsCore.debug(`No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`);
         const destFile = this.getTemporaryName();
-        const fetchStream = gotClient.stream(versionCheckup.url);
+        const fetchStream = this.client.stream(versionCheckup.url);
         await pipeline(fetchStream, createWriteStream(destFile, {
             encoding: "binary",
             mode: 0o755,
@@ -244,7 +231,7 @@ export class IdsToolbox {
             events: this.events,
         };
         try {
-            await gotClient.post(this.actionOptions.diagnosticsUrl, {
+            await this.client.post(this.actionOptions.diagnosticsUrl, {
                 json: batch,
             });
         }
