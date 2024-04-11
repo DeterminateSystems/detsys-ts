@@ -105,6 +105,7 @@ export class IdsToolbox {
     }
     async executeAsync() {
         try {
+            process.env.DETSYS_CORRELATION = JSON.stringify(this.getCorrelationHashes());
             if (this.executionPhase === "main" && this.hookMain) {
                 await this.hookMain();
             }

@@ -185,6 +185,10 @@ export class IdsToolbox {
 
   private async executeAsync(): Promise<void> {
     try {
+      process.env.DETSYS_CORRELATION = JSON.stringify(
+        this.getCorrelationHashes(),
+      );
+
       if (this.executionPhase === "main" && this.hookMain) {
         await this.hookMain();
       } else if (this.executionPhase === "post" && this.hookPost) {
