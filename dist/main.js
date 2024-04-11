@@ -109,7 +109,6 @@ export class IdsToolbox {
             this.addFact("ended_with_exception", false);
         }
         catch (error) {
-            // ... I want error to always be either Error or string, and `instanceof String` isn't good enough ...
             this.addFact("ended_with_exception", true);
             const reportable = error instanceof Error || typeof error == "string"
                 ? error.toString()
