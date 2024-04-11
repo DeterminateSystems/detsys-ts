@@ -15,6 +15,11 @@ import { pipeline } from "node:stream/promises";
 import { v4 as uuidV4 } from "uuid";
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
+const EVENT_EXCEPTION = "exception";
+const EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
+const EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
+const FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
+const FACT_FINAL_EXCEPTION = "final_exception";
 export class IdsToolbox {
     constructor(actionOptions) {
         this.actionOptions = makeOptionsConfident(actionOptions);
@@ -106,16 +111,16 @@ export class IdsToolbox {
             else if (this.executionPhase === "post" && this.hookPost) {
                 await this.hookPost();
             }
-            this.addFact("ended_with_exception", false);
+            this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
         }
         catch (error) {
-            this.addFact("ended_with_exception", true);
+            this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
             const reportable = error instanceof Error || typeof error == "string"
                 ? error.toString()
                 : JSON.stringify(error);
-            this.addFact("final_exception", reportable);
+            this.addFact(FACT_FINAL_EXCEPTION, reportable);
             actionsCore.setFailed(reportable);
-            this.recordEvent("exception");
+            this.recordEvent(EVENT_EXCEPTION);
         }
         finally {
             await this.complete();
@@ -227,10 +232,10 @@ export class IdsToolbox {
             process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
             delete process.env.GITHUB_WORKSPACE;
             if (await actionsCache.restoreCache([this.actionOptions.name], this.cacheKey(version), [], undefined, true)) {
-                this.recordEvent("artifact_cache_hit");
+                this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
                 return `${tempDir}/${this.actionOptions.name}`;
             }
-            this.recordEvent("artifact_cache_miss");
+            this.recordEvent(EVENT_ARTIFACT_CACHE_MISS);
             return undefined;
         }
         finally {
@@ -250,7 +255,7 @@ export class IdsToolbox {
             process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
             delete process.env.GITHUB_WORKSPACE;
             await actionsCache.saveCache([this.actionOptions.name], this.cacheKey(version), undefined, true);
-            this.recordEvent("artifact_cache_hit");
+            this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
         }
         finally {
             process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
