@@ -28,3 +28,9 @@ jobs:
         run: git status --porcelain=v1
       - name: Ensure no staged changes
         run: test $(git status --porcelain=v1 2>/dev/null | wc -l) -eq 0
+
+      # Docs are hosted on Netlify but we should get feedback on that here in Actions as well
+      - name: Build docs
+        run: |
+          rm -rf dist
+          pnpm run docs
