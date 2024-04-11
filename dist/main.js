@@ -83,9 +83,6 @@ export class IdsToolbox {
         }
         this.sourceParameters = constructSourceParameters(this.actionOptions.legacySourcePrefix);
         this.recordEvent(`begin_${this.executionPhase}`);
-        this.onMain(async () => {
-            await this.getCachedVersion("123");
-        });
     }
     onMain(callback) {
         this.hookMain = callback;

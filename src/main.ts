@@ -157,10 +157,6 @@ export class IdsToolbox {
     );
 
     this.recordEvent(`begin_${this.executionPhase}`);
-
-    this.onMain(async () => {
-      await this.getCachedVersion("123");
-    });
   }
 
   onMain(callback: () => Promise<void>): void {
