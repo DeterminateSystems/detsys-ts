@@ -11,7 +11,7 @@
     "format": "prettier --write .",
     "lint": "eslint src/**/*.ts",
     "prebuild": "cp package.json ./src/package.json",
-    "docs": "typedoc src/main.ts",
+    "docs": "pnpm run prebuild && typedoc src/main.ts",
     "all": "pnpm run format && pnpm run prebuild && pnpm run lint && pnpm run build"
   },
   "repository": {
