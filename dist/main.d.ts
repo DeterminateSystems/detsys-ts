@@ -1,15 +1,7 @@
-type AnonymizedCorrelationHashes = {
-    correlation_source: string;
-    repository?: string;
-    run?: string;
-    run_differentiator?: string;
-    workflow?: string;
-    groups: Record<string, string | undefined>;
-};
-
-type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
-type ExecutionPhase = "main" | "post";
-type ActionOptions = {
+import * as correlation from "./correlation.js";
+export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
+export type ExecutionPhase = "main" | "post";
+export type ActionOptions = {
     name: string;
     idsProjectName?: string;
     eventPrefix?: string;
@@ -17,7 +9,7 @@ type ActionOptions = {
     legacySourcePrefix?: string;
     diagnosticsUrl?: URL | null;
 };
-declare class IdsToolbox {
+export declare class IdsToolbox {
     private identity;
     private actionOptions;
     private archOs;
@@ -32,7 +24,7 @@ declare class IdsToolbox {
     addFact(key: string, value: string | boolean): void;
     getDiagnosticsUrl(): URL | undefined;
     getUniqueId(): string;
-    getCorrelationHashes(): AnonymizedCorrelationHashes;
+    getCorrelationHashes(): correlation.AnonymizedCorrelationHashes;
     recordEvent(eventName: string, context?: Record<string, unknown>): void;
     fetch(): Promise<string>;
     fetchExecutable(): Promise<string>;
@@ -44,5 +36,3 @@ declare class IdsToolbox {
     private submitEvents;
     private getTemporaryName;
 }
-
-export { type ActionOptions, type ExecutionPhase, type FetchSuffixStyle, IdsToolbox };

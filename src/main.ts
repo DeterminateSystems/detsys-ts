@@ -1,8 +1,8 @@
-import * as correlation from "./correlation";
+import * as correlation from "./correlation.js";
 // eslint-disable-next-line import/extensions
 import pkg from "./package.json";
-import * as platform from "./platform";
-import { SourceDef, constructSourceParameters } from "./sourcedef";
+import * as platform from "./platform.js";
+import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import got, { Got } from "got";
