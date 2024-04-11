@@ -17,20 +17,23 @@ async function main() {
             name: "nix-installer",
             fetchStyle: "nix-style",
         });
-        toolbox.recordEvent("my_event");
-        toolbox.recordEvent("my_next_event");
-        await toolbox.fetch();
-        await toolbox.complete();
+        toolbox.onMain(async () => {
+            toolbox.recordEvent("my_event");
+            toolbox.recordEvent("my_next_event");
+            await toolbox.fetch();
+        });
+        toolbox.execute();
     }
     {
         const toolbox = new IdsToolbox({
             name: "magic-nix-cache",
             fetchStyle: "gh-env-style",
         });
-        toolbox.recordEvent("cache_hit");
-        toolbox.recordEvent("cache_miss");
-        //await toolbox.fetch();
-        await toolbox.complete();
+        toolbox.onMain(async () => {
+            toolbox.recordEvent("cache_hit");
+            toolbox.recordEvent("cache_miss");
+        });
+        toolbox.execute();
     }
 }
 await main();

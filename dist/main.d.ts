@@ -20,7 +20,13 @@ export declare class IdsToolbox {
     private facts;
     private events;
     private client;
+    private hookMain?;
+    private hookPost?;
     constructor(actionOptions: ActionOptions);
+    onMain(callback: () => Promise<void>): void;
+    onPost(callback: () => Promise<void>): void;
+    execute(): void;
+    private executeAsync;
     addFact(key: string, value: string | boolean): void;
     getDiagnosticsUrl(): URL | undefined;
     getUniqueId(): string;
@@ -28,7 +34,7 @@ export declare class IdsToolbox {
     recordEvent(eventName: string, context?: Record<string, unknown>): void;
     fetch(): Promise<string>;
     fetchExecutable(): Promise<string>;
-    complete(): Promise<void>;
+    private complete;
     private getUrl;
     private cacheKey;
     private getCachedVersion;

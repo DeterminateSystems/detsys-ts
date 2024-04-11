@@ -17,21 +17,12 @@ import { v4 as uuidV4 } from "uuid";
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 
-const gotClient = got.extend({
-  retry: {
-    limit: 3,
-    methods: ["GET", "HEAD"],
-  },
-  hooks: {
-    beforeRetry: [
-      (error, retryCount) => {
-        actionsCore.info(
-          `Retrying after error ${error.code}, retry #: ${retryCount}`,
-        );
-      },
-    ],
-  },
-});
+const EVENT_EXCEPTION = "exception";
+const EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
+const EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
+
+const FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
+const FACT_FINAL_EXCEPTION = "final_exception";
 
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 export type ExecutionPhase = "main" | "post";
@@ -92,8 +83,14 @@ export class IdsToolbox {
   private events: DiagnosticEvent[];
   private client: Got;
 
+  private hookMain?: () => Promise<void>;
+  private hookPost?: () => Promise<void>;
+
   constructor(actionOptions: ActionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
+    this.hookMain = undefined;
+    this.hookPost = undefined;
+
     this.events = [];
     this.client = got.extend({
       retry: {
@@ -169,6 +166,47 @@ export class IdsToolbox {
     this.recordEvent(`begin_${this.executionPhase}`);
   }
 
+  onMain(callback: () => Promise<void>): void {
+    this.hookMain = callback;
+  }
+
+  onPost(callback: () => Promise<void>): void {
+    this.hookPost = callback;
+  }
+
+  execute(): void {
+    // eslint-disable-next-line github/no-then
+    this.executeAsync().catch((error: Error) => {
+      // eslint-disable-next-line no-console
+      console.log(error);
+      process.exitCode = 1;
+    });
+  }
+
+  private async executeAsync(): Promise<void> {
+    try {
+      if (this.executionPhase === "main" && this.hookMain) {
+        await this.hookMain();
+      } else if (this.executionPhase === "post" && this.hookPost) {
+        await this.hookPost();
+      }
+      this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
+    } catch (error) {
+      this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
+
+      const reportable =
+        error instanceof Error || typeof error == "string"
+          ? error.toString()
+          : JSON.stringify(error);
+
+      this.addFact(FACT_FINAL_EXCEPTION, reportable);
+      actionsCore.setFailed(reportable);
+      this.recordEvent(EVENT_EXCEPTION);
+    } finally {
+      await this.complete();
+    }
+  }
+
   addFact(key: string, value: string | boolean): void {
     this.facts[key] = value;
   }
@@ -209,7 +247,7 @@ export class IdsToolbox {
       JSON.stringify(this.identity),
     );
 
-    const versionCheckup = await gotClient.head(correlatedUrl);
+    const versionCheckup = await this.client.head(correlatedUrl);
     if (versionCheckup.headers.etag) {
       const v = versionCheckup.headers.etag;
 
@@ -229,7 +267,7 @@ export class IdsToolbox {
     );
 
     const destFile = this.getTemporaryName();
-    const fetchStream = gotClient.stream(versionCheckup.url);
+    const fetchStream = this.client.stream(versionCheckup.url);
 
     await pipeline(
       fetchStream,
@@ -258,7 +296,7 @@ export class IdsToolbox {
     return binaryPath;
   }
 
-  async complete(): Promise<void> {
+  private async complete(): Promise<void> {
     this.recordEvent(`complete_${this.executionPhase}`);
     await this.submitEvents();
   }
@@ -316,11 +354,11 @@ export class IdsToolbox {
           true,
         )
       ) {
-        this.recordEvent("artifact_cache_hit");
+        this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
         return `${tempDir}/${this.actionOptions.name}`;
       }
 
-      this.recordEvent("artifact_cache_miss");
+      this.recordEvent(EVENT_ARTIFACT_CACHE_MISS);
       return undefined;
     } finally {
       process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
@@ -351,7 +389,7 @@ export class IdsToolbox {
         undefined,
         true,
       );
-      this.recordEvent("artifact_cache_hit");
+      this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
     } finally {
       process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
       delete process.env.GITHUB_WORKSPACE_BACKUP;
@@ -375,7 +413,7 @@ export class IdsToolbox {
     };
 
     try {
-      await gotClient.post(this.actionOptions.diagnosticsUrl, {
+      await this.client.post(this.actionOptions.diagnosticsUrl, {
         json: batch,
       });
     } catch (error) {
