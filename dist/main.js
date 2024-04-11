@@ -18,6 +18,8 @@ const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 export class IdsToolbox {
     constructor(actionOptions) {
         this.actionOptions = makeOptionsConfident(actionOptions);
+        this.hookMain = undefined;
+        this.hookPost = undefined;
         this.events = [];
         this.client = got.extend({
             retry: {
@@ -81,6 +83,47 @@ export class IdsToolbox {
         }
         this.sourceParameters = constructSourceParameters(this.actionOptions.legacySourcePrefix);
         this.recordEvent(`begin_${this.executionPhase}`);
+        this.onMain(async () => {
+            await this.getCachedVersion("123");
+        });
+    }
+    onMain(callback) {
+        this.hookMain = callback;
+    }
+    onPost(callback) {
+        this.hookPost = callback;
+    }
+    execute() {
+        // eslint-disable-next-line github/no-then
+        this.executeAsync().catch((error) => {
+            // eslint-disable-next-line no-console
+            console.log(error);
+            process.exitCode = 1;
+        });
+    }
+    async executeAsync() {
+        try {
+            if (this.executionPhase === "main" && this.hookMain) {
+                await this.hookMain();
+            }
+            else if (this.executionPhase === "post" && this.hookPost) {
+                await this.hookPost();
+            }
+            this.addFact("ended_with_exception", false);
+        }
+        catch (error) {
+            // ... I want error to always be either Error or string, and `instanceof String` isn't good enough ...
+            this.addFact("ended_with_exception", true);
+            const reportable = error instanceof Error || typeof error == "string"
+                ? error.toString()
+                : JSON.stringify(error);
+            this.addFact("final_exception", reportable);
+            actionsCore.setFailed(reportable);
+            this.recordEvent("exception");
+        }
+        finally {
+            await this.complete();
+        }
     }
     addFact(key, value) {
         this.facts[key] = value;

@@ -76,8 +76,14 @@ export class IdsToolbox {
   private events: DiagnosticEvent[];
   private client: Got;
 
+  private hookMain?: () => Promise<void>;
+  private hookPost?: () => Promise<void>;
+
   constructor(actionOptions: ActionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
+    this.hookMain = undefined;
+    this.hookPost = undefined;
+
     this.events = [];
     this.client = got.extend({
       retry: {
@@ -151,6 +157,52 @@ export class IdsToolbox {
     );
 
     this.recordEvent(`begin_${this.executionPhase}`);
+
+    this.onMain(async () => {
+      await this.getCachedVersion("123");
+    });
+  }
+
+  onMain(callback: () => Promise<void>): void {
+    this.hookMain = callback;
+  }
+
+  onPost(callback: () => Promise<void>): void {
+    this.hookPost = callback;
+  }
+
+  execute(): void {
+    // eslint-disable-next-line github/no-then
+    this.executeAsync().catch((error: Error) => {
+      // eslint-disable-next-line no-console
+      console.log(error);
+      process.exitCode = 1;
+    });
+  }
+
+  private async executeAsync(): Promise<void> {
+    try {
+      if (this.executionPhase === "main" && this.hookMain) {
+        await this.hookMain();
+      } else if (this.executionPhase === "post" && this.hookPost) {
+        await this.hookPost();
+      }
+      this.addFact("ended_with_exception", false);
+    } catch (error) {
+      // ... I want error to always be either Error or string, and `instanceof String` isn't good enough ...
+      this.addFact("ended_with_exception", true);
+
+      const reportable =
+        error instanceof Error || typeof error == "string"
+          ? error.toString()
+          : JSON.stringify(error);
+
+      this.addFact("final_exception", reportable);
+      actionsCore.setFailed(reportable);
+      this.recordEvent("exception");
+    } finally {
+      await this.complete();
+    }
   }
 
   addFact(key: string, value: string | boolean): void {
@@ -242,7 +294,7 @@ export class IdsToolbox {
     return binaryPath;
   }
 
-  async complete(): Promise<void> {
+  private async complete(): Promise<void> {
     this.recordEvent(`complete_${this.executionPhase}`);
     await this.submitEvents();
   }
