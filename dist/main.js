@@ -120,7 +120,10 @@ export class IdsToolbox {
                 ? error.toString()
                 : JSON.stringify(error);
             this.addFact(FACT_FINAL_EXCEPTION, reportable);
-            if (this.executionPhase !== "post") {
+            if (this.executionPhase === "post") {
+                actionsCore.warning(reportable);
+            }
+            else {
                 actionsCore.setFailed(reportable);
             }
             this.recordEvent(EVENT_EXCEPTION);

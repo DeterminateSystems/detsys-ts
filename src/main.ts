@@ -205,7 +205,9 @@ export class IdsToolbox {
 
       this.addFact(FACT_FINAL_EXCEPTION, reportable);
 
-      if (this.executionPhase !== "post") {
+      if (this.executionPhase === "post") {
+        actionsCore.warning(reportable);
+      } else {
         actionsCore.setFailed(reportable);
       }
 
