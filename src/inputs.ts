@@ -1,10 +1,10 @@
 import * as actionsCore from "@actions/core";
 
-const actionInputBool = (name: string): boolean => {
+const getBool = (name: string): boolean => {
   return actionsCore.getBooleanInput(name);
 };
 
-const actionInputMultilineStringOrNull = (name: string): string[] | null => {
+const getMultilineStringOrNull = (name: string): string[] | null => {
   const value = actionsCore.getMultilineInput(name);
   if (value.length === 0) {
     return null;
@@ -13,7 +13,7 @@ const actionInputMultilineStringOrNull = (name: string): string[] | null => {
   }
 };
 
-const actionInputNumberOrNull = (name: string): number | null => {
+const getNumberOrNull = (name: string): number | null => {
   const value = actionsCore.getInput(name);
   if (value === "") {
     return null;
@@ -22,11 +22,7 @@ const actionInputNumberOrNull = (name: string): number | null => {
   }
 };
 
-const actionInputString = (name: string): string => {
-  return actionsCore.getInput(name);
-};
-
-const actionInputStringOrNull = (name: string): string | null => {
+const getStringOrNull = (name: string): string | null => {
   const value = actionsCore.getInput(name);
   if (value === "") {
     return null;
@@ -35,7 +31,7 @@ const actionInputStringOrNull = (name: string): string | null => {
   }
 };
 
-const actionInputStringOrUndefined = (name: string): string | undefined => {
+const getStringOrUndefined = (name: string): string | undefined => {
   const value = actionsCore.getInput(name);
   if (value === "") {
     return undefined;
@@ -45,10 +41,9 @@ const actionInputStringOrUndefined = (name: string): string | undefined => {
 };
 
 export {
-  actionInputBool,
-  actionInputMultilineStringOrNull,
-  actionInputNumberOrNull,
-  actionInputString,
-  actionInputStringOrNull,
-  actionInputStringOrUndefined,
+  getBool,
+  getMultilineStringOrNull,
+  getNumberOrNull,
+  getStringOrNull,
+  getStringOrUndefined,
 };

@@ -42,3 +42,4 @@ export declare class IdsToolbox {
     private submitEvents;
     private getTemporaryName;
 }
+export * as inputs from "./inputs.js";

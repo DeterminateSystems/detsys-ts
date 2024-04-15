@@ -536,3 +536,6 @@ function mungeDiagnosticEndpoint(inputUrl: URL): URL {
 
   return inputUrl;
 }
+
+// Public exports from other files
+export * as inputs from "./inputs.js";

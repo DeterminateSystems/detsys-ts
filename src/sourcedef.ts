@@ -1,4 +1,4 @@
-import { actionInputStringOrUndefined } from "./helpers.js";
+import { getStringOrUndefined } from "./inputs.js";
 import * as actionsCore from "@actions/core";
 
 export type SourceDef = {
@@ -12,7 +12,7 @@ export type SourceDef = {
 
 export function constructSourceParameters(legacyPrefix?: string): SourceDef {
   const noisilyGetInput = (suffix: string): string | undefined => {
-    const preferredInput = actionInputStringOrUndefined(`source-${suffix}`);
+    const preferredInput = getStringOrUndefined(`source-${suffix}`);
 
     if (!legacyPrefix) {
       return preferredInput;
@@ -20,9 +20,7 @@ export function constructSourceParameters(legacyPrefix?: string): SourceDef {
 
     // Remaining is for handling cases where the legacy prefix
     // should be examined.
-    const legacyInput = actionInputStringOrUndefined(
-      `${legacyPrefix}-${suffix}`,
-    );
+    const legacyInput = getStringOrUndefined(`${legacyPrefix}-${suffix}`);
 
     if (preferredInput && legacyInput) {
       actionsCore.warning(
