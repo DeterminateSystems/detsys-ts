@@ -47,3 +47,4 @@ export declare class IdsToolbox {
     private getTemporaryName;
 }
 export * as inputs from "./inputs.js";
+export * as platform from "./platform.js";

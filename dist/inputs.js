@@ -5,18 +5,12 @@
 import * as actionsCore from "@actions/core";
 /**
  * Get a Boolean input from the Action's configuration by name.
- *
- * @param name
- * @returns boolean
  */
 const getBool = (name) => {
     return actionsCore.getBooleanInput(name);
 };
 /**
  * Get a multi-line string input from the Action's configuration by name or return `null` if not set.
- *
- * @param name
- * @returns string[] | null
  */
 const getMultilineStringOrNull = (name) => {
     const value = actionsCore.getMultilineInput(name);
@@ -29,9 +23,6 @@ const getMultilineStringOrNull = (name) => {
 };
 /**
  * Get a number input from the Action's configuration by name or return `null` if not set.
- *
- * @param name
- * @returns number | null
  */
 const getNumberOrNull = (name) => {
     const value = actionsCore.getInput(name);
@@ -44,18 +35,12 @@ const getNumberOrNull = (name) => {
 };
 /**
  * Get a string input from the Action's configuration.
- *
- * @param name
- * @returns string
  */
 const getString = (name) => {
     return actionsCore.getInput(name);
 };
 /**
  * Get a string input from the Action's configuration by name or return `null` if not set.
- *
- * @param name
- * @returns string | null
  */
 const getStringOrNull = (name) => {
     const value = actionsCore.getInput(name);
@@ -68,9 +53,6 @@ const getStringOrNull = (name) => {
 };
 /**
  * Get a string input from the Action's configuration by name or return `undefined` if not set.
- *
- * @param name
- * @returns string | undefined
  */
 const getStringOrUndefined = (name) => {
     const value = actionsCore.getInput(name);

@@ -6,9 +6,6 @@ import * as actionsCore from "@actions/core";
 
 /**
  * Get a Boolean input from the Action's configuration by name.
- *
- * @param name
- * @returns boolean
  */
 const getBool = (name: string): boolean => {
   return actionsCore.getBooleanInput(name);
@@ -16,9 +13,6 @@ const getBool = (name: string): boolean => {
 
 /**
  * Get a multi-line string input from the Action's configuration by name or return `null` if not set.
- *
- * @param name
- * @returns string[] | null
  */
 const getMultilineStringOrNull = (name: string): string[] | null => {
   const value = actionsCore.getMultilineInput(name);
@@ -31,9 +25,6 @@ const getMultilineStringOrNull = (name: string): string[] | null => {
 
 /**
  * Get a number input from the Action's configuration by name or return `null` if not set.
- *
- * @param name
- * @returns number | null
  */
 const getNumberOrNull = (name: string): number | null => {
   const value = actionsCore.getInput(name);
@@ -46,9 +37,6 @@ const getNumberOrNull = (name: string): number | null => {
 
 /**
  * Get a string input from the Action's configuration.
- *
- * @param name
- * @returns string
  */
 const getString = (name: string): string => {
   return actionsCore.getInput(name);
@@ -56,9 +44,6 @@ const getString = (name: string): string => {
 
 /**
  * Get a string input from the Action's configuration by name or return `null` if not set.
- *
- * @param name
- * @returns string | null
  */
 const getStringOrNull = (name: string): string | null => {
   const value = actionsCore.getInput(name);
@@ -71,9 +56,6 @@ const getStringOrNull = (name: string): string | null => {
 
 /**
  * Get a string input from the Action's configuration by name or return `undefined` if not set.
- *
- * @param name
- * @returns string | undefined
  */
 const getStringOrUndefined = (name: string): string | undefined => {
   const value = actionsCore.getInput(name);

@@ -374,3 +374,4 @@ function mungeDiagnosticEndpoint(inputUrl) {
 }
 // Public exports from other files
 export * as inputs from "./inputs.js";
+export * as platform from "./platform.js";
