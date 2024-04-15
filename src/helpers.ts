@@ -35,10 +35,20 @@ const actionInputStringOrNull = (name: string): string | null => {
   }
 };
 
+const actionInputStringOrUndefined = (name: string): string | undefined => {
+  const value = actionsCore.getInput(name);
+  if (value === "") {
+    return undefined;
+  } else {
+    return value;
+  }
+};
+
 export {
   actionInputBool,
   actionInputMultilineStringOrNull,
   actionInputNumberOrNull,
   actionInputString,
   actionInputStringOrNull,
+  actionInputStringOrUndefined,
 };

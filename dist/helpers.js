@@ -20,6 +20,9 @@ const actionInputNumberOrNull = (name) => {
         return Number(value);
     }
 };
+const actionInputString = (name) => {
+    return actionsCore.getInput(name);
+};
 const actionInputStringOrNull = (name) => {
     const value = actionsCore.getInput(name);
     if (value === "") {
@@ -29,4 +32,13 @@ const actionInputStringOrNull = (name) => {
         return value;
     }
 };
-export { actionInputBool, actionInputMultilineStringOrNull, actionInputNumberOrNull, actionInputStringOrNull, };
+const actionInputStringOrUndefined = (name) => {
+    const value = actionsCore.getInput(name);
+    if (value === "") {
+        return undefined;
+    }
+    else {
+        return value;
+    }
+};
+export { actionInputBool, actionInputMultilineStringOrNull, actionInputNumberOrNull, actionInputString, actionInputStringOrNull, actionInputStringOrUndefined, };
