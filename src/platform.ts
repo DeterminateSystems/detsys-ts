@@ -1,5 +1,12 @@
+/**
+ * @packageDocumentation
+ * Helpers for determining system attributes of the current runner.
+ */
 import * as actionsCore from "@actions/core";
 
+/**
+ * Get the current architecture plus OS. Examples include `X64-Linux` and `ARM64-macOS`.
+ */
 export function getArchOs(): string {
   const envArch = process.env.RUNNER_ARCH;
   const envOs = process.env.RUNNER_OS;
@@ -14,6 +21,9 @@ export function getArchOs(): string {
   }
 }
 
+/**
+ * Get the current Nix system. Examples include `x86_64-linux` and `aarch64-darwin`.
+ */
 export function getNixPlatform(archOs: string): string {
   const archOsMap: Map<string, string> = new Map([
     ["X64-macOS", "x86_64-darwin"],

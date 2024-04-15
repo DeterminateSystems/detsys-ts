@@ -1,3 +1,7 @@
+/**
+ * @packageDocumentation
+ * Determinate Systems' TypeScript library for creating GitHub Actions logic.
+ */
 import * as correlation from "./correlation.js";
 // eslint-disable-next-line import/extensions
 import pkg from "./package.json";
@@ -368,3 +372,6 @@ function mungeDiagnosticEndpoint(inputUrl) {
     }
     return inputUrl;
 }
+// Public exports from other files
+export * as inputs from "./inputs.js";
+export * as platform from "./platform.js";
