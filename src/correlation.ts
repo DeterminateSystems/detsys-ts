@@ -1,6 +1,8 @@
 import * as actionsCore from "@actions/core";
 import { createHash } from "node:crypto";
 
+const OPTIONAL_VARIABLES = ["INVOCATION_ID"];
+
 export type AnonymizedCorrelationHashes = {
   correlation_source: string;
   repository?: string;
@@ -59,6 +61,7 @@ export function identify(projectName: string): AnonymizedCorrelationHashes {
       "GITHUB_RUN_ID",
       "GITHUB_RUN_NUMBER",
       "GITHUB_RUN_ATTEMPT",
+      "INVOCATION_ID",
     ]),
     groups: {
       ci: "github-actions",
@@ -84,16 +87,24 @@ function hashEnvironmentVariables(
   const hash = createHash("sha256");
 
   for (const varName of variables) {
-    const value = process.env[varName];
+    let value = process.env[varName];
+
     if (value === undefined) {
-      actionsCore.debug(
-        `Environment variable not set: ${varName} -- can't generate the requested identity`,
-      );
-      return undefined;
-    } else {
-      hash.update(value);
-      hash.update("\0");
+      if (OPTIONAL_VARIABLES.includes(varName)) {
+        actionsCore.debug(
+          `Optional environment variable not set: ${varName} -- substituting with the variable name`,
+        );
+        value = varName;
+      } else {
+        actionsCore.debug(
+          `Environment variable not set: ${varName} -- can't generate the requested identity`,
+        );
+        return undefined;
+      }
     }
+
+    hash.update(value);
+    hash.update("\0");
   }
 
   return `${prefix}-${hash.digest("hex")}`;
