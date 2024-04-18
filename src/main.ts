@@ -459,7 +459,7 @@ export class IdsToolbox {
 
     switch (this.actionOptions.requireNix) {
       case "fail":
-        actionsCore.error(
+        actionsCore.setFailed(
           "This action can only be used when Nix is installed." +
             " Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.",
         );

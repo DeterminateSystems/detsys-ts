@@ -306,7 +306,7 @@ export class IdsToolbox {
         actionsCore.saveState("idstoolbox_nix_not_found", "not-found");
         switch (this.actionOptions.requireNix) {
             case "fail":
-                actionsCore.error("This action can only be used when Nix is installed." +
+                actionsCore.setFailed("This action can only be used when Nix is installed." +
                     " Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.");
                 break;
             case "warn":
