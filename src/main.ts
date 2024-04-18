@@ -30,6 +30,7 @@ const FACT_FINAL_EXCEPTION = "final_exception";
 
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 export type ExecutionPhase = "main" | "post";
+export type NixRequirementHandling = "fail" | "warn" | "ignore";
 
 export type ActionOptions = {
   // Name of the project generally, and the name of the binary on disk.
@@ -52,7 +53,7 @@ export type ActionOptions = {
   // Check if Nix is installed before running this action.
   // If Nix isn't installed, this action will not fail, and will instead do nothing.
   // The action will emit a user-visible warning instructing them to install Nix.
-  requireNix: boolean;
+  requireNix: NixRequirementHandling;
 
   // The URL to send diagnostics events to.
   // Specifically:
@@ -69,7 +70,7 @@ type ConfidentActionOptions = {
   eventPrefix: string;
   fetchStyle: FetchSuffixStyle;
   legacySourcePrefix?: string;
-  requireNix: boolean;
+  requireNix: NixRequirementHandling;
   diagnosticsUrl?: URL;
 };
 
@@ -439,24 +440,39 @@ export class IdsToolbox {
     }
     this.addFact("nix_location", nixLocation || "");
 
+    if (this.actionOptions.requireNix === "ignore") {
+      return true;
+    }
+
     const currentNotFoundState = actionsCore.getState(
       "idstoolbox_nix_not_found",
     );
-    if (this.actionOptions.requireNix && currentNotFoundState === "not-found") {
+    if (currentNotFoundState === "not-found") {
       // It was previously not found, so don't run subsequent actions
       return false;
     }
 
-    if (this.actionOptions.requireNix && nixLocation === undefined) {
-      actionsCore.warning(
-        "This action is in no-op mode because Nix is not installed." +
-          " Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.",
-      );
-      actionsCore.saveState("idstoolbox_nix_not_found", "not-found");
-      return false;
+    if (nixLocation !== undefined) {
+      return true;
+    }
+    actionsCore.saveState("idstoolbox_nix_not_found", "not-found");
+
+    switch (this.actionOptions.requireNix) {
+      case "fail":
+        actionsCore.error(
+          "This action can only be used when Nix is installed." +
+            " Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.",
+        );
+        break;
+      case "warn":
+        actionsCore.warning(
+          "This action is in no-op mode because Nix is not installed." +
+            " Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.",
+        );
+        break;
     }
 
-    return true;
+    return false;
   }
 
   private async submitEvents(): Promise<void> {

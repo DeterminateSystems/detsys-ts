@@ -292,18 +292,29 @@ export class IdsToolbox {
             }
         }
         this.addFact("nix_location", nixLocation || "");
+        if (this.actionOptions.requireNix === "ignore") {
+            return true;
+        }
         const currentNotFoundState = actionsCore.getState("idstoolbox_nix_not_found");
-        if (this.actionOptions.requireNix && currentNotFoundState === "not-found") {
+        if (currentNotFoundState === "not-found") {
             // It was previously not found, so don't run subsequent actions
             return false;
         }
-        if (this.actionOptions.requireNix && nixLocation === undefined) {
-            actionsCore.warning("This action is in no-op mode because Nix is not installed." +
-                " Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.");
-            actionsCore.saveState("idstoolbox_nix_not_found", "not-found");
-            return false;
+        if (nixLocation !== undefined) {
+            return true;
         }
-        return true;
+        actionsCore.saveState("idstoolbox_nix_not_found", "not-found");
+        switch (this.actionOptions.requireNix) {
+            case "fail":
+                actionsCore.error("This action can only be used when Nix is installed." +
+                    " Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.");
+                break;
+            case "warn":
+                actionsCore.warning("This action is in no-op mode because Nix is not installed." +
+                    " Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.");
+                break;
+        }
+        return false;
     }
     async submitEvents() {
         if (!this.actionOptions.diagnosticsUrl) {

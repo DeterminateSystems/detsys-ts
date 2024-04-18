@@ -16,7 +16,7 @@ async function main() {
         const toolbox = new IdsToolbox({
             name: "nix-installer",
             fetchStyle: "nix-style",
-            requireNix: false,
+            requireNix: "warn",
         });
         toolbox.onMain(async () => {
             toolbox.recordEvent("my_event");
@@ -29,7 +29,7 @@ async function main() {
         const toolbox = new IdsToolbox({
             name: "magic-nix-cache",
             fetchStyle: "gh-env-style",
-            requireNix: false,
+            requireNix: "warn",
         });
         toolbox.onMain(async () => {
             toolbox.recordEvent("cache_hit");
