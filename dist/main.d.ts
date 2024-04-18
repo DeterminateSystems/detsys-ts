@@ -5,12 +5,14 @@
 import * as correlation from "./correlation.js";
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 export type ExecutionPhase = "main" | "post";
+export type NixRequirementHandling = "fail" | "warn" | "ignore";
 export type ActionOptions = {
     name: string;
     idsProjectName?: string;
     eventPrefix?: string;
     fetchStyle: FetchSuffixStyle;
     legacySourcePrefix?: string;
+    requireNix: NixRequirementHandling;
     diagnosticsUrl?: URL | null;
 };
 export declare class IdsToolbox {
@@ -43,6 +45,7 @@ export declare class IdsToolbox {
     private cacheKey;
     private getCachedVersion;
     private saveCachedVersion;
+    private preflightRequireNix;
     private submitEvents;
     private getTemporaryName;
 }

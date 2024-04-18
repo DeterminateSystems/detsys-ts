@@ -30,6 +30,7 @@ const FACT_FINAL_EXCEPTION = "final_exception";
 
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 export type ExecutionPhase = "main" | "post";
+export type NixRequirementHandling = "fail" | "warn" | "ignore";
 
 export type ActionOptions = {
   // Name of the project generally, and the name of the binary on disk.
@@ -49,6 +50,11 @@ export type ActionOptions = {
   // Users who configure legacySourcePrefix will get warnings asking them to change to `source-*`.
   legacySourcePrefix?: string;
 
+  // Check if Nix is installed before running this action.
+  // If Nix isn't installed, this action will not fail, and will instead do nothing.
+  // The action will emit a user-visible warning instructing them to install Nix.
+  requireNix: NixRequirementHandling;
+
   // The URL to send diagnostics events to.
   // Specifically:
   //  * `undefined` -> Attempt to read the `diagnostic-enpdoint` action input, and calculate the default diagnostics URL for IDS from there.
@@ -64,6 +70,7 @@ type ConfidentActionOptions = {
   eventPrefix: string;
   fetchStyle: FetchSuffixStyle;
   legacySourcePrefix?: string;
+  requireNix: NixRequirementHandling;
   diagnosticsUrl?: URL;
 };
 
@@ -192,6 +199,11 @@ export class IdsToolbox {
       process.env.DETSYS_CORRELATION = JSON.stringify(
         this.getCorrelationHashes(),
       );
+
+      if (!(await this.preflightRequireNix())) {
+        this.recordEvent("preflight-require-nix-denied");
+        return;
+      }
 
       if (this.executionPhase === "main" && this.hookMain) {
         await this.hookMain();
@@ -411,6 +423,58 @@ export class IdsToolbox {
     }
   }
 
+  private async preflightRequireNix(): Promise<boolean> {
+    let nixLocation: string | undefined;
+
+    const pathParts = (process.env["PATH"] || "").split(":");
+    for (const location of pathParts) {
+      const candidateNix = path.join(location, "nix");
+
+      try {
+        await fs.access(candidateNix, fs.constants.X_OK);
+        actionsCore.debug(`Found Nix at ${candidateNix}`);
+        nixLocation = candidateNix;
+      } catch {
+        actionsCore.debug(`Nix not at ${candidateNix}`);
+      }
+    }
+    this.addFact("nix_location", nixLocation || "");
+
+    if (this.actionOptions.requireNix === "ignore") {
+      return true;
+    }
+
+    const currentNotFoundState = actionsCore.getState(
+      "idstoolbox_nix_not_found",
+    );
+    if (currentNotFoundState === "not-found") {
+      // It was previously not found, so don't run subsequent actions
+      return false;
+    }
+
+    if (nixLocation !== undefined) {
+      return true;
+    }
+    actionsCore.saveState("idstoolbox_nix_not_found", "not-found");
+
+    switch (this.actionOptions.requireNix) {
+      case "fail":
+        actionsCore.setFailed(
+          "This action can only be used when Nix is installed." +
+            " Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.",
+        );
+        break;
+      case "warn":
+        actionsCore.warning(
+          "This action is in no-op mode because Nix is not installed." +
+            " Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.",
+        );
+        break;
+    }
+
+    return false;
+  }
+
   private async submitEvents(): Promise<void> {
     if (!this.actionOptions.diagnosticsUrl) {
       actionsCore.debug(
@@ -453,6 +517,7 @@ function makeOptionsConfident(
     eventPrefix: actionOptions.eventPrefix || "action:",
     fetchStyle: actionOptions.fetchStyle,
     legacySourcePrefix: actionOptions.legacySourcePrefix,
+    requireNix: actionOptions.requireNix,
     diagnosticsUrl: determineDiagnosticsUrl(
       idsProjectName,
       actionOptions.diagnosticsUrl,

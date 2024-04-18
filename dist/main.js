@@ -110,6 +110,10 @@ export class IdsToolbox {
     async executeAsync() {
         try {
             process.env.DETSYS_CORRELATION = JSON.stringify(this.getCorrelationHashes());
+            if (!(await this.preflightRequireNix())) {
+                this.recordEvent("preflight-require-nix-denied");
+                return;
+            }
             if (this.executionPhase === "main" && this.hookMain) {
                 await this.hookMain();
             }
@@ -273,6 +277,45 @@ export class IdsToolbox {
             process.chdir(startCwd);
         }
     }
+    async preflightRequireNix() {
+        let nixLocation;
+        const pathParts = (process.env["PATH"] || "").split(":");
+        for (const location of pathParts) {
+            const candidateNix = path.join(location, "nix");
+            try {
+                await fs.access(candidateNix, fs.constants.X_OK);
+                actionsCore.debug(`Found Nix at ${candidateNix}`);
+                nixLocation = candidateNix;
+            }
+            catch {
+                actionsCore.debug(`Nix not at ${candidateNix}`);
+            }
+        }
+        this.addFact("nix_location", nixLocation || "");
+        if (this.actionOptions.requireNix === "ignore") {
+            return true;
+        }
+        const currentNotFoundState = actionsCore.getState("idstoolbox_nix_not_found");
+        if (currentNotFoundState === "not-found") {
+            // It was previously not found, so don't run subsequent actions
+            return false;
+        }
+        if (nixLocation !== undefined) {
+            return true;
+        }
+        actionsCore.saveState("idstoolbox_nix_not_found", "not-found");
+        switch (this.actionOptions.requireNix) {
+            case "fail":
+                actionsCore.setFailed("This action can only be used when Nix is installed." +
+                    " Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.");
+                break;
+            case "warn":
+                actionsCore.warning("This action is in no-op mode because Nix is not installed." +
+                    " Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.");
+                break;
+        }
+        return false;
+    }
     async submitEvents() {
         if (!this.actionOptions.diagnosticsUrl) {
             actionsCore.debug("Diagnostics are disabled. Not sending the following events:");
@@ -307,6 +350,7 @@ function makeOptionsConfident(actionOptions) {
         eventPrefix: actionOptions.eventPrefix || "action:",
         fetchStyle: actionOptions.fetchStyle,
         legacySourcePrefix: actionOptions.legacySourcePrefix,
+        requireNix: actionOptions.requireNix,
         diagnosticsUrl: determineDiagnosticsUrl(idsProjectName, actionOptions.diagnosticsUrl),
     };
     actionsCore.debug("idslib options:");
