@@ -11,6 +11,7 @@ export type ActionOptions = {
     eventPrefix?: string;
     fetchStyle: FetchSuffixStyle;
     legacySourcePrefix?: string;
+    requireNix: boolean;
     diagnosticsUrl?: URL | null;
 };
 export declare class IdsToolbox {
@@ -43,6 +44,7 @@ export declare class IdsToolbox {
     private cacheKey;
     private getCachedVersion;
     private saveCachedVersion;
+    private preflightRequireNix;
     private submitEvents;
     private getTemporaryName;
 }

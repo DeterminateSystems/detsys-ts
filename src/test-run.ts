@@ -18,6 +18,7 @@ async function main(): Promise<void> {
     const toolbox = new IdsToolbox({
       name: "nix-installer",
       fetchStyle: "nix-style",
+      requireNix: false,
     });
 
     toolbox.onMain(async () => {
@@ -32,6 +33,7 @@ async function main(): Promise<void> {
     const toolbox = new IdsToolbox({
       name: "magic-nix-cache",
       fetchStyle: "gh-env-style",
+      requireNix: false,
     });
 
     toolbox.onMain(async () => {
