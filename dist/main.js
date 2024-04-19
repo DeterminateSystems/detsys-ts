@@ -2,6 +2,7 @@
  * @packageDocumentation
  * Determinate Systems' TypeScript library for creating GitHub Actions logic.
  */
+import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import * as correlation from "./correlation.js";
 import { pkg } from "./package.js";
 import * as platform from "./platform.js";
@@ -65,6 +66,23 @@ export class IdsToolbox {
         this.nixSystem = platform.getNixPlatform(this.archOs);
         this.facts.arch_os = this.archOs;
         this.facts.nix_system = this.nixSystem;
+        {
+            ghActionsCorePlatform
+                .getDetails()
+                // eslint-disable-next-line github/no-then
+                .then((details) => {
+                if (details.name !== "unknown") {
+                    this.addFact("$os", details.name);
+                }
+                if (details.version !== "unknown") {
+                    this.addFact("$os_version", details.version);
+                }
+            })
+                // eslint-disable-next-line github/no-then
+                .catch((e) => {
+                actionsCore.debug(`Failure getting platform details: ${e}`);
+            });
+        }
         {
             const phase = actionsCore.getState("idstoolbox_execution_phase");
             if (phase === "") {

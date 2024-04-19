@@ -31,6 +31,7 @@
     "got": "^14.2.1"
   },
   "devDependencies": {
+    "@actions/exec": "^1.1.1",
     "@trivago/prettier-plugin-sort-imports": "^4.3.0",
     "@types/node": "^20.12.7",
     "@typescript-eslint/eslint-plugin": "^7.6.0",
@@ -39,6 +40,7 @@
     "eslint-plugin-github": "^4.10.2",
     "eslint-plugin-import": "^2.29.1",
     "eslint-plugin-prettier": "^5.1.3",
+    "linux-release-info": "^3.0.0",
     "prettier": "^3.2.5",
     "typedoc": "^0.25.13",
     "typescript": "^5.4.5"

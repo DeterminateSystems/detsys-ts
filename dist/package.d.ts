@@ -31,6 +31,7 @@ export declare const pkg: {
         got: string;
     };
     devDependencies: {
+        "@actions/exec": string;
         "@trivago/prettier-plugin-sort-imports": string;
         "@types/node": string;
         "@typescript-eslint/eslint-plugin": string;
@@ -39,6 +40,7 @@ export declare const pkg: {
         "eslint-plugin-github": string;
         "eslint-plugin-import": string;
         "eslint-plugin-prettier": string;
+        "linux-release-info": string;
         prettier: string;
         typedoc: string;
         typescript: string;

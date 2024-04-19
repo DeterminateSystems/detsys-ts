@@ -1,7 +1,3 @@
-/**
- * @packageDocumentation
- * Determinate Systems' TypeScript library for creating GitHub Actions logic.
- */
 import * as correlation from "./correlation.js";
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 export type ExecutionPhase = "main" | "post";
