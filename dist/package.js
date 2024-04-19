@@ -33,12 +33,10 @@ export const pkg = {
         "fetch-retry": "^5.0.6",
         got: "^14.2.1",
         "string-argv": "^0.3.2",
-        uuid: "^9.0.1",
     },
     devDependencies: {
         "@trivago/prettier-plugin-sort-imports": "^4.3.0",
         "@types/node": "^20.12.7",
-        "@types/uuid": "^9.0.8",
         "@typescript-eslint/eslint-plugin": "^7.6.0",
         eslint: "^8.57.0",
         "eslint-import-resolver-typescript": "^3.6.1",

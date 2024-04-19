@@ -15,7 +15,6 @@ import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { v4 as uuidV4 } from "uuid";
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 const EVENT_EXCEPTION = "exception";
@@ -160,6 +159,7 @@ export class IdsToolbox {
             correlation: this.identity,
             facts: this.facts,
             timestamp: new Date(),
+            uuid: randomUUID(),
         });
     }
     async fetch() {
@@ -338,7 +338,7 @@ export class IdsToolbox {
     }
     getTemporaryName() {
         const _tmpdir = process.env["RUNNER_TEMP"] || tmpdir();
-        return path.join(_tmpdir, `${this.actionOptions.name}-${uuidV4()}`);
+        return path.join(_tmpdir, `${this.actionOptions.name}-${randomUUID()}`);
     }
 }
 function makeOptionsConfident(actionOptions) {

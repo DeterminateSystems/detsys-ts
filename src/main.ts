@@ -9,13 +9,12 @@ import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import got, { Got } from "got";
-import { randomUUID } from "node:crypto";
+import { UUID, randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { v4 as uuidV4 } from "uuid";
 
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
@@ -79,6 +78,7 @@ type DiagnosticEvent = {
   facts: Record<string, string | boolean>;
   context: Record<string, unknown>;
   timestamp: Date;
+  uuid: UUID;
 };
 
 export class IdsToolbox {
@@ -259,6 +259,7 @@ export class IdsToolbox {
       correlation: this.identity,
       facts: this.facts,
       timestamp: new Date(),
+      uuid: randomUUID(),
     });
   }
 
@@ -501,7 +502,7 @@ export class IdsToolbox {
 
   private getTemporaryName(): string {
     const _tmpdir = process.env["RUNNER_TEMP"] || tmpdir();
-    return path.join(_tmpdir, `${this.actionOptions.name}-${uuidV4()}`);
+    return path.join(_tmpdir, `${this.actionOptions.name}-${randomUUID()}`);
   }
 }
 

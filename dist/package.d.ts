@@ -33,12 +33,10 @@ export declare const pkg: {
         "fetch-retry": string;
         got: string;
         "string-argv": string;
-        uuid: string;
     };
     devDependencies: {
         "@trivago/prettier-plugin-sort-imports": string;
         "@types/node": string;
-        "@types/uuid": string;
         "@typescript-eslint/eslint-plugin": string;
         eslint: string;
         "eslint-import-resolver-typescript": string;
