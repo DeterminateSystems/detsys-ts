@@ -28,11 +28,7 @@ export declare const pkg: {
     dependencies: {
         "@actions/cache": string;
         "@actions/core": string;
-        "@actions/exec": string;
-        "@actions/github": string;
-        "fetch-retry": string;
         got: string;
-        "string-argv": string;
     };
     devDependencies: {
         "@trivago/prettier-plugin-sort-imports": string;
