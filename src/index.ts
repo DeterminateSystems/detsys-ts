@@ -2,7 +2,7 @@
  * @packageDocumentation
  * Determinate Systems' TypeScript library for creating GitHub Actions logic.
  */
-import { version } from "../package.json";
+import { version as pkgVersion } from "../package.json";
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import * as correlation from "./correlation.js";
 import * as platform from "./platform.js";
@@ -121,7 +121,7 @@ export class IdsToolbox {
 
     this.facts = {
       $lib: "idslib",
-      $lib_version: version,
+      $lib_version: pkgVersion,
       project: this.actionOptions.name,
       ids_project: this.actionOptions.idsProjectName,
     };
