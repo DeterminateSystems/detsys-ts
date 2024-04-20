@@ -261,7 +261,7 @@ export class IdsToolbox {
 
   getUniqueId(): string {
     return (
-      this.identity.run_differentiator ||
+      this.identity.runDifferentiator ||
       process.env.RUNNER_TRACKING_ID ||
       randomUUID()
     );

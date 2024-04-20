@@ -1,8 +1,8 @@
 type AnonymizedCorrelationHashes = {
-    correlation_source: string;
+    correlationSource: string;
     repository?: string;
     run?: string;
-    run_differentiator?: string;
+    runDifferentiator?: string;
     workflow?: string;
     groups: Record<string, string | undefined>;
 };

@@ -1282,7 +1282,7 @@ import { createHash } from "crypto";
 var OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 function identify(projectName) {
   const ident = {
-    correlation_source: "github-actions",
+    correlationSource: "github-actions",
     repository: hashEnvironmentVariables("GHR", [
       "GITHUB_SERVER_URL",
       "GITHUB_REPOSITORY_OWNER",
@@ -1637,7 +1637,7 @@ var IdsToolbox = class {
     return this.actionOptions.diagnosticsUrl;
   }
   getUniqueId() {
-    return this.identity.run_differentiator || process.env.RUNNER_TRACKING_ID || randomUUID();
+    return this.identity.runDifferentiator || process.env.RUNNER_TRACKING_ID || randomUUID();
   }
   getCorrelationHashes() {
     return this.identity;

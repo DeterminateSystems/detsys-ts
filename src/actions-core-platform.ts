@@ -6,6 +6,9 @@ import * as exec from "@actions/exec";
 import { releaseInfo } from "linux-release-info";
 import os from "os";
 
+/**
+ * Get the name and version of the current Windows system.
+ */
 const getWindowsInfo = async (): Promise<{ name: string; version: string }> => {
   const { stdout: version } = await exec.getExecOutput(
     'powershell -command "(Get-CimInstance -ClassName Win32_OperatingSystem).Version"',
@@ -29,6 +32,9 @@ const getWindowsInfo = async (): Promise<{ name: string; version: string }> => {
   };
 };
 
+/**
+ * Get the name and version of the current macOS system.
+ */
 const getMacOsInfo = async (): Promise<{
   name: string;
   version: string;

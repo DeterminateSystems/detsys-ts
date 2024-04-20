@@ -4,17 +4,17 @@ import { createHash } from "node:crypto";
 const OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 
 export type AnonymizedCorrelationHashes = {
-  correlation_source: string;
+  correlationSource: string;
   repository?: string;
   run?: string;
-  run_differentiator?: string;
+  runDifferentiator?: string;
   workflow?: string;
   groups: Record<string, string | undefined>;
 };
 
 export function identify(projectName: string): AnonymizedCorrelationHashes {
   const ident = {
-    correlation_source: "github-actions",
+    correlationSource: "github-actions",
 
     repository: hashEnvironmentVariables("GHR", [
       "GITHUB_SERVER_URL",
