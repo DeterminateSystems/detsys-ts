@@ -3,7 +3,7 @@ import { defineConfig } from "tsup";
 export default defineConfig({
   name: "detsys-ts",
   entry: ["src/index.ts"],
-  format: ["cjs"],
+  format: ["esm"],
   bundle: true,
   splitting: false,
   sourcemap: true,
