@@ -4,9 +4,9 @@
  */
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import * as correlation from "./correlation.js";
-import { pkg } from "./package.js";
 import * as platform from "./platform.js";
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
+import { version as pkg_version } from "./version.generated.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import got, { Got } from "got";
@@ -121,7 +121,7 @@ export class IdsToolbox {
 
     this.facts = {
       $lib: "idslib",
-      $lib_version: pkg.version,
+      $lib_version: pkg_version,
       project: this.actionOptions.name,
       ids_project: this.actionOptions.idsProjectName,
     };

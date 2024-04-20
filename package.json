@@ -10,7 +10,7 @@
     "check-fmt": "prettier --check .",
     "format": "prettier --write .",
     "lint": "eslint src/**/*.ts",
-    "prebuild": "echo 'export const pkg =' > src/package.ts; cat package.json >> ./src/package.ts && prettier --write ./src/package.ts && eslint --fix ./src/package.ts",
+    "prebuild": "pnpm exec node ./scripts/prebuild.cjs",
     "docs": "pnpm run prebuild && typedoc src/main.ts",
     "all": "pnpm run prebuild && pnpm run format && pnpm run lint && pnpm run build"
   },
