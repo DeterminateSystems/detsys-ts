@@ -10,7 +10,7 @@
     "check-fmt": "prettier --check .",
     "format": "prettier --write .",
     "lint": "eslint src/**/*.ts",
-    "docs": "typedoc src/main.ts",
+    "docs": "typedoc src/index.ts",
     "all": "pnpm run format && pnpm run lint && pnpm run build"
   },
   "repository": {
