@@ -1278,7 +1278,7 @@ async function getDetails() {
 
 // src/correlation.ts
 import * as actionsCore from "@actions/core";
-import { createHash } from "crypto";
+import { createHash } from "node:crypto";
 var OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 function identify(projectName) {
   const ident = {
@@ -1493,12 +1493,12 @@ function constructSourceParameters(legacyPrefix) {
 import * as actionsCache from "@actions/cache";
 import * as actionsCore5 from "@actions/core";
 import got from "got";
-import { randomUUID } from "crypto";
-import { createWriteStream } from "fs";
-import fs, { chmod, copyFile, mkdir } from "fs/promises";
-import { tmpdir } from "os";
-import * as path from "path";
-import { pipeline } from "stream/promises";
+import { randomUUID } from "node:crypto";
+import { createWriteStream } from "node:fs";
+import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
+import { pipeline } from "node:stream/promises";
 var DEFAULT_IDS_HOST = "https://install.determinate.systems";
 var IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 var EVENT_EXCEPTION = "exception";
