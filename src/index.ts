@@ -119,6 +119,8 @@ export class IdsToolbox {
       },
     });
 
+    // JSON sent to server
+    /* eslint-disable camelcase */
     this.facts = {
       $lib: "idslib",
       $lib_version: pkgVersion,
@@ -261,7 +263,7 @@ export class IdsToolbox {
 
   getUniqueId(): string {
     return (
-      this.identity.runDifferentiator ||
+      this.identity.run_differentiator ||
       process.env.RUNNER_TRACKING_ID ||
       randomUUID()
     );
