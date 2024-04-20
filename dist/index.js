@@ -1220,25 +1220,6 @@ var getMacOsInfo = async () => {
     version: version2
   };
 };
-function getPropertyViaWithDefault(data, names, defaultValue) {
-  for (const name of names) {
-    const ret = getPropertyWithDefault(data, name, defaultValue);
-    if (ret !== defaultValue) {
-      return ret;
-    }
-  }
-  return defaultValue;
-}
-function getPropertyWithDefault(data, name, defaultValue) {
-  if (!data.hasOwnProperty(name)) {
-    return defaultValue;
-  }
-  const value = data[name];
-  if (typeof value !== typeof defaultValue) {
-    return defaultValue;
-  }
-  return value;
-}
 var getLinuxInfo = async () => {
   let data = {};
   try {
@@ -1260,6 +1241,25 @@ var getLinuxInfo = async () => {
     )
   };
 };
+function getPropertyViaWithDefault(data, names, defaultValue) {
+  for (const name of names) {
+    const ret = getPropertyWithDefault(data, name, defaultValue);
+    if (ret !== defaultValue) {
+      return ret;
+    }
+  }
+  return defaultValue;
+}
+function getPropertyWithDefault(data, name, defaultValue) {
+  if (!data.hasOwnProperty(name)) {
+    return defaultValue;
+  }
+  const value = data[name];
+  if (typeof value !== typeof defaultValue) {
+    return defaultValue;
+  }
+  return value;
+}
 var platform = os.platform();
 var arch = os.arch();
 var isWindows = platform === "win32";

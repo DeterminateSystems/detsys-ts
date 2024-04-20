@@ -7,9 +7,17 @@ import { releaseInfo } from "linux-release-info";
 import os from "os";
 
 /**
+ * The name and version of the Action runner's system.
+ */
+type SystemInfo = {
+  name: string;
+  version: string;
+};
+
+/**
  * Get the name and version of the current Windows system.
  */
-const getWindowsInfo = async (): Promise<{ name: string; version: string }> => {
+const getWindowsInfo = async (): Promise<SystemInfo> => {
   const { stdout: version } = await exec.getExecOutput(
     'powershell -command "(Get-CimInstance -ClassName Win32_OperatingSystem).Version"',
     undefined,
@@ -35,10 +43,7 @@ const getWindowsInfo = async (): Promise<{ name: string; version: string }> => {
 /**
  * Get the name and version of the current macOS system.
  */
-const getMacOsInfo = async (): Promise<{
-  name: string;
-  version: string;
-}> => {
+const getMacOsInfo = async (): Promise<SystemInfo> => {
   const { stdout } = await exec.getExecOutput("sw_vers", undefined, {
     silent: true,
   });
@@ -49,6 +54,34 @@ const getMacOsInfo = async (): Promise<{
   return {
     name,
     version,
+  };
+};
+
+/**
+ * Get the name and version of the current Linux system.
+ */
+const getLinuxInfo = async (): Promise<SystemInfo> => {
+  let data: object = {};
+
+  try {
+    data = releaseInfo({ mode: "sync" });
+    // eslint-disable-next-line no-console
+    console.log(data);
+  } catch (e) {
+    core.debug(`Error collecting release info: ${e}`);
+  }
+
+  return {
+    name: getPropertyViaWithDefault(
+      data,
+      ["id", "name", "pretty_name", "id_like"],
+      "unknown",
+    ),
+    version: getPropertyViaWithDefault(
+      data,
+      ["version_id", "version", "version_codename"],
+      "unknown",
+    ),
   };
 };
 
@@ -87,41 +120,35 @@ function getPropertyWithDefault<T, Property extends string>(
   return value;
 }
 
-const getLinuxInfo = async (): Promise<{
-  name: string;
-  version: string;
-}> => {
-  let data: object = {};
-
-  try {
-    data = releaseInfo({ mode: "sync" });
-    // eslint-disable-next-line no-console
-    console.log(data);
-  } catch (e) {
-    core.debug(`Error collecting release info: ${e}`);
-  }
-
-  return {
-    name: getPropertyViaWithDefault(
-      data,
-      ["id", "name", "pretty_name", "id_like"],
-      "unknown",
-    ),
-    version: getPropertyViaWithDefault(
-      data,
-      ["version_id", "version", "version_codename"],
-      "unknown",
-    ),
-  };
-};
-
+/**
+ * The Action runner's platform.
+ */
 export const platform = os.platform();
+
+/**
+ * The Action runner's architecture.
+ */
 export const arch = os.arch();
+
+/**
+ * Whether the Action runner is a Windows system.
+ */
 export const isWindows = platform === "win32";
+
+/**
+ * Whether the Action runner is a macOS system.
+ */
 export const isMacOS = platform === "darwin";
+
+/**
+ * Whether the Action runner is a Linux system.
+ */
 export const isLinux = platform === "linux";
 
-export async function getDetails(): Promise<{
+/**
+ * System-level information about the current host (platform, architecture, etc.).
+ */
+type SystemDetails = {
   name: string;
   platform: string;
   arch: string;
@@ -129,7 +156,12 @@ export async function getDetails(): Promise<{
   isWindows: boolean;
   isMacOS: boolean;
   isLinux: boolean;
-}> {
+};
+
+/**
+ * Get system-level information about the current host (platform, architecture, etc.).
+ */
+export async function getDetails(): Promise<SystemDetails> {
   return {
     ...(await (isWindows
       ? getWindowsInfo()
