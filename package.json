@@ -10,9 +10,8 @@
     "check-fmt": "prettier --check .",
     "format": "prettier --write .",
     "lint": "eslint src/**/*.ts",
-    "prebuild": "pnpm exec node ./scripts/prebuild.cjs",
-    "docs": "pnpm run prebuild && typedoc src/main.ts",
-    "all": "pnpm run prebuild && pnpm run format && pnpm run lint && pnpm run build"
+    "docs": "typedoc src/main.ts",
+    "all": "pnpm run format && pnpm run lint && pnpm run build"
   },
   "repository": {
     "type": "git",

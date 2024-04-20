@@ -4,6 +4,7 @@
     "module": "Node16",
     "moduleResolution": "NodeNext",
     "outDir": "./dist",
+    "resolveJsonModule": true,
     "rootDir": "./src",
     "strict": true /* Enable all strict type-checking options. */,
     "noImplicitAny": true /* Raise error on expressions and declarations with an implied 'any' type. */,
