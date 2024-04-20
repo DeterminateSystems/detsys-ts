@@ -1,4 +1,4 @@
-import { IdsToolbox } from "./main.js";
+import { IdsToolbox } from "./index.js";
 
 process.env["RUNNER_ARCH"] = "ARM64";
 process.env["RUNNER_OS"] = "macOS";
