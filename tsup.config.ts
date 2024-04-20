@@ -4,7 +4,7 @@ export default defineConfig({
   name: "detsys-ts",
   entry: ["src/index.ts"],
   format: ["esm"],
-  bundle: false,
+  bundle: true,
   splitting: false,
   sourcemap: true,
   clean: true,
