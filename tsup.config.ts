@@ -3,7 +3,9 @@ import { defineConfig } from "tsup";
 export default defineConfig({
   name: "detsys-ts",
   entry: ["src/index.ts"],
-  format: ["esm"],
+  target: "esnext",
+  // We need to use CJS here as some libraries use require() statements
+  format: ["cjs"],
   bundle: true,
   splitting: false,
   sourcemap: true,
