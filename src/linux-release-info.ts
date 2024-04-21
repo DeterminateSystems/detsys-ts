@@ -30,7 +30,7 @@ export interface LinuxReleaseInfoOptions {
    *
    * @default null
    */
-  custom_file?: string | null | undefined;
+  customFile?: string | null | undefined;
   /**
    * if true, show console debug messages
    *
@@ -41,7 +41,7 @@ export interface LinuxReleaseInfoOptions {
 
 const linuxReleaseInfoOptionsDefaults: LinuxReleaseInfoOptions = {
   mode: "async",
-  custom_file: null,
+  customFile: null,
   debug: false,
 };
 
@@ -51,34 +51,35 @@ const linuxReleaseInfoOptionsDefaults: LinuxReleaseInfoOptions = {
  * (uses native fs module)
  * @returns {object} info from the current os
  */
-export function releaseInfo(options: LinuxReleaseInfoOptions): object {
-  options = { ...linuxReleaseInfoOptionsDefaults, ...options };
+export function releaseInfo(infoOptions: LinuxReleaseInfoOptions): object {
+  const options = { ...linuxReleaseInfoOptionsDefaults, ...infoOptions };
 
-  const searchOsreleaseFileList: string[] = osreleaseFileList(
-    options.custom_file,
+  const searchOsReleaseFileList: string[] = osreleaseFileList(
+    options.customFile,
   );
 
-  async function readAsyncOsreleaseFile(
-    searchOsreleaseFileList: string[],
-    options: LinuxReleaseInfoOptions,
-  ) {
+  async function readAsyncOsReleaseFile(
+    fileList: string[],
+    releaseInfoOptions: LinuxReleaseInfoOptions,
+  ): Promise<OsInfo> {
     let fileData = null;
 
-    for (let os_release_file of searchOsreleaseFileList) {
+    for (const osReleaseFile of fileList) {
       try {
-        if (options.debug) {
-          console.log(`Trying to read '${os_release_file}'...`);
+        if (releaseInfoOptions.debug) {
+          /* eslint-disable no-console */
+          console.log(`Trying to read '${osReleaseFile}'...`);
         }
 
-        fileData = await readFileAsync(os_release_file, "binary");
+        fileData = await readFileAsync(osReleaseFile, "binary");
 
-        if (options.debug) {
-          console.log("Read data:\n" + fileData);
+        if (releaseInfoOptions.debug) {
+          console.log(`Read data:\n${fileData}`);
         }
 
         break;
       } catch (error) {
-        if (options.debug) {
+        if (releaseInfoOptions.debug) {
           console.error(error);
         }
       }
@@ -93,26 +94,26 @@ export function releaseInfo(options: LinuxReleaseInfoOptions): object {
   }
 
   function readSyncOsreleaseFile(
-    searchOsreleaseFileList: string[],
-    options: LinuxReleaseInfoOptions,
-  ) {
+    releaseFileList: string[],
+    releaseInfoOptions: LinuxReleaseInfoOptions,
+  ): OsInfo {
     let fileData = null;
 
-    for (let os_release_file of searchOsreleaseFileList) {
+    for (const osReleaseFile of releaseFileList) {
       try {
-        if (options.debug) {
-          console.log(`Trying to read '${os_release_file}'...`);
+        if (releaseInfoOptions.debug) {
+          console.log(`Trying to read '${osReleaseFile}'...`);
         }
 
-        fileData = fs.readFileSync(os_release_file, "binary");
+        fileData = fs.readFileSync(osReleaseFile, "binary");
 
-        if (options.debug) {
-          console.log("Read data:\n" + fileData);
+        if (releaseInfoOptions.debug) {
+          console.log(`Read data:\n${fileData}`);
         }
 
         break;
       } catch (error) {
-        if (options.debug) {
+        if (releaseInfoOptions.debug) {
           console.error(error);
         }
       }
@@ -135,10 +136,10 @@ export function releaseInfo(options: LinuxReleaseInfoOptions): object {
   }
 
   if (options.mode === "sync") {
-    return readSyncOsreleaseFile(searchOsreleaseFileList, options);
+    return readSyncOsreleaseFile(searchOsReleaseFileList, options);
   } else {
     return Promise.resolve(
-      readAsyncOsreleaseFile(searchOsreleaseFileList, options),
+      readAsyncOsReleaseFile(searchOsReleaseFileList, options),
     );
   }
 }
@@ -150,24 +151,23 @@ export function releaseInfo(options: LinuxReleaseInfoOptions): object {
  * @param {string} srcParseData Input file data to be parsed
  * @returns {object} Formated object
  */
-function formatFileData(sourceData: any, srcParseData: any): any {
-  const lines = srcParseData.split("\n");
+function formatFileData(sourceData: OsInfo, srcParseData: string): OsInfo {
+  const lines: string[] = srcParseData.split("\n");
 
-  // @ts-ignore
-  lines.forEach((element) => {
-    const linedata = element.split("=");
+  for (const line of lines) {
+    const lineData = line.split("=");
 
-    if (linedata.length === 2) {
-      linedata[1] = linedata[1].replace(/["'\r]/gi, ""); // remove quotes and return character
+    if (lineData.length === 2) {
+      lineData[1] = lineData[1].replace(/["'\r]/gi, ""); // remove quotes and return character
 
-      Object.defineProperty(sourceData, linedata[0].toLowerCase(), {
-        value: linedata[1],
+      Object.defineProperty(sourceData, lineData[0].toLowerCase(), {
+        value: lineData[1],
         writable: true,
         enumerable: true,
         configurable: true,
       });
     }
-  });
+  }
 
   return sourceData;
 }
@@ -189,19 +189,28 @@ function osreleaseFileList(customFile: string | null | undefined): string[] {
 }
 
 /**
+ * Operating system info.
+ */
+type OsInfo = {
+  type: string;
+  platform: string;
+  hostname: string;
+  arch: string;
+  release: string;
+};
+
+/**
  * Get OS Basic Info
  * (uses node 'os' native module)
  *
- * @returns {object} os basic info
+ * @returns {OsInfo} os basic info
  */
-function getOsInfo() {
-  const osInfo = {
+function getOsInfo(): OsInfo {
+  return {
     type: os.type(),
     platform: os.platform(),
     hostname: os.hostname(),
     arch: os.arch(),
     release: os.release(),
   };
-
-  return osInfo;
 }

@@ -14,28 +14,29 @@ import { promisify } from "node:util";
 var readFileAsync = promisify(fs.readFile);
 var linuxReleaseInfoOptionsDefaults = {
   mode: "async",
-  custom_file: null,
+  customFile: null,
   debug: false
 };
-function releaseInfo(options) {
-  options = { ...linuxReleaseInfoOptionsDefaults, ...options };
-  const searchOsreleaseFileList = osreleaseFileList(
-    options.custom_file
+function releaseInfo(infoOptions) {
+  const options = { ...linuxReleaseInfoOptionsDefaults, ...infoOptions };
+  const searchOsReleaseFileList = osreleaseFileList(
+    options.customFile
   );
-  async function readAsyncOsreleaseFile(searchOsreleaseFileList2, options2) {
+  async function readAsyncOsReleaseFile(fileList, releaseInfoOptions) {
     let fileData = null;
-    for (let os_release_file of searchOsreleaseFileList2) {
+    for (const osReleaseFile of fileList) {
       try {
-        if (options2.debug) {
-          console.log(`Trying to read '${os_release_file}'...`);
+        if (releaseInfoOptions.debug) {
+          console.log(`Trying to read '${osReleaseFile}'...`);
         }
-        fileData = await readFileAsync(os_release_file, "binary");
-        if (options2.debug) {
-          console.log("Read data:\n" + fileData);
+        fileData = await readFileAsync(osReleaseFile, "binary");
+        if (releaseInfoOptions.debug) {
+          console.log(`Read data:
+${fileData}`);
         }
         break;
       } catch (error2) {
-        if (options2.debug) {
+        if (releaseInfoOptions.debug) {
           console.error(error2);
         }
       }
@@ -45,20 +46,21 @@ function releaseInfo(options) {
     }
     return formatFileData(getOsInfo(), fileData);
   }
-  function readSyncOsreleaseFile(searchOsreleaseFileList2, options2) {
+  function readSyncOsreleaseFile(releaseFileList, releaseInfoOptions) {
     let fileData = null;
-    for (let os_release_file of searchOsreleaseFileList2) {
+    for (const osReleaseFile of releaseFileList) {
       try {
-        if (options2.debug) {
-          console.log(`Trying to read '${os_release_file}'...`);
+        if (releaseInfoOptions.debug) {
+          console.log(`Trying to read '${osReleaseFile}'...`);
         }
-        fileData = fs.readFileSync(os_release_file, "binary");
-        if (options2.debug) {
-          console.log("Read data:\n" + fileData);
+        fileData = fs.readFileSync(osReleaseFile, "binary");
+        if (releaseInfoOptions.debug) {
+          console.log(`Read data:
+${fileData}`);
         }
         break;
       } catch (error2) {
-        if (options2.debug) {
+        if (releaseInfoOptions.debug) {
           console.error(error2);
         }
       }
@@ -76,27 +78,27 @@ function releaseInfo(options) {
     }
   }
   if (options.mode === "sync") {
-    return readSyncOsreleaseFile(searchOsreleaseFileList, options);
+    return readSyncOsreleaseFile(searchOsReleaseFileList, options);
   } else {
     return Promise.resolve(
-      readAsyncOsreleaseFile(searchOsreleaseFileList, options)
+      readAsyncOsReleaseFile(searchOsReleaseFileList, options)
     );
   }
 }
 function formatFileData(sourceData, srcParseData) {
   const lines = srcParseData.split("\n");
-  lines.forEach((element) => {
-    const linedata = element.split("=");
-    if (linedata.length === 2) {
-      linedata[1] = linedata[1].replace(/["'\r]/gi, "");
-      Object.defineProperty(sourceData, linedata[0].toLowerCase(), {
-        value: linedata[1],
+  for (const line of lines) {
+    const lineData = line.split("=");
+    if (lineData.length === 2) {
+      lineData[1] = lineData[1].replace(/["'\r]/gi, "");
+      Object.defineProperty(sourceData, lineData[0].toLowerCase(), {
+        value: lineData[1],
         writable: true,
         enumerable: true,
         configurable: true
       });
     }
-  });
+  }
   return sourceData;
 }
 function osreleaseFileList(customFile) {
@@ -108,14 +110,13 @@ function osreleaseFileList(customFile) {
   }
 }
 function getOsInfo() {
-  const osInfo = {
+  return {
     type: os.type(),
     platform: os.platform(),
     hostname: os.hostname(),
     arch: os.arch(),
     release: os.release()
   };
-  return osInfo;
 }
 
 // src/actions-core-platform.ts
