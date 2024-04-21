@@ -3,8 +3,9 @@ import { defineConfig } from "tsup";
 export default defineConfig({
   name: "detsys-ts",
   entry: ["src/index.ts"],
-  format: ["cjs", "esm"],
+  format: ["esm"],
   target: "node20",
+  external: ["@actions/exec"],
   bundle: true,
   splitting: false,
   sourcemap: true,
