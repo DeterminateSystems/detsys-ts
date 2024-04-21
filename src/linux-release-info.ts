@@ -54,78 +54,9 @@ const linuxReleaseInfoOptionsDefaults: LinuxReleaseInfoOptions = {
 export function releaseInfo(infoOptions: LinuxReleaseInfoOptions): object {
   const options = { ...linuxReleaseInfoOptionsDefaults, ...infoOptions };
 
-  const searchOsReleaseFileList: string[] = osreleaseFileList(
+  const searchOsReleaseFileList: string[] = osReleaseFileList(
     options.customFile,
   );
-
-  async function readAsyncOsReleaseFile(
-    fileList: string[],
-    releaseInfoOptions: LinuxReleaseInfoOptions,
-  ): Promise<OsInfo> {
-    let fileData = null;
-
-    for (const osReleaseFile of fileList) {
-      try {
-        if (releaseInfoOptions.debug) {
-          /* eslint-disable no-console */
-          console.log(`Trying to read '${osReleaseFile}'...`);
-        }
-
-        fileData = await readFileAsync(osReleaseFile, "binary");
-
-        if (releaseInfoOptions.debug) {
-          console.log(`Read data:\n${fileData}`);
-        }
-
-        break;
-      } catch (error) {
-        if (releaseInfoOptions.debug) {
-          console.error(error);
-        }
-      }
-    }
-
-    if (fileData === null) {
-      throw new Error("Cannot read os-release file!");
-      //return getOsInfo();
-    }
-
-    return formatFileData(getOsInfo(), fileData);
-  }
-
-  function readSyncOsreleaseFile(
-    releaseFileList: string[],
-    releaseInfoOptions: LinuxReleaseInfoOptions,
-  ): OsInfo {
-    let fileData = null;
-
-    for (const osReleaseFile of releaseFileList) {
-      try {
-        if (releaseInfoOptions.debug) {
-          console.log(`Trying to read '${osReleaseFile}'...`);
-        }
-
-        fileData = fs.readFileSync(osReleaseFile, "binary");
-
-        if (releaseInfoOptions.debug) {
-          console.log(`Read data:\n${fileData}`);
-        }
-
-        break;
-      } catch (error) {
-        if (releaseInfoOptions.debug) {
-          console.error(error);
-        }
-      }
-    }
-
-    if (fileData === null) {
-      throw new Error("Cannot read os-release file!");
-      //return getOsInfo();
-    }
-
-    return formatFileData(getOsInfo(), fileData);
-  }
 
   if (os.type() !== "Linux") {
     if (options.mode === "sync") {
@@ -178,7 +109,7 @@ function formatFileData(sourceData: OsInfo, srcParseData: string): OsInfo {
  * @param {string} customFile optional custom complete filepath
  * @returns {array} list of os-release files
  */
-function osreleaseFileList(customFile: string | null | undefined): string[] {
+function osReleaseFileList(customFile: string | null | undefined): string[] {
   const DEFAULT_OS_RELEASE_FILES = ["/etc/os-release", "/usr/lib/os-release"];
 
   if (!customFile) {
@@ -213,4 +144,75 @@ function getOsInfo(): OsInfo {
     arch: os.arch(),
     release: os.release(),
   };
+}
+
+/* Helper functions */
+
+async function readAsyncOsReleaseFile(
+  fileList: string[],
+  releaseInfoOptions: LinuxReleaseInfoOptions,
+): Promise<OsInfo> {
+  let fileData = null;
+
+  for (const osReleaseFile of fileList) {
+    try {
+      if (releaseInfoOptions.debug) {
+        /* eslint-disable no-console */
+        console.log(`Trying to read '${osReleaseFile}'...`);
+      }
+
+      fileData = await readFileAsync(osReleaseFile, "binary");
+
+      if (releaseInfoOptions.debug) {
+        console.log(`Read data:\n${fileData}`);
+      }
+
+      break;
+    } catch (error) {
+      if (releaseInfoOptions.debug) {
+        console.error(error);
+      }
+    }
+  }
+
+  if (fileData === null) {
+    throw new Error("Cannot read os-release file!");
+    //return getOsInfo();
+  }
+
+  return formatFileData(getOsInfo(), fileData);
+}
+
+function readSyncOsreleaseFile(
+  releaseFileList: string[],
+  releaseInfoOptions: LinuxReleaseInfoOptions,
+): OsInfo {
+  let fileData = null;
+
+  for (const osReleaseFile of releaseFileList) {
+    try {
+      if (releaseInfoOptions.debug) {
+        console.log(`Trying to read '${osReleaseFile}'...`);
+      }
+
+      fileData = fs.readFileSync(osReleaseFile, "binary");
+
+      if (releaseInfoOptions.debug) {
+        console.log(`Read data:\n${fileData}`);
+      }
+
+      break;
+    } catch (error) {
+      if (releaseInfoOptions.debug) {
+        console.error(error);
+      }
+    }
+  }
+
+  if (fileData === null) {
+    throw new Error("Cannot read os-release file!");
+    //return getOsInfo();
+  }
+
+  return formatFileData(getOsInfo(), fileData);
 }
