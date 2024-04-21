@@ -9,7 +9,9 @@
  * Copyright (c) 2018-2020 [Samuel Carreira]
  */
 // NOTE: we depend on this directly to get around some un-fun issues with mixing CommonJS
-// and ESM in the bundle.
+// and ESM in the bundle. We've modified the original logic to improve things like typing
+// and fixing ESLint issues. Originally drawn from:
+// https://github.com/samuelcarreira/linux-release-info/blob/84a91aa5442b47900da03020c590507545d3dc74/src/index.ts
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { promisify } from "node:util";
