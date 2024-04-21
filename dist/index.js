@@ -1,161 +1,16 @@
-var __create = Object.create;
 var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
-  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
-}) : x)(function(x) {
-  if (typeof require !== "undefined")
-    return require.apply(this, arguments);
-  throw Error('Dynamic require of "' + x + '" is not supported');
-});
-var __commonJS = (cb, mod) => function __require2() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
-};
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
-
-// node_modules/.pnpm/linux-release-info@3.0.0/node_modules/linux-release-info/dist/index.js
-var require_dist = __commonJS({
-  "node_modules/.pnpm/linux-release-info@3.0.0/node_modules/linux-release-info/dist/index.js"(exports) {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    var fs2 = __require("fs");
-    var os2 = __require("os");
-    var util_1 = __require("util");
-    var readFileAsync = util_1.promisify(fs2.readFile);
-    var linuxReleaseInfoOptionsDefaults = {
-      mode: "async",
-      custom_file: null,
-      debug: false
-    };
-    function releaseInfo2(options) {
-      options = { ...linuxReleaseInfoOptionsDefaults, ...options };
-      const searchOsreleaseFileList = osreleaseFileList(options.custom_file);
-      async function readAsyncOsreleaseFile(searchOsreleaseFileList2, options2) {
-        let fileData = null;
-        for (let os_release_file of searchOsreleaseFileList2) {
-          try {
-            if (options2.debug) {
-              console.log(`Trying to read '${os_release_file}'...`);
-            }
-            fileData = await readFileAsync(os_release_file, "binary");
-            if (options2.debug) {
-              console.log("Read data:\n" + fileData);
-            }
-            break;
-          } catch (error2) {
-            if (options2.debug) {
-              console.error(error2);
-            }
-          }
-        }
-        if (fileData === null) {
-          throw new Error("Cannot read os-release file!");
-        }
-        return formatFileData(getOsInfo(), fileData);
-      }
-      function readSyncOsreleaseFile(searchOsreleaseFileList2, options2) {
-        let fileData = null;
-        for (let os_release_file of searchOsreleaseFileList2) {
-          try {
-            if (options2.debug) {
-              console.log(`Trying to read '${os_release_file}'...`);
-            }
-            fileData = fs2.readFileSync(os_release_file, "binary");
-            if (options2.debug) {
-              console.log("Read data:\n" + fileData);
-            }
-            break;
-          } catch (error2) {
-            if (options2.debug) {
-              console.error(error2);
-            }
-          }
-        }
-        if (fileData === null) {
-          throw new Error("Cannot read os-release file!");
-        }
-        return formatFileData(getOsInfo(), fileData);
-      }
-      if (os2.type() !== "Linux") {
-        if (options.mode === "sync") {
-          return getOsInfo();
-        } else {
-          return Promise.resolve(getOsInfo());
-        }
-      }
-      if (options.mode === "sync") {
-        return readSyncOsreleaseFile(searchOsreleaseFileList, options);
-      } else {
-        return Promise.resolve(readAsyncOsreleaseFile(searchOsreleaseFileList, options));
-      }
-    }
-    exports.releaseInfo = releaseInfo2;
-    function formatFileData(sourceData, srcParseData) {
-      const lines = srcParseData.split("\n");
-      lines.forEach((element) => {
-        const linedata = element.split("=");
-        if (linedata.length === 2) {
-          linedata[1] = linedata[1].replace(/["'\r]/gi, "");
-          Object.defineProperty(sourceData, linedata[0].toLowerCase(), {
-            value: linedata[1],
-            writable: true,
-            enumerable: true,
-            configurable: true
-          });
-        }
-      });
-      return sourceData;
-    }
-    function osreleaseFileList(customFile) {
-      const DEFAULT_OS_RELEASE_FILES = ["/etc/os-release", "/usr/lib/os-release"];
-      if (!customFile) {
-        return DEFAULT_OS_RELEASE_FILES;
-      } else {
-        return Array(customFile);
-      }
-    }
-    function getOsInfo() {
-      const osInfo = {
-        type: os2.type(),
-        platform: os2.platform(),
-        hostname: os2.hostname(),
-        arch: os2.arch(),
-        release: os2.release()
-      };
-      return osInfo;
-    }
-  }
-});
 
 // package.json
 var version = "1.0.0";
 
 // src/actions-core-platform.ts
-var import_linux_release_info = __toESM(require_dist(), 1);
 import * as core from "@actions/core";
 import * as exec from "@actions/exec";
+import { releaseInfo } from "linux-release-info";
 import os from "os";
 var getWindowsInfo = async () => {
   const { stdout: version2 } = await exec.getExecOutput(
@@ -191,7 +46,7 @@ var getMacOsInfo = async () => {
 var getLinuxInfo = async () => {
   let data = {};
   try {
-    data = (0, import_linux_release_info.releaseInfo)({ mode: "sync" });
+    data = releaseInfo({ mode: "sync" });
     console.log(data);
   } catch (e) {
     core.debug(`Error collecting release info: ${e}`);
@@ -889,18 +744,4 @@ export {
   inputs_exports as inputs,
   platform_exports as platform
 };
-/*! Bundled license information:
-
-linux-release-info/dist/index.js:
-  (*!
-   * linux-release-info
-   * Get Linux release info (distribution name, version, arch, release, etc.)
-   * from '/etc/os-release' or '/usr/lib/os-release' files and from native os
-   * module. On Windows and Darwin platforms it only returns common node os module
-   * info (platform, hostname, release, and arch)
-   *
-   * Licensed under MIT
-   * Copyright (c) 2018-2020 [Samuel Carreira]
-   *)
-*/
 //# sourceMappingURL=index.js.map
