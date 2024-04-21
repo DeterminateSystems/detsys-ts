@@ -2,21 +2,20 @@
  * @packageDocumentation
  * Determinate Systems' TypeScript library for creating GitHub Actions logic.
  */
+import { version as pkgVersion } from "../package.json";
+import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import * as correlation from "./correlation.js";
-// eslint-disable-next-line import/extensions
-import pkg from "./package.json";
 import * as platform from "./platform.js";
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import got, { Got } from "got";
-import { randomUUID } from "node:crypto";
+import { UUID, randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { v4 as uuidV4 } from "uuid";
 
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
@@ -80,6 +79,7 @@ type DiagnosticEvent = {
   facts: Record<string, string | boolean>;
   context: Record<string, unknown>;
   timestamp: Date;
+  uuid: UUID;
 };
 
 export class IdsToolbox {
@@ -119,9 +119,11 @@ export class IdsToolbox {
       },
     });
 
+    // JSON sent to server
+    /* eslint-disable camelcase */
     this.facts = {
       $lib: "idslib",
-      $lib_version: pkg.version,
+      $lib_version: pkgVersion,
       project: this.actionOptions.name,
       ids_project: this.actionOptions.idsProjectName,
     };
@@ -146,6 +148,24 @@ export class IdsToolbox {
 
     this.facts.arch_os = this.archOs;
     this.facts.nix_system = this.nixSystem;
+
+    {
+      ghActionsCorePlatform
+        .getDetails()
+        // eslint-disable-next-line github/no-then
+        .then((details) => {
+          if (details.name !== "unknown") {
+            this.addFact("$os", details.name);
+          }
+          if (details.version !== "unknown") {
+            this.addFact("$os_version", details.version);
+          }
+        })
+        // eslint-disable-next-line github/no-then
+        .catch((e) => {
+          actionsCore.debug(`Failure getting platform details: ${e}`);
+        });
+    }
 
     {
       const phase = actionsCore.getState("idstoolbox_execution_phase");
@@ -260,6 +280,7 @@ export class IdsToolbox {
       correlation: this.identity,
       facts: this.facts,
       timestamp: new Date(),
+      uuid: randomUUID(),
     });
   }
 
@@ -502,7 +523,7 @@ export class IdsToolbox {
 
   private getTemporaryName(): string {
     const _tmpdir = process.env["RUNNER_TEMP"] || tmpdir();
-    return path.join(_tmpdir, `${this.actionOptions.name}-${uuidV4()}`);
+    return path.join(_tmpdir, `${this.actionOptions.name}-${randomUUID()}`);
   }
 }
 

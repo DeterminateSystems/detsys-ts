@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 
 const OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 
+// JSON sent to server
+/* eslint-disable camelcase */
 export type AnonymizedCorrelationHashes = {
   correlation_source: string;
   repository?: string;

@@ -1,8 +1,10 @@
-import { IdsToolbox } from "./main.js";
+import { IdsToolbox } from "./index.js";
 
 process.env["RUNNER_ARCH"] = "ARM64";
 process.env["RUNNER_OS"] = "macOS";
 process.env["IDS_HOST"] = "http://localhost:8080";
+process.env["INPUT_DIAGNOSTIC-ENDPOINT"] =
+  "http://localhost:8080/nix-installer/diagnostic";
 process.env["GITHUB_SERVER_URL"] = "my-github-server2";
 process.env["GITHUB_REPOSITORY_OWNER"] = "owner";
 process.env["GITHUB_REPOSITORY_OWNER_ID"] = "12";

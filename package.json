@@ -2,17 +2,16 @@
   "name": "detsys-ts",
   "version": "1.0.0",
   "description": "TypeScript goodies for DetSys projects",
-  "main": "./dist/main.js",
-  "types": "./dist/main.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsup",
     "check-fmt": "prettier --check .",
     "format": "prettier --write .",
     "lint": "eslint src/**/*.ts",
-    "prebuild": "cp package.json ./src/package.json",
-    "docs": "pnpm run prebuild && typedoc src/main.ts",
-    "all": "pnpm run format && pnpm run prebuild && pnpm run lint && pnpm run build"
+    "docs": "typedoc src/index.ts",
+    "all": "rm -rf dist && pnpm run format && pnpm run lint && pnpm run build"
   },
   "repository": {
     "type": "git",
@@ -20,7 +19,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/DeterminateSystems/detsys-ts/issues"
   },
@@ -29,23 +28,20 @@
     "@actions/cache": "^3.2.4",
     "@actions/core": "^1.10.1",
     "@actions/exec": "^1.1.1",
-    "@actions/github": "^5.1.1",
-    "fetch-retry": "^5.0.6",
-    "got": "^14.2.1",
-    "string-argv": "^0.3.2",
-    "uuid": "^9.0.1"
+    "got": "^14.2.1"
   },
   "devDependencies": {
     "@trivago/prettier-plugin-sort-imports": "^4.3.0",
     "@types/node": "^20.12.7",
-    "@types/uuid": "^9.0.8",
     "@typescript-eslint/eslint-plugin": "^7.6.0",
     "eslint": "^8.57.0",
     "eslint-import-resolver-typescript": "^3.6.1",
     "eslint-plugin-github": "^4.10.2",
     "eslint-plugin-import": "^2.29.1",
     "eslint-plugin-prettier": "^5.1.3",
+    "linux-release-info": "^3.0.0",
     "prettier": "^3.2.5",
+    "tsup": "^8.0.2",
     "typedoc": "^0.25.13",
     "typescript": "^5.4.5"
   }

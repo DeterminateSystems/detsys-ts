@@ -106,4 +106,3 @@ lib/**/*
 # Nix builds
 result
 
-src/package.json

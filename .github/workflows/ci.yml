@@ -18,8 +18,6 @@ jobs:
         run: nix develop --command pnpm install
       - name: Check formatting
         run: nix develop --command pnpm run check-fmt
-      - name: Run pre-build
-        run: nix develop --command pnpm run prebuild
       - name: Lint
         run: nix develop --command pnpm run lint
       - name: Build
