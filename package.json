@@ -39,7 +39,6 @@
     "eslint-plugin-github": "^4.10.2",
     "eslint-plugin-import": "^2.29.1",
     "eslint-plugin-prettier": "^5.1.3",
-    "linux-release-info": "^3.0.0",
     "prettier": "^3.2.5",
     "tsup": "^8.0.2",
     "typedoc": "^0.25.13",

@@ -1,9 +1,9 @@
 // MIT, mostly lifted from https://github.com/actions/toolkit/blob/5a736647a123ecf8582376bdaee833fbae5b3847/packages/core/src/platform.ts
 // since it isn't in @actions/core 1.10.1 which is their current release as 2024-04-19.
 // Changes: Replaced the lsb_release call in Linux with `linux-release-info` to parse the os-release file directly.
+import { releaseInfo } from "./linux-release-info.js";
 import * as core from "@actions/core";
 import * as exec from "@actions/exec";
-import { releaseInfo } from "linux-release-info";
 import os from "os";
 
 /**
