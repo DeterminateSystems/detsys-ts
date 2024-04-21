@@ -7,11 +7,121 @@ var __export = (target, all) => {
 // package.json
 var version = "1.0.0";
 
+// src/linux-release-info.ts
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { promisify } from "node:util";
+var readFileAsync = promisify(fs.readFile);
+var linuxReleaseInfoOptionsDefaults = {
+  mode: "async",
+  custom_file: null,
+  debug: false
+};
+function releaseInfo(options) {
+  options = { ...linuxReleaseInfoOptionsDefaults, ...options };
+  const searchOsreleaseFileList = osreleaseFileList(
+    options.custom_file
+  );
+  async function readAsyncOsreleaseFile(searchOsreleaseFileList2, options2) {
+    let fileData = null;
+    for (let os_release_file of searchOsreleaseFileList2) {
+      try {
+        if (options2.debug) {
+          console.log(`Trying to read '${os_release_file}'...`);
+        }
+        fileData = await readFileAsync(os_release_file, "binary");
+        if (options2.debug) {
+          console.log("Read data:\n" + fileData);
+        }
+        break;
+      } catch (error2) {
+        if (options2.debug) {
+          console.error(error2);
+        }
+      }
+    }
+    if (fileData === null) {
+      throw new Error("Cannot read os-release file!");
+    }
+    return formatFileData(getOsInfo(), fileData);
+  }
+  function readSyncOsreleaseFile(searchOsreleaseFileList2, options2) {
+    let fileData = null;
+    for (let os_release_file of searchOsreleaseFileList2) {
+      try {
+        if (options2.debug) {
+          console.log(`Trying to read '${os_release_file}'...`);
+        }
+        fileData = fs.readFileSync(os_release_file, "binary");
+        if (options2.debug) {
+          console.log("Read data:\n" + fileData);
+        }
+        break;
+      } catch (error2) {
+        if (options2.debug) {
+          console.error(error2);
+        }
+      }
+    }
+    if (fileData === null) {
+      throw new Error("Cannot read os-release file!");
+    }
+    return formatFileData(getOsInfo(), fileData);
+  }
+  if (os.type() !== "Linux") {
+    if (options.mode === "sync") {
+      return getOsInfo();
+    } else {
+      return Promise.resolve(getOsInfo());
+    }
+  }
+  if (options.mode === "sync") {
+    return readSyncOsreleaseFile(searchOsreleaseFileList, options);
+  } else {
+    return Promise.resolve(
+      readAsyncOsreleaseFile(searchOsreleaseFileList, options)
+    );
+  }
+}
+function formatFileData(sourceData, srcParseData) {
+  const lines = srcParseData.split("\n");
+  lines.forEach((element) => {
+    const linedata = element.split("=");
+    if (linedata.length === 2) {
+      linedata[1] = linedata[1].replace(/["'\r]/gi, "");
+      Object.defineProperty(sourceData, linedata[0].toLowerCase(), {
+        value: linedata[1],
+        writable: true,
+        enumerable: true,
+        configurable: true
+      });
+    }
+  });
+  return sourceData;
+}
+function osreleaseFileList(customFile) {
+  const DEFAULT_OS_RELEASE_FILES = ["/etc/os-release", "/usr/lib/os-release"];
+  if (!customFile) {
+    return DEFAULT_OS_RELEASE_FILES;
+  } else {
+    return Array(customFile);
+  }
+}
+function getOsInfo() {
+  const osInfo = {
+    type: os.type(),
+    platform: os.platform(),
+    hostname: os.hostname(),
+    arch: os.arch(),
+    release: os.release()
+  };
+  return osInfo;
+}
+
 // src/actions-core-platform.ts
 import * as core from "@actions/core";
 import * as exec from "@actions/exec";
-import { releaseInfo } from "linux-release-info";
-import os from "os";
+import os2 from "os";
 var getWindowsInfo = async () => {
   const { stdout: version2 } = await exec.getExecOutput(
     'powershell -command "(Get-CimInstance -ClassName Win32_OperatingSystem).Version"',
@@ -83,16 +193,16 @@ function getPropertyWithDefault(data, name, defaultValue) {
   }
   return value;
 }
-var platform = os.platform();
-var arch = os.arch();
-var isWindows = platform === "win32";
-var isMacOS = platform === "darwin";
-var isLinux = platform === "linux";
+var platform2 = os2.platform();
+var arch2 = os2.arch();
+var isWindows = platform2 === "win32";
+var isMacOS = platform2 === "darwin";
+var isLinux = platform2 === "linux";
 async function getDetails() {
   return {
     ...await (isWindows ? getWindowsInfo() : isMacOS ? getMacOsInfo() : getLinuxInfo()),
-    platform,
-    arch,
+    platform: platform2,
+    arch: arch2,
     isWindows,
     isMacOS,
     isLinux
@@ -318,7 +428,7 @@ import * as actionsCore5 from "@actions/core";
 import got from "got";
 import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
+import fs2, { chmod, copyFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -519,7 +629,7 @@ var IdsToolbox = class {
   }
   async fetchExecutable() {
     const binaryPath = await this.fetch();
-    await chmod(binaryPath, fs.constants.S_IXUSR | fs.constants.S_IXGRP);
+    await chmod(binaryPath, fs2.constants.S_IXUSR | fs2.constants.S_IXGRP);
     return binaryPath;
   }
   async complete() {
@@ -605,7 +715,7 @@ var IdsToolbox = class {
     for (const location of pathParts) {
       const candidateNix = path.join(location, "nix");
       try {
-        await fs.access(candidateNix, fs.constants.X_OK);
+        await fs2.access(candidateNix, fs2.constants.X_OK);
         actionsCore5.debug(`Found Nix at ${candidateNix}`);
         nixLocation = candidateNix;
       } catch {
@@ -744,4 +854,14 @@ export {
   inputs_exports as inputs,
   platform_exports as platform
 };
+/*!
+ * linux-release-info
+ * Get Linux release info (distribution name, version, arch, release, etc.)
+ * from '/etc/os-release' or '/usr/lib/os-release' files and from native os
+ * module. On Windows and Darwin platforms it only returns common node os module
+ * info (platform, hostname, release, and arch)
+ *
+ * Licensed under MIT
+ * Copyright (c) 2018-2020 [Samuel Carreira]
+ */
 //# sourceMappingURL=index.js.map

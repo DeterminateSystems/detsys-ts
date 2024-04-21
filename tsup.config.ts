@@ -5,7 +5,6 @@ export default defineConfig({
   entry: ["src/index.ts"],
   format: ["esm"],
   target: "node20",
-  external: ["linux-release-info"],
   bundle: true,
   splitting: false,
   sourcemap: true,
