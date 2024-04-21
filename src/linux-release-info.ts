@@ -150,26 +150,26 @@ function getOsInfo(): OsInfo {
 
 async function readAsyncOsReleaseFile(
   fileList: string[],
-  releaseInfoOptions: LinuxReleaseInfoOptions,
+  options: LinuxReleaseInfoOptions,
 ): Promise<OsInfo> {
   let fileData = null;
 
   for (const osReleaseFile of fileList) {
     try {
-      if (releaseInfoOptions.debug) {
+      if (options.debug) {
         /* eslint-disable no-console */
         console.log(`Trying to read '${osReleaseFile}'...`);
       }
 
       fileData = await readFileAsync(osReleaseFile, "binary");
 
-      if (releaseInfoOptions.debug) {
+      if (options.debug) {
         console.log(`Read data:\n${fileData}`);
       }
 
       break;
     } catch (error) {
-      if (releaseInfoOptions.debug) {
+      if (options.debug) {
         console.error(error);
       }
     }
@@ -185,25 +185,25 @@ async function readAsyncOsReleaseFile(
 
 function readSyncOsreleaseFile(
   releaseFileList: string[],
-  releaseInfoOptions: LinuxReleaseInfoOptions,
+  options: LinuxReleaseInfoOptions,
 ): OsInfo {
   let fileData = null;
 
   for (const osReleaseFile of releaseFileList) {
     try {
-      if (releaseInfoOptions.debug) {
+      if (options.debug) {
         console.log(`Trying to read '${osReleaseFile}'...`);
       }
 
       fileData = fs.readFileSync(osReleaseFile, "binary");
 
-      if (releaseInfoOptions.debug) {
+      if (options.debug) {
         console.log(`Read data:\n${fileData}`);
       }
 
       break;
     } catch (error) {
-      if (releaseInfoOptions.debug) {
+      if (options.debug) {
         console.error(error);
       }
     }

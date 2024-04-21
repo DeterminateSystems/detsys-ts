@@ -70,21 +70,21 @@ function getOsInfo() {
     release: os.release()
   };
 }
-async function readAsyncOsReleaseFile(fileList, releaseInfoOptions) {
+async function readAsyncOsReleaseFile(fileList, options) {
   let fileData = null;
   for (const osReleaseFile of fileList) {
     try {
-      if (releaseInfoOptions.debug) {
+      if (options.debug) {
         console.log(`Trying to read '${osReleaseFile}'...`);
       }
       fileData = await readFileAsync(osReleaseFile, "binary");
-      if (releaseInfoOptions.debug) {
+      if (options.debug) {
         console.log(`Read data:
 ${fileData}`);
       }
       break;
     } catch (error2) {
-      if (releaseInfoOptions.debug) {
+      if (options.debug) {
         console.error(error2);
       }
     }
@@ -94,21 +94,21 @@ ${fileData}`);
   }
   return formatFileData(getOsInfo(), fileData);
 }
-function readSyncOsreleaseFile(releaseFileList, releaseInfoOptions) {
+function readSyncOsreleaseFile(releaseFileList, options) {
   let fileData = null;
   for (const osReleaseFile of releaseFileList) {
     try {
-      if (releaseInfoOptions.debug) {
+      if (options.debug) {
         console.log(`Trying to read '${osReleaseFile}'...`);
       }
       fileData = fs.readFileSync(osReleaseFile, "binary");
-      if (releaseInfoOptions.debug) {
+      if (options.debug) {
         console.log(`Read data:
 ${fileData}`);
       }
       break;
     } catch (error2) {
-      if (releaseInfoOptions.debug) {
+      if (options.debug) {
         console.error(error2);
       }
     }
