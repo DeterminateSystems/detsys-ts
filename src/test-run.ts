@@ -1,4 +1,5 @@
 import { IdsToolbox } from "./index.js";
+import { Ok } from "ts-results";
 
 process.env["RUNNER_ARCH"] = "ARM64";
 process.env["RUNNER_OS"] = "macOS";
@@ -17,30 +18,32 @@ process.env["GITHUB_RUN_ATTEMPT"] = "1";
 
 async function main(): Promise<void> {
   {
-    const toolbox = new IdsToolbox({
+    const toolbox = IdsToolbox.create({
       name: "nix-installer",
       fetchStyle: "nix-style",
       requireNix: "warn",
-    });
+    }).unwrap();
 
     toolbox.onMain(async () => {
       toolbox.recordEvent("my_event");
       toolbox.recordEvent("my_next_event");
       await toolbox.fetch();
+      return Ok(undefined);
     });
     toolbox.execute();
   }
 
   {
-    const toolbox = new IdsToolbox({
+    const toolbox = IdsToolbox.create({
       name: "magic-nix-cache",
       fetchStyle: "gh-env-style",
       requireNix: "warn",
-    });
+    }).unwrap();
 
     toolbox.onMain(async () => {
       toolbox.recordEvent("cache_hit");
       toolbox.recordEvent("cache_miss");
+      return Ok(undefined);
     });
     toolbox.execute();
   }
