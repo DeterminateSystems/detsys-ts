@@ -12,9 +12,11 @@
 // and ESM in the bundle. We've modified the original logic to improve things like typing
 // and fixing ESLint issues. Originally drawn from:
 // https://github.com/samuelcarreira/linux-release-info/blob/84a91aa5442b47900da03020c590507545d3dc74/src/index.ts
+import { Result, coerceErrorToString } from "./helpers.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { promisify } from "node:util";
+import { Err, Ok } from "ts-results";
 
 const readFileAsync = promisify(fs.readFile);
 
@@ -153,7 +155,7 @@ function getOsInfo(): OsInfo {
 async function readAsyncOsReleaseFile(
   fileList: string[],
   options: LinuxReleaseInfoOptions,
-): Promise<OsInfo> {
+): Promise<Result<OsInfo>> {
   let fileData = null;
 
   for (const osReleaseFile of fileList) {
@@ -170,25 +172,27 @@ async function readAsyncOsReleaseFile(
       }
 
       break;
-    } catch (error) {
+    } catch (error: unknown) {
       if (options.debug) {
         console.error(error);
       }
+
+      return Err(coerceErrorToString(error));
     }
   }
 
   if (fileData === null) {
-    throw new Error("Cannot read os-release file!");
+    return Err("Cannot read os-release file!");
     //return getOsInfo();
   }
 
-  return formatFileData(getOsInfo(), fileData);
+  return Ok(formatFileData(getOsInfo(), fileData));
 }
 
 function readSyncOsreleaseFile(
   releaseFileList: string[],
   options: LinuxReleaseInfoOptions,
-): OsInfo {
+): Result<OsInfo> {
   let fileData = null;
 
   for (const osReleaseFile of releaseFileList) {
@@ -204,17 +208,19 @@ function readSyncOsreleaseFile(
       }
 
       break;
-    } catch (error) {
+    } catch (error: unknown) {
       if (options.debug) {
         console.error(error);
       }
+
+      return Err(coerceErrorToString(error));
     }
   }
 
   if (fileData === null) {
-    throw new Error("Cannot read os-release file!");
+    return Err("Cannot read os-release file!");
     //return getOsInfo();
   }
 
-  return formatFileData(getOsInfo(), fileData);
+  return Ok(formatFileData(getOsInfo(), fileData));
 }

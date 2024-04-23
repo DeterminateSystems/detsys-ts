@@ -5,6 +5,7 @@
 import { version as pkgVersion } from "../package.json";
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import * as correlation from "./correlation.js";
+import { Result, coerceErrorToString, handle } from "./helpers.js";
 import * as platform from "./platform.js";
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
@@ -16,6 +17,7 @@ import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
+import { Err, Ok } from "ts-results";
 
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
@@ -97,6 +99,24 @@ export class IdsToolbox {
   private hookMain?: () => Promise<void>;
   private hookPost?: () => Promise<void>;
 
+  /**
+   * The preferred instantiator for `IdsToolbox`. Unless using standard
+   * `new IdsToolbox(...)`, this instantiator returns a `Result` rather than
+   * throwing an `Error`.
+   */
+  static create(actionOptions: ActionOptions): Result<IdsToolbox> {
+    try {
+      const action = new IdsToolbox(actionOptions);
+      return Ok(action);
+    } catch (e: unknown) {
+      return Err(coerceErrorToString(e));
+    }
+  }
+
+  /**
+   * The standard constructor for `IdsToolbox`. Use `create` instead.
+   * @deprecated
+   */
   constructor(actionOptions: ActionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
     this.hookMain = undefined;
@@ -143,8 +163,8 @@ export class IdsToolbox {
     }
 
     this.identity = correlation.identify(this.actionOptions.name);
-    this.archOs = platform.getArchOs();
-    this.nixSystem = platform.getNixPlatform(this.archOs);
+    this.archOs = handle(platform.getArchOs());
+    this.nixSystem = handle(platform.getNixPlatform(this.archOs));
 
     this.facts.arch_os = this.archOs;
     this.facts.nix_system = this.nixSystem;

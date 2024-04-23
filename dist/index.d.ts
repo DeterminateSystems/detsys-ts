@@ -1,3 +1,5 @@
+import { Result as Result$1 } from 'ts-results';
+
 type AnonymizedCorrelationHashes = {
     correlation_source: string;
     repository?: string;
@@ -6,6 +8,11 @@ type AnonymizedCorrelationHashes = {
     workflow?: string;
     groups: Record<string, string | undefined>;
 };
+
+/**
+ * An algebraic return type directly inspired by Rust's `Result`.
+ */
+type Result<T> = Result$1<T, string>;
 
 /**
  * Get a Boolean input from the Action's configuration by name.
@@ -43,13 +50,18 @@ declare namespace inputs {
 }
 
 /**
+ * @packageDocumentation
+ * Helpers for determining system attributes of the current runner.
+ */
+
+/**
  * Get the current architecture plus OS. Examples include `X64-Linux` and `ARM64-macOS`.
  */
-declare function getArchOs(): string;
+declare function getArchOs(): Result<string>;
 /**
  * Get the current Nix system. Examples include `x86_64-linux` and `aarch64-darwin`.
  */
-declare function getNixPlatform(archOs: string): string;
+declare function getNixPlatform(archOs: string): Result<string>;
 
 declare const platform_getArchOs: typeof getArchOs;
 declare const platform_getNixPlatform: typeof getNixPlatform;
@@ -82,6 +94,16 @@ declare class IdsToolbox {
     private client;
     private hookMain?;
     private hookPost?;
+    /**
+     * The preferred instantiator for `IdsToolbox`. Unless using standard
+     * `new IdsToolbox(...)`, this instantiator returns a `Result` rather than
+     * throwing an `Error`.
+     */
+    static create(actionOptions: ActionOptions): Result<IdsToolbox>;
+    /**
+     * The standard constructor for `IdsToolbox`. Use `create` instead.
+     * @deprecated
+     */
     constructor(actionOptions: ActionOptions);
     onMain(callback: () => Promise<void>): void;
     onPost(callback: () => Promise<void>): void;
