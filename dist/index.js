@@ -587,46 +587,55 @@ var IdsToolbox = class {
     });
   }
   async fetch() {
-    actionsCore6.info(`Fetching from ${this.getUrl()}`);
-    const correlatedUrl = this.getUrl();
-    correlatedUrl.searchParams.set("ci", "github");
-    correlatedUrl.searchParams.set(
-      "correlation",
-      JSON.stringify(this.identity)
+    actionsCore6.startGroup(
+      `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`
     );
-    const versionCheckup = await this.client.head(correlatedUrl);
-    if (versionCheckup.headers.etag) {
-      const v = versionCheckup.headers.etag;
-      actionsCore6.debug(`Checking the tool cache for ${this.getUrl()} at ${v}`);
-      const cached = await this.getCachedVersion(v);
-      if (cached) {
-        this.facts["artifact_fetched_from_cache"] = true;
-        actionsCore6.debug(`Tool cache hit.`);
-        return cached;
+    try {
+      actionsCore6.info(`Fetching from ${this.getUrl()}`);
+      const correlatedUrl = this.getUrl();
+      correlatedUrl.searchParams.set("ci", "github");
+      correlatedUrl.searchParams.set(
+        "correlation",
+        JSON.stringify(this.identity)
+      );
+      const versionCheckup = await this.client.head(correlatedUrl);
+      if (versionCheckup.headers.etag) {
+        const v = versionCheckup.headers.etag;
+        actionsCore6.debug(
+          `Checking the tool cache for ${this.getUrl()} at ${v}`
+        );
+        const cached = await this.getCachedVersion(v);
+        if (cached) {
+          this.facts["artifact_fetched_from_cache"] = true;
+          actionsCore6.debug(`Tool cache hit.`);
+          return cached;
+        }
       }
-    }
-    this.facts["artifact_fetched_from_cache"] = false;
-    actionsCore6.debug(
-      `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`
-    );
-    const destFile = this.getTemporaryName();
-    const fetchStream = this.client.stream(versionCheckup.url);
-    await pipeline(
-      fetchStream,
-      createWriteStream(destFile, {
-        encoding: "binary",
-        mode: 493
-      })
-    );
-    if (fetchStream.response?.headers.etag) {
-      const v = fetchStream.response.headers.etag;
-      try {
-        await this.saveCachedVersion(v, destFile);
-      } catch (e) {
-        actionsCore6.debug(`Error caching the artifact: ${e}`);
+      this.facts["artifact_fetched_from_cache"] = false;
+      actionsCore6.debug(
+        `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`
+      );
+      const destFile = this.getTemporaryName();
+      const fetchStream = this.client.stream(versionCheckup.url);
+      await pipeline(
+        fetchStream,
+        createWriteStream(destFile, {
+          encoding: "binary",
+          mode: 493
+        })
+      );
+      if (fetchStream.response?.headers.etag) {
+        const v = fetchStream.response.headers.etag;
+        try {
+          await this.saveCachedVersion(v, destFile);
+        } catch (e) {
+          actionsCore6.debug(`Error caching the artifact: ${e}`);
+        }
       }
+      return destFile;
+    } finally {
+      actionsCore6.endGroup();
     }
-    return destFile;
   }
   async fetchExecutable() {
     const binaryPath = await this.fetch();
