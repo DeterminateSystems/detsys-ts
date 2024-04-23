@@ -304,56 +304,66 @@ export class IdsToolbox {
   }
 
   async fetch(): Promise<string> {
-    actionsCore.info(`Fetching from ${this.getUrl()}`);
-
-    const correlatedUrl = this.getUrl();
-    correlatedUrl.searchParams.set("ci", "github");
-    correlatedUrl.searchParams.set(
-      "correlation",
-      JSON.stringify(this.identity),
+    actionsCore.startGroup(
+      `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`,
     );
 
-    const versionCheckup = await this.client.head(correlatedUrl);
-    if (versionCheckup.headers.etag) {
-      const v = versionCheckup.headers.etag;
+    try {
+      actionsCore.info(`Fetching from ${this.getUrl()}`);
 
-      actionsCore.debug(`Checking the tool cache for ${this.getUrl()} at ${v}`);
-      const cached = await this.getCachedVersion(v);
-      if (cached) {
-        this.facts["artifact_fetched_from_cache"] = true;
-        actionsCore.debug(`Tool cache hit.`);
-        return cached;
+      const correlatedUrl = this.getUrl();
+      correlatedUrl.searchParams.set("ci", "github");
+      correlatedUrl.searchParams.set(
+        "correlation",
+        JSON.stringify(this.identity),
+      );
+
+      const versionCheckup = await this.client.head(correlatedUrl);
+      if (versionCheckup.headers.etag) {
+        const v = versionCheckup.headers.etag;
+
+        actionsCore.debug(
+          `Checking the tool cache for ${this.getUrl()} at ${v}`,
+        );
+        const cached = await this.getCachedVersion(v);
+        if (cached) {
+          this.facts["artifact_fetched_from_cache"] = true;
+          actionsCore.debug(`Tool cache hit.`);
+          return cached;
+        }
       }
-    }
 
-    this.facts["artifact_fetched_from_cache"] = false;
+      this.facts["artifact_fetched_from_cache"] = false;
 
-    actionsCore.debug(
-      `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`,
-    );
+      actionsCore.debug(
+        `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`,
+      );
 
-    const destFile = this.getTemporaryName();
-    const fetchStream = this.client.stream(versionCheckup.url);
+      const destFile = this.getTemporaryName();
+      const fetchStream = this.client.stream(versionCheckup.url);
 
-    await pipeline(
-      fetchStream,
-      createWriteStream(destFile, {
-        encoding: "binary",
-        mode: 0o755,
-      }),
-    );
+      await pipeline(
+        fetchStream,
+        createWriteStream(destFile, {
+          encoding: "binary",
+          mode: 0o755,
+        }),
+      );
 
-    if (fetchStream.response?.headers.etag) {
-      const v = fetchStream.response.headers.etag;
+      if (fetchStream.response?.headers.etag) {
+        const v = fetchStream.response.headers.etag;
 
-      try {
-        await this.saveCachedVersion(v, destFile);
-      } catch (e) {
-        actionsCore.debug(`Error caching the artifact: ${e}`);
+        try {
+          await this.saveCachedVersion(v, destFile);
+        } catch (e) {
+          actionsCore.debug(`Error caching the artifact: ${e}`);
+        }
       }
-    }
 
-    return destFile;
+      return destFile;
+    } finally {
+      actionsCore.endGroup();
+    }
   }
 
   async fetchExecutable(): Promise<string> {
