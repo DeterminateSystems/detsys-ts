@@ -5,8 +5,8 @@
 import { version as pkgVersion } from "../package.json";
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import * as correlation from "./correlation.js";
-import { Result, coerceErrorToString, handle } from "./helpers.js";
 import * as platform from "./platform.js";
+import { Result, coerceErrorToString, handle, handleHook } from "./result.js";
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
@@ -25,6 +25,7 @@ const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 const EVENT_EXCEPTION = "exception";
 const EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
 const EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
+const EVENT_PREFLIGHT_REQUIRE_NIX_DENIED = "preflight-require-nix-denied";
 
 const FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
 const FACT_FINAL_EXCEPTION = "final_exception";
@@ -96,8 +97,8 @@ export class IdsToolbox {
   private events: DiagnosticEvent[];
   private client: Got;
 
-  private hookMain?: () => Promise<void>;
-  private hookPost?: () => Promise<void>;
+  private hookMain?: () => Promise<Result<void>>;
+  private hookPost?: () => Promise<Result<void>>;
 
   /**
    * The preferred instantiator for `IdsToolbox`. Unless using standard
@@ -217,11 +218,11 @@ export class IdsToolbox {
     this.recordEvent(`begin_${this.executionPhase}`);
   }
 
-  onMain(callback: () => Promise<void>): void {
+  onMain(callback: () => Promise<Result<void>>): void {
     this.hookMain = callback;
   }
 
-  onPost(callback: () => Promise<void>): void {
+  onPost(callback: () => Promise<Result<void>>): void {
     this.hookPost = callback;
   }
 
@@ -241,23 +242,21 @@ export class IdsToolbox {
       );
 
       if (!(await this.preflightRequireNix())) {
-        this.recordEvent("preflight-require-nix-denied");
+        this.recordEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
         return;
       }
 
       if (this.executionPhase === "main" && this.hookMain) {
-        await this.hookMain();
+        await handleHook(this.hookMain());
       } else if (this.executionPhase === "post" && this.hookPost) {
-        await this.hookPost();
+        await handleHook(this.hookPost());
       }
+
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
     } catch (error) {
       this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
 
-      const reportable =
-        error instanceof Error || typeof error == "string"
-          ? error.toString()
-          : JSON.stringify(error);
+      const reportable = coerceErrorToString(error);
 
       this.addFact(FACT_FINAL_EXCEPTION, reportable);
 
@@ -650,3 +649,4 @@ function mungeDiagnosticEndpoint(inputUrl: URL): URL {
 // Public exports from other files
 export * as inputs from "./inputs.js";
 export * as platform from "./platform.js";
+export * as result from "./result.js";

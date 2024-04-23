@@ -7,7 +7,14 @@ var __export = (target, all) => {
 // package.json
 var version = "1.0.0";
 
-// src/helpers.ts
+// src/result.ts
+var result_exports = {};
+__export(result_exports, {
+  coerceErrorToString: () => coerceErrorToString,
+  handle: () => handle,
+  handleHook: () => handleHook
+});
+import * as actionsCore from "@actions/core";
 var handle = (res) => {
   if (res.ok) {
     return res.val;
@@ -18,8 +25,16 @@ var handle = (res) => {
 var coerceErrorToString = (e) => {
   if (e instanceof Error) {
     return e.message;
+  } else if (typeof e === "string") {
+    return e;
   } else {
     return `unknown error: ${e}`;
+  }
+};
+var handleHook = async (callback) => {
+  const res = await callback;
+  if (res.err) {
+    actionsCore.error(res.val);
   }
 };
 
@@ -100,11 +115,11 @@ async function readAsyncOsReleaseFile(fileList, options) {
 ${fileData}`);
       }
       break;
-    } catch (error) {
+    } catch (error2) {
       if (options.debug) {
-        console.error(error);
+        console.error(error2);
       }
-      return Err(coerceErrorToString(error));
+      return Err(coerceErrorToString(error2));
     }
   }
   if (fileData === null) {
@@ -125,11 +140,11 @@ function readSyncOsreleaseFile(releaseFileList, options) {
 ${fileData}`);
       }
       break;
-    } catch (error) {
+    } catch (error2) {
       if (options.debug) {
-        console.error(error);
+        console.error(error2);
       }
-      return Err(coerceErrorToString(error));
+      return Err(coerceErrorToString(error2));
     }
   }
   if (fileData === null) {
@@ -230,7 +245,7 @@ async function getDetails() {
 }
 
 // src/correlation.ts
-import * as actionsCore from "@actions/core";
+import * as actionsCore2 from "@actions/core";
 import { createHash } from "node:crypto";
 var OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 function identify(projectName) {
@@ -293,8 +308,8 @@ function identify(projectName) {
       ])
     }
   };
-  actionsCore.debug("Correlation data:");
-  actionsCore.debug(JSON.stringify(ident, null, 2));
+  actionsCore2.debug("Correlation data:");
+  actionsCore2.debug(JSON.stringify(ident, null, 2));
   return ident;
 }
 function hashEnvironmentVariables(prefix, variables) {
@@ -303,12 +318,12 @@ function hashEnvironmentVariables(prefix, variables) {
     let value = process.env[varName];
     if (value === void 0) {
       if (OPTIONAL_VARIABLES.includes(varName)) {
-        actionsCore.debug(
+        actionsCore2.debug(
           `Optional environment variable not set: ${varName} -- substituting with the variable name`
         );
         value = varName;
       } else {
-        actionsCore.debug(
+        actionsCore2.debug(
           `Environment variable not set: ${varName} -- can't generate the requested identity`
         );
         return void 0;
@@ -363,12 +378,12 @@ __export(inputs_exports, {
   getStringOrNull: () => getStringOrNull,
   getStringOrUndefined: () => getStringOrUndefined
 });
-import * as actionsCore2 from "@actions/core";
+import * as actionsCore3 from "@actions/core";
 var getBool = (name) => {
-  return actionsCore2.getBooleanInput(name);
+  return actionsCore3.getBooleanInput(name);
 };
 var getMultilineStringOrNull = (name) => {
-  const value = actionsCore2.getMultilineInput(name);
+  const value = actionsCore3.getMultilineInput(name);
   if (value.length === 0) {
     return null;
   } else {
@@ -376,7 +391,7 @@ var getMultilineStringOrNull = (name) => {
   }
 };
 var getNumberOrNull = (name) => {
-  const value = actionsCore2.getInput(name);
+  const value = actionsCore3.getInput(name);
   if (value === "") {
     return null;
   } else {
@@ -384,10 +399,10 @@ var getNumberOrNull = (name) => {
   }
 };
 var getString = (name) => {
-  return actionsCore2.getInput(name);
+  return actionsCore3.getInput(name);
 };
 var getStringOrNull = (name) => {
-  const value = actionsCore2.getInput(name);
+  const value = actionsCore3.getInput(name);
   if (value === "") {
     return null;
   } else {
@@ -395,7 +410,7 @@ var getStringOrNull = (name) => {
   }
 };
 var getStringOrUndefined = (name) => {
-  const value = actionsCore2.getInput(name);
+  const value = actionsCore3.getInput(name);
   if (value === "") {
     return void 0;
   } else {
@@ -404,7 +419,7 @@ var getStringOrUndefined = (name) => {
 };
 
 // src/sourcedef.ts
-import * as actionsCore3 from "@actions/core";
+import * as actionsCore4 from "@actions/core";
 function constructSourceParameters(legacyPrefix) {
   const noisilyGetInput = (suffix) => {
     const preferredInput = getStringOrUndefined(`source-${suffix}`);
@@ -413,12 +428,12 @@ function constructSourceParameters(legacyPrefix) {
     }
     const legacyInput = getStringOrUndefined(`${legacyPrefix}-${suffix}`);
     if (preferredInput && legacyInput) {
-      actionsCore3.warning(
+      actionsCore4.warning(
         `The supported option source-${suffix} and the legacy option ${legacyPrefix}-${suffix} are both set. Preferring source-${suffix}. Please stop setting ${legacyPrefix}-${suffix}.`
       );
       return preferredInput;
     } else if (legacyInput) {
-      actionsCore3.warning(
+      actionsCore4.warning(
         `The legacy option ${legacyPrefix}-${suffix} is set. Please migrate to source-${suffix}.`
       );
       return legacyInput;
@@ -438,7 +453,7 @@ function constructSourceParameters(legacyPrefix) {
 
 // src/index.ts
 import * as actionsCache from "@actions/cache";
-import * as actionsCore4 from "@actions/core";
+import * as actionsCore5 from "@actions/core";
 import got from "got";
 import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
@@ -452,6 +467,7 @@ var IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 var EVENT_EXCEPTION = "exception";
 var EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
 var EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
+var EVENT_PREFLIGHT_REQUIRE_NIX_DENIED = "preflight-require-nix-denied";
 var FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
 var FACT_FINAL_EXCEPTION = "final_exception";
 var IdsToolbox = class _IdsToolbox {
@@ -484,9 +500,9 @@ var IdsToolbox = class _IdsToolbox {
       },
       hooks: {
         beforeRetry: [
-          (error, retryCount) => {
-            actionsCore4.info(
-              `Retrying after error ${error.code}, retry #: ${retryCount}`
+          (error2, retryCount) => {
+            actionsCore5.info(
+              `Retrying after error ${error2.code}, retry #: ${retryCount}`
             );
           }
         ]
@@ -525,13 +541,13 @@ var IdsToolbox = class _IdsToolbox {
           this.addFact("$os_version", details.version);
         }
       }).catch((e) => {
-        actionsCore4.debug(`Failure getting platform details: ${e}`);
+        actionsCore5.debug(`Failure getting platform details: ${e}`);
       });
     }
     {
-      const phase = actionsCore4.getState("idstoolbox_execution_phase");
+      const phase = actionsCore5.getState("idstoolbox_execution_phase");
       if (phase === "") {
-        actionsCore4.saveState("idstoolbox_execution_phase", "post");
+        actionsCore5.saveState("idstoolbox_execution_phase", "post");
         this.executionPhase = "main";
       } else {
         this.executionPhase = "post";
@@ -561,8 +577,8 @@ var IdsToolbox = class _IdsToolbox {
     this.hookPost = callback;
   }
   execute() {
-    this.executeAsync().catch((error) => {
-      console.log(error);
+    this.executeAsync().catch((error2) => {
+      console.log(error2);
       process.exitCode = 1;
     });
   }
@@ -572,23 +588,23 @@ var IdsToolbox = class _IdsToolbox {
         this.getCorrelationHashes()
       );
       if (!await this.preflightRequireNix()) {
-        this.recordEvent("preflight-require-nix-denied");
+        this.recordEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
         return;
       }
       if (this.executionPhase === "main" && this.hookMain) {
-        await this.hookMain();
+        await handleHook(this.hookMain());
       } else if (this.executionPhase === "post" && this.hookPost) {
-        await this.hookPost();
+        await handleHook(this.hookPost());
       }
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
-    } catch (error) {
+    } catch (error2) {
       this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
-      const reportable = error instanceof Error || typeof error == "string" ? error.toString() : JSON.stringify(error);
+      const reportable = coerceErrorToString(error2);
       this.addFact(FACT_FINAL_EXCEPTION, reportable);
       if (this.executionPhase === "post") {
-        actionsCore4.warning(reportable);
+        actionsCore5.warning(reportable);
       } else {
-        actionsCore4.setFailed(reportable);
+        actionsCore5.setFailed(reportable);
       }
       this.recordEvent(EVENT_EXCEPTION);
     } finally {
@@ -618,7 +634,7 @@ var IdsToolbox = class _IdsToolbox {
     });
   }
   async fetch() {
-    actionsCore4.info(`Fetching from ${this.getUrl()}`);
+    actionsCore5.info(`Fetching from ${this.getUrl()}`);
     const correlatedUrl = this.getUrl();
     correlatedUrl.searchParams.set("ci", "github");
     correlatedUrl.searchParams.set(
@@ -628,16 +644,16 @@ var IdsToolbox = class _IdsToolbox {
     const versionCheckup = await this.client.head(correlatedUrl);
     if (versionCheckup.headers.etag) {
       const v = versionCheckup.headers.etag;
-      actionsCore4.debug(`Checking the tool cache for ${this.getUrl()} at ${v}`);
+      actionsCore5.debug(`Checking the tool cache for ${this.getUrl()} at ${v}`);
       const cached = await this.getCachedVersion(v);
       if (cached) {
         this.facts["artifact_fetched_from_cache"] = true;
-        actionsCore4.debug(`Tool cache hit.`);
+        actionsCore5.debug(`Tool cache hit.`);
         return cached;
       }
     }
     this.facts["artifact_fetched_from_cache"] = false;
-    actionsCore4.debug(
+    actionsCore5.debug(
       `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`
     );
     const destFile = this.getTemporaryName();
@@ -654,7 +670,7 @@ var IdsToolbox = class _IdsToolbox {
       try {
         await this.saveCachedVersion(v, destFile);
       } catch (e) {
-        actionsCore4.debug(`Error caching the artifact: ${e}`);
+        actionsCore5.debug(`Error caching the artifact: ${e}`);
       }
     }
     return destFile;
@@ -748,17 +764,17 @@ var IdsToolbox = class _IdsToolbox {
       const candidateNix = path.join(location, "nix");
       try {
         await fs2.access(candidateNix, fs2.constants.X_OK);
-        actionsCore4.debug(`Found Nix at ${candidateNix}`);
+        actionsCore5.debug(`Found Nix at ${candidateNix}`);
         nixLocation = candidateNix;
       } catch {
-        actionsCore4.debug(`Nix not at ${candidateNix}`);
+        actionsCore5.debug(`Nix not at ${candidateNix}`);
       }
     }
     this.addFact("nix_location", nixLocation || "");
     if (this.actionOptions.requireNix === "ignore") {
       return true;
     }
-    const currentNotFoundState = actionsCore4.getState(
+    const currentNotFoundState = actionsCore5.getState(
       "idstoolbox_nix_not_found"
     );
     if (currentNotFoundState === "not-found") {
@@ -767,15 +783,15 @@ var IdsToolbox = class _IdsToolbox {
     if (nixLocation !== void 0) {
       return true;
     }
-    actionsCore4.saveState("idstoolbox_nix_not_found", "not-found");
+    actionsCore5.saveState("idstoolbox_nix_not_found", "not-found");
     switch (this.actionOptions.requireNix) {
       case "fail":
-        actionsCore4.setFailed(
+        actionsCore5.setFailed(
           "This action can only be used when Nix is installed. Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
         );
         break;
       case "warn":
-        actionsCore4.warning(
+        actionsCore5.warning(
           "This action is in no-op mode because Nix is not installed. Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
         );
         break;
@@ -784,10 +800,10 @@ var IdsToolbox = class _IdsToolbox {
   }
   async submitEvents() {
     if (!this.actionOptions.diagnosticsUrl) {
-      actionsCore4.debug(
+      actionsCore5.debug(
         "Diagnostics are disabled. Not sending the following events:"
       );
-      actionsCore4.debug(JSON.stringify(this.events, void 0, 2));
+      actionsCore5.debug(JSON.stringify(this.events, void 0, 2));
       return;
     }
     const batch = {
@@ -799,8 +815,8 @@ var IdsToolbox = class _IdsToolbox {
       await this.client.post(this.actionOptions.diagnosticsUrl, {
         json: batch
       });
-    } catch (error) {
-      actionsCore4.debug(`Error submitting diagnostics event: ${error}`);
+    } catch (error2) {
+      actionsCore5.debug(`Error submitting diagnostics event: ${error2}`);
     }
     this.events = [];
   }
@@ -823,8 +839,8 @@ function makeOptionsConfident(actionOptions) {
       actionOptions.diagnosticsUrl
     )
   };
-  actionsCore4.debug("idslib options:");
-  actionsCore4.debug(JSON.stringify(finalOpts, void 0, 2));
+  actionsCore5.debug("idslib options:");
+  actionsCore5.debug(JSON.stringify(finalOpts, void 0, 2));
   return finalOpts;
 }
 function determineDiagnosticsUrl(idsProjectName, urlOption) {
@@ -843,7 +859,7 @@ function determineDiagnosticsUrl(idsProjectName, urlOption) {
       try {
         return mungeDiagnosticEndpoint(new URL(providedDiagnosticEndpoint));
       } catch (e) {
-        actionsCore4.info(
+        actionsCore5.info(
           `User-provided diagnostic endpoint ignored: not a valid URL: ${e}`
         );
       }
@@ -855,7 +871,7 @@ function determineDiagnosticsUrl(idsProjectName, urlOption) {
     diagnosticUrl.pathname += "/diagnostics";
     return diagnosticUrl;
   } catch (e) {
-    actionsCore4.info(
+    actionsCore5.info(
       `Generated diagnostic endpoint ignored: not a valid URL: ${e}`
     );
   }
@@ -877,14 +893,15 @@ function mungeDiagnosticEndpoint(inputUrl) {
     inputUrl.password = currentIdsHost.password;
     return inputUrl;
   } catch (e) {
-    actionsCore4.info(`Default or overridden IDS host isn't a valid URL: ${e}`);
+    actionsCore5.info(`Default or overridden IDS host isn't a valid URL: ${e}`);
   }
   return inputUrl;
 }
 export {
   IdsToolbox,
   inputs_exports as inputs,
-  platform_exports as platform
+  platform_exports as platform,
+  result_exports as result
 };
 /*!
  * linux-release-info

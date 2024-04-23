@@ -1,3 +1,4 @@
+import * as actionsCore from "@actions/core";
 import { Result as TsResult } from "ts-results";
 
 /**
@@ -22,7 +23,22 @@ export const handle = <T>(res: Result<T>): T => {
 export const coerceErrorToString = (e: unknown): string => {
   if (e instanceof Error) {
     return e.message;
+  } else if (typeof e === "string") {
+    return e;
   } else {
     return `unknown error: ${e}`;
+  }
+};
+
+/**
+ * If the supplied hook function returns an error, log that error using the
+ * Actions toolkit.
+ */
+export const handleHook = async (
+  callback: Promise<Result<void>>,
+): Promise<void> => {
+  const res = await callback;
+  if (res.err) {
+    actionsCore.error(res.val);
   }
 };

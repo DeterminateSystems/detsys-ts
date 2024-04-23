@@ -2,7 +2,7 @@
  * @packageDocumentation
  * Helpers for determining system attributes of the current runner.
  */
-import { Result } from "./helpers.js";
+import { Result } from "./result.js";
 import { Err, Ok } from "ts-results";
 
 /**

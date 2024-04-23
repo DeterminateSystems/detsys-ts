@@ -13,6 +13,27 @@ type AnonymizedCorrelationHashes = {
  * An algebraic return type directly inspired by Rust's `Result`.
  */
 type Result<T> = Result$1<T, string>;
+/**
+ * Convert a `Result<T>` into a `T` (if okay) or throw an `Error` with a message.
+ */
+declare const handle: <T>(res: Result<T>) => T;
+/**
+ * Coerce an error into a string.
+ */
+declare const coerceErrorToString: (e: unknown) => string;
+/**
+ * If the supplied hook function returns an error, log that error using the
+ * Actions toolkit.
+ */
+declare const handleHook: (callback: Promise<Result<void>>) => Promise<void>;
+
+type result_Result<T> = Result<T>;
+declare const result_coerceErrorToString: typeof coerceErrorToString;
+declare const result_handle: typeof handle;
+declare const result_handleHook: typeof handleHook;
+declare namespace result {
+  export { type result_Result as Result, result_coerceErrorToString as coerceErrorToString, result_handle as handle, result_handleHook as handleHook };
+}
 
 /**
  * Get a Boolean input from the Action's configuration by name.
@@ -105,8 +126,8 @@ declare class IdsToolbox {
      * @deprecated
      */
     constructor(actionOptions: ActionOptions);
-    onMain(callback: () => Promise<void>): void;
-    onPost(callback: () => Promise<void>): void;
+    onMain(callback: () => Promise<Result<void>>): void;
+    onPost(callback: () => Promise<Result<void>>): void;
     execute(): void;
     private executeAsync;
     addFact(key: string, value: string | boolean): void;
@@ -126,4 +147,4 @@ declare class IdsToolbox {
     private getTemporaryName;
 }
 
-export { type ActionOptions, type ExecutionPhase, type FetchSuffixStyle, IdsToolbox, type NixRequirementHandling, inputs, platform };
+export { type ActionOptions, type ExecutionPhase, type FetchSuffixStyle, IdsToolbox, type NixRequirementHandling, inputs, platform, result };
