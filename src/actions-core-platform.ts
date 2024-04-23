@@ -2,7 +2,7 @@
 // since it isn't in @actions/core 1.10.1 which is their current release as 2024-04-19.
 // Changes: Replaced the lsb_release call in Linux with `linux-release-info` to parse the os-release file directly.
 import { releaseInfo } from "./linux-release-info.js";
-import * as core from "@actions/core";
+import * as actionsCore from "@actions/core";
 import * as exec from "@actions/exec";
 import os from "os";
 
@@ -65,10 +65,9 @@ const getLinuxInfo = async (): Promise<SystemInfo> => {
 
   try {
     data = releaseInfo({ mode: "sync" });
-    // eslint-disable-next-line no-console
-    console.log(data);
+    actionsCore.debug(`Identified release info: ${JSON.stringify(data)}`);
   } catch (e) {
-    core.debug(`Error collecting release info: ${e}`);
+    actionsCore.debug(`Error collecting release info: ${e}`);
   }
 
   return {
