@@ -15,14 +15,14 @@ __export(result_exports, {
   handleHook: () => handleHook
 });
 import * as actionsCore from "@actions/core";
-var handle = (res) => {
+function handle(res) {
   if (res.ok) {
     return res.val;
   } else {
     throw new Error(res.val);
   }
-};
-var coerceErrorToString = (e) => {
+}
+function coerceErrorToString(e) {
   if (e instanceof Error) {
     return e.message;
   } else if (typeof e === "string") {
@@ -30,13 +30,13 @@ var coerceErrorToString = (e) => {
   } else {
     return `unknown error: ${e}`;
   }
-};
-var handleHook = async (callback) => {
+}
+async function handleHook(callback) {
   const res = await callback;
   if (res.err) {
     actionsCore.error(res.val);
   }
-};
+}
 
 // src/linux-release-info.ts
 import * as fs from "node:fs";

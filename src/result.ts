@@ -9,18 +9,18 @@ export type Result<T> = TsResult<T, string>;
 /**
  * Convert a `Result<T>` into a `T` (if okay) or throw an `Error` with a message.
  */
-export const handle = <T>(res: Result<T>): T => {
+export function handle<T>(res: Result<T>): T {
   if (res.ok) {
     return res.val;
   } else {
     throw new Error(res.val);
   }
-};
+}
 
 /**
  * Coerce an error into a string.
  */
-export const coerceErrorToString = (e: unknown): string => {
+export function coerceErrorToString(e: unknown): string {
   if (e instanceof Error) {
     return e.message;
   } else if (typeof e === "string") {
@@ -28,17 +28,17 @@ export const coerceErrorToString = (e: unknown): string => {
   } else {
     return `unknown error: ${e}`;
   }
-};
+}
 
 /**
  * If the supplied hook function returns an error, log that error using the
  * Actions toolkit.
  */
-export const handleHook = async (
+export async function handleHook(
   callback: Promise<Result<void>>,
-): Promise<void> => {
+): Promise<void> {
   const res = await callback;
   if (res.err) {
     actionsCore.error(res.val);
   }
-};
+}

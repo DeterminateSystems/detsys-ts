@@ -16,16 +16,16 @@ type Result<T> = Result$1<T, string>;
 /**
  * Convert a `Result<T>` into a `T` (if okay) or throw an `Error` with a message.
  */
-declare const handle: <T>(res: Result<T>) => T;
+declare function handle<T>(res: Result<T>): T;
 /**
  * Coerce an error into a string.
  */
-declare const coerceErrorToString: (e: unknown) => string;
+declare function coerceErrorToString(e: unknown): string;
 /**
  * If the supplied hook function returns an error, log that error using the
  * Actions toolkit.
  */
-declare const handleHook: (callback: Promise<Result<void>>) => Promise<void>;
+declare function handleHook(callback: Promise<Result<void>>): Promise<void>;
 
 type result_Result<T> = Result<T>;
 declare const result_coerceErrorToString: typeof coerceErrorToString;
