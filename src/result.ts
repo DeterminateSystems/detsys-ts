@@ -1,5 +1,5 @@
 import * as actionsCore from "@actions/core";
-import { Result as TsResult } from "ts-results";
+import { Ok, Result as TsResult } from "ts-results";
 
 /**
  * An algebraic return type directly inspired by Rust's `Result`.
@@ -42,6 +42,11 @@ export async function handleHook(
     actionsCore.error(res.val);
   }
 }
+
+/**
+ * A useful constant for declaring success as an `Ok<void>`.
+ */
+export const SUCCESS: Ok<void> = Ok(undefined);
 
 // Public exports from ts-results
 export { Err, Ok } from "ts-results";

@@ -1,4 +1,4 @@
-import { Result as Result$1, Err, Ok } from 'ts-results';
+import { Result as Result$1, Ok, Err } from 'ts-results';
 
 type AnonymizedCorrelationHashes = {
     correlation_source: string;
@@ -26,15 +26,20 @@ declare function coerceErrorToString(e: unknown): string;
  * Actions toolkit.
  */
 declare function handleHook(callback: Promise<Result<void>>): Promise<void>;
+/**
+ * A useful constant for declaring success as an `Ok<void>`.
+ */
+declare const SUCCESS: Ok<void>;
 
 declare const result_Err: typeof Err;
 declare const result_Ok: typeof Ok;
 type result_Result<T> = Result<T>;
+declare const result_SUCCESS: typeof SUCCESS;
 declare const result_coerceErrorToString: typeof coerceErrorToString;
 declare const result_handle: typeof handle;
 declare const result_handleHook: typeof handleHook;
 declare namespace result {
-  export { result_Err as Err, result_Ok as Ok, type result_Result as Result, result_coerceErrorToString as coerceErrorToString, result_handle as handle, result_handleHook as handleHook };
+  export { result_Err as Err, result_Ok as Ok, type result_Result as Result, result_SUCCESS as SUCCESS, result_coerceErrorToString as coerceErrorToString, result_handle as handle, result_handleHook as handleHook };
 }
 
 /**

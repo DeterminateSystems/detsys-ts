@@ -11,13 +11,15 @@ var version = "1.0.0";
 var result_exports = {};
 __export(result_exports, {
   Err: () => Err,
-  Ok: () => Ok,
+  Ok: () => Ok2,
+  SUCCESS: () => SUCCESS,
   coerceErrorToString: () => coerceErrorToString,
   handle: () => handle,
   handleHook: () => handleHook
 });
 import * as actionsCore from "@actions/core";
-import { Err, Ok } from "ts-results";
+import { Ok } from "ts-results";
+import { Err, Ok as Ok2 } from "ts-results";
 function handle(res) {
   if (res.ok) {
     return res.val;
@@ -40,6 +42,7 @@ async function handleHook(callback) {
     actionsCore.error(res.val);
   }
 }
+var SUCCESS = Ok(void 0);
 
 // src/linux-release-info.ts
 import * as fs from "node:fs";
@@ -127,7 +130,7 @@ ${fileData}`);
   if (fileData === null) {
     return Err("Cannot read os-release file!");
   }
-  return Ok(formatFileData(getOsInfo(), fileData));
+  return Ok2(formatFileData(getOsInfo(), fileData));
 }
 function readSyncOsreleaseFile(releaseFileList, options) {
   let fileData = null;
@@ -152,7 +155,7 @@ ${fileData}`);
   if (fileData === null) {
     return Err("Cannot read os-release file!");
   }
-  return Ok(formatFileData(getOsInfo(), fileData));
+  return Ok2(formatFileData(getOsInfo(), fileData));
 }
 
 // src/actions-core-platform.ts
@@ -347,7 +350,7 @@ function getArchOs() {
   const envArch = process.env.RUNNER_ARCH;
   const envOs = process.env.RUNNER_OS;
   if (envArch && envOs) {
-    return Ok(`${envArch}-${envOs}`);
+    return Ok2(`${envArch}-${envOs}`);
   } else {
     return Err(
       `Can't identify the platform: RUNNER_ARCH or RUNNER_OS undefined (${envArch}-${envOs})`
@@ -363,7 +366,7 @@ function getNixPlatform(archOs) {
   ]);
   const mappedTo = archOsMap.get(archOs);
   if (mappedTo) {
-    return Ok(mappedTo);
+    return Ok2(mappedTo);
   } else {
     return Err(`ArchOs (${archOs}) doesn't map to a supported Nix platform.`);
   }
@@ -479,7 +482,7 @@ var IdsToolbox = class _IdsToolbox {
   static create(actionOptions) {
     try {
       const action = new _IdsToolbox(actionOptions);
-      return Ok(action);
+      return Ok2(action);
     } catch (e) {
       return Err(coerceErrorToString(e));
     }
