@@ -6,7 +6,14 @@ import { version as pkgVersion } from "../package.json";
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import * as correlation from "./correlation.js";
 import * as platform from "./platform.js";
-import { Result, coerceErrorToString, handle, handleHook } from "./result.js";
+import {
+  Err,
+  Ok,
+  Result,
+  coerceErrorToString,
+  handle,
+  handleHook,
+} from "./result.js";
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
@@ -17,7 +24,6 @@ import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { Err, Ok } from "ts-results";
 
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
@@ -116,7 +122,6 @@ export class IdsToolbox {
 
   /**
    * The standard constructor for `IdsToolbox`. Use `create` instead.
-   * @deprecated
    */
   constructor(actionOptions: ActionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
@@ -660,6 +665,3 @@ function mungeDiagnosticEndpoint(inputUrl: URL): URL {
 export * as inputs from "./inputs.js";
 export * as platform from "./platform.js";
 export * as result from "./result.js";
-
-// Public exports from other libs
-export { Err, Ok } from "ts-results";

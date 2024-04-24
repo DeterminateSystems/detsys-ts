@@ -12,11 +12,10 @@
 // and ESM in the bundle. We've modified the original logic to improve things like typing
 // and fixing ESLint issues. Originally drawn from:
 // https://github.com/samuelcarreira/linux-release-info/blob/84a91aa5442b47900da03020c590507545d3dc74/src/index.ts
-import { Result, coerceErrorToString } from "./result.js";
+import { Err, Ok, Result, coerceErrorToString } from "./result.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { promisify } from "node:util";
-import { Err, Ok } from "ts-results";
 
 const readFileAsync = promisify(fs.readFile);
 

@@ -10,11 +10,14 @@ var version = "1.0.0";
 // src/result.ts
 var result_exports = {};
 __export(result_exports, {
+  Err: () => Err,
+  Ok: () => Ok,
   coerceErrorToString: () => coerceErrorToString,
   handle: () => handle,
   handleHook: () => handleHook
 });
 import * as actionsCore from "@actions/core";
+import { Err, Ok } from "ts-results";
 function handle(res) {
   if (res.ok) {
     return res.val;
@@ -42,7 +45,6 @@ async function handleHook(callback) {
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { promisify } from "node:util";
-import { Err, Ok } from "ts-results";
 var readFileAsync = promisify(fs.readFile);
 var linuxReleaseInfoOptionsDefaults = {
   mode: "async",
@@ -341,14 +343,13 @@ __export(platform_exports, {
   getArchOs: () => getArchOs,
   getNixPlatform: () => getNixPlatform
 });
-import { Err as Err2, Ok as Ok2 } from "ts-results";
 function getArchOs() {
   const envArch = process.env.RUNNER_ARCH;
   const envOs = process.env.RUNNER_OS;
   if (envArch && envOs) {
-    return Ok2(`${envArch}-${envOs}`);
+    return Ok(`${envArch}-${envOs}`);
   } else {
-    return Err2(
+    return Err(
       `Can't identify the platform: RUNNER_ARCH or RUNNER_OS undefined (${envArch}-${envOs})`
     );
   }
@@ -362,9 +363,9 @@ function getNixPlatform(archOs) {
   ]);
   const mappedTo = archOsMap.get(archOs);
   if (mappedTo) {
-    return Ok2(mappedTo);
+    return Ok(mappedTo);
   } else {
-    return Err2(`ArchOs (${archOs}) doesn't map to a supported Nix platform.`);
+    return Err(`ArchOs (${archOs}) doesn't map to a supported Nix platform.`);
   }
 }
 
@@ -461,8 +462,6 @@ import fs2, { chmod, copyFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { Err as Err3, Ok as Ok3 } from "ts-results";
-import { Err as Err4, Ok as Ok4 } from "ts-results";
 var DEFAULT_IDS_HOST = "https://install.determinate.systems";
 var IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 var EVENT_EXCEPTION = "exception";
@@ -480,14 +479,13 @@ var IdsToolbox = class _IdsToolbox {
   static create(actionOptions) {
     try {
       const action = new _IdsToolbox(actionOptions);
-      return Ok3(action);
+      return Ok(action);
     } catch (e) {
-      return Err3(coerceErrorToString(e));
+      return Err(coerceErrorToString(e));
     }
   }
   /**
    * The standard constructor for `IdsToolbox`. Use `create` instead.
-   * @deprecated
    */
   constructor(actionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
@@ -908,9 +906,7 @@ function mungeDiagnosticEndpoint(inputUrl) {
   return inputUrl;
 }
 export {
-  Err4 as Err,
   IdsToolbox,
-  Ok4 as Ok,
   inputs_exports as inputs,
   platform_exports as platform,
   result_exports as result

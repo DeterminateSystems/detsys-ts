@@ -42,3 +42,6 @@ export async function handleHook(
     actionsCore.error(res.val);
   }
 }
+
+// Public exports from ts-results
+export { Err, Ok } from "ts-results";

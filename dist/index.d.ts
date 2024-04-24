@@ -1,5 +1,4 @@
-import { Result as Result$1 } from 'ts-results';
-export { Err, Ok } from 'ts-results';
+import { Result as Result$1, Err, Ok } from 'ts-results';
 
 type AnonymizedCorrelationHashes = {
     correlation_source: string;
@@ -28,12 +27,14 @@ declare function coerceErrorToString(e: unknown): string;
  */
 declare function handleHook(callback: Promise<Result<void>>): Promise<void>;
 
+declare const result_Err: typeof Err;
+declare const result_Ok: typeof Ok;
 type result_Result<T> = Result<T>;
 declare const result_coerceErrorToString: typeof coerceErrorToString;
 declare const result_handle: typeof handle;
 declare const result_handleHook: typeof handleHook;
 declare namespace result {
-  export { type result_Result as Result, result_coerceErrorToString as coerceErrorToString, result_handle as handle, result_handleHook as handleHook };
+  export { result_Err as Err, result_Ok as Ok, type result_Result as Result, result_coerceErrorToString as coerceErrorToString, result_handle as handle, result_handleHook as handleHook };
 }
 
 /**
@@ -124,7 +125,6 @@ declare class IdsToolbox {
     static create(actionOptions: ActionOptions): Result<IdsToolbox>;
     /**
      * The standard constructor for `IdsToolbox`. Use `create` instead.
-     * @deprecated
      */
     constructor(actionOptions: ActionOptions);
     onMain(callback: () => Promise<Result<void>>): void;

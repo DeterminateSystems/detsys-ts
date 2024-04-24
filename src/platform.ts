@@ -2,8 +2,7 @@
  * @packageDocumentation
  * Helpers for determining system attributes of the current runner.
  */
-import { Result } from "./result.js";
-import { Err, Ok } from "ts-results";
+import { Err, Ok, Result } from "./result.js";
 
 /**
  * Get the current architecture plus OS. Examples include `X64-Linux` and `ARM64-macOS`.

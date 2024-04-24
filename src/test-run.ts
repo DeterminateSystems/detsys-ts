@@ -1,5 +1,5 @@
 import { IdsToolbox } from "./index.js";
-import { Ok } from "ts-results";
+import { Ok } from "./result.js";
 
 process.env["RUNNER_ARCH"] = "ARM64";
 process.env["RUNNER_OS"] = "macOS";
