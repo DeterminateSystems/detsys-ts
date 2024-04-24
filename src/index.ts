@@ -660,3 +660,6 @@ function mungeDiagnosticEndpoint(inputUrl: URL): URL {
 export * as inputs from "./inputs.js";
 export * as platform from "./platform.js";
 export * as result from "./result.js";
+
+// Public exports from other libs
+export { Err, Ok } from "ts-results";

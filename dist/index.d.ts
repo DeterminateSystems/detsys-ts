@@ -1,4 +1,5 @@
 import { Result as Result$1 } from 'ts-results';
+export { Err, Ok } from 'ts-results';
 
 type AnonymizedCorrelationHashes = {
     correlation_source: string;

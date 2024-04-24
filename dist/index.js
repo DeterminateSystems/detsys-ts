@@ -462,6 +462,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Err as Err3, Ok as Ok3 } from "ts-results";
+import { Err as Err4, Ok as Ok4 } from "ts-results";
 var DEFAULT_IDS_HOST = "https://install.determinate.systems";
 var IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 var EVENT_EXCEPTION = "exception";
@@ -907,7 +908,9 @@ function mungeDiagnosticEndpoint(inputUrl) {
   return inputUrl;
 }
 export {
+  Err4 as Err,
   IdsToolbox,
+  Ok4 as Ok,
   inputs_exports as inputs,
   platform_exports as platform,
   result_exports as result
