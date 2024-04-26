@@ -22,9 +22,14 @@ export type Separator = "space" | "comma";
  */
 const getArrayOfStrings = (name: string, separator: Separator): string[] => {
   const original = getString(name);
-  const final = separator === "comma" ? original.replace(/\s+/g, "") : original;
-  const sepChar = separator === "comma" ? "," : " ";
-  return final.split(sepChar);
+  return handleString(original, separator);
+};
+
+// Split out this function for use in testing
+export const handleString = (s: string, separator: Separator): string[] => {
+  const final = separator === "comma" ? s.replace(/\s+/g, "") : s;
+  const sepChar = separator === "comma" ? "," : /\s+/;
+  return final.trim().split(sepChar);
 };
 
 /**
@@ -84,7 +89,7 @@ const getStringOrUndefined = (name: string): string | undefined => {
 
 export {
   getBool,
-  getArrayOfStrings as getCommaSeparatedArrayOfStrings,
+  getArrayOfStrings,
   getMultilineStringOrNull,
   getNumberOrNull,
   getString,
