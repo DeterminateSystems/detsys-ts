@@ -12,6 +12,14 @@ const getBool = (name: string): boolean => {
 };
 
 /**
+ * Convert a comma-separated string input into an array of strings, stripping all whitespace from the string.
+ */
+const getCommaSeparatedArrayOfStrings = (name: string): string[] => {
+  const original = getString(name);
+  return original.replace(/\s+/g, "").split(",");
+};
+
+/**
  * Get a multi-line string input from the Action's configuration by name or return `null` if not set.
  */
 const getMultilineStringOrNull = (name: string): string[] | null => {
@@ -68,6 +76,7 @@ const getStringOrUndefined = (name: string): string | undefined => {
 
 export {
   getBool,
+  getCommaSeparatedArrayOfStrings,
   getMultilineStringOrNull,
   getNumberOrNull,
   getString,
