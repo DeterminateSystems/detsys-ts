@@ -17,7 +17,8 @@ const getBool = (name: string): boolean => {
 export type Separator = "space" | "comma";
 
 /**
- * Convert a comma-separated string input into an array of strings, leaving whitespace intact.
+ * Convert a comma-separated string input into an array of strings. If `comma` is selected,
+ * all whitespace is removed from the string before converting to an array.
  */
 const getArrayOfStrings = (name: string, separator: Separator): string[] => {
   const original = getString(name);
