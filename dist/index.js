@@ -344,7 +344,7 @@ function getNixPlatform(archOs) {
 var inputs_exports = {};
 __export(inputs_exports, {
   getBool: () => getBool,
-  getCommaSeparatedArrayOfStrings: () => getCommaSeparatedArrayOfStrings,
+  getCommaSeparatedArrayOfStrings: () => getArrayOfStrings,
   getMultilineStringOrNull: () => getMultilineStringOrNull,
   getNumberOrNull: () => getNumberOrNull,
   getString: () => getString,
@@ -355,10 +355,11 @@ import * as actionsCore4 from "@actions/core";
 var getBool = (name) => {
   return actionsCore4.getBooleanInput(name);
 };
-var getCommaSeparatedArrayOfStrings = (name, stripWhitespace) => {
-  const strip = stripWhitespace ?? false;
+var getArrayOfStrings = (name, separator) => {
   const original = getString(name);
-  return (strip ? original.replace(/\s+/g, "") : original).split(",");
+  const final = separator === "comma" ? original.replace(/\s+/g, "") : original;
+  const sepChar = separator === "comma" ? "," : " ";
+  return final.split(sepChar);
 };
 var getMultilineStringOrNull = (name) => {
   const value = actionsCore4.getMultilineInput(name);

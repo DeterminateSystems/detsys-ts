@@ -12,15 +12,18 @@ const getBool = (name: string): boolean => {
 };
 
 /**
+ * The character used to separate values in the input string.
+ */
+export type Separator = "space" | "comma";
+
+/**
  * Convert a comma-separated string input into an array of strings, leaving whitespace intact.
  */
-const getCommaSeparatedArrayOfStrings = (
-  name: string,
-  stripWhitespace?: boolean,
-): string[] => {
-  const strip = stripWhitespace ?? false;
+const getArrayOfStrings = (name: string, separator: Separator): string[] => {
   const original = getString(name);
-  return (strip ? original.replace(/\s+/g, "") : original).split(",");
+  const final = separator === "comma" ? original.replace(/\s+/g, "") : original;
+  const sepChar = separator === "comma" ? "," : " ";
+  return final.split(sepChar);
 };
 
 /**
@@ -80,7 +83,7 @@ const getStringOrUndefined = (name: string): string | undefined => {
 
 export {
   getBool,
-  getCommaSeparatedArrayOfStrings,
+  getArrayOfStrings as getCommaSeparatedArrayOfStrings,
   getMultilineStringOrNull,
   getNumberOrNull,
   getString,
