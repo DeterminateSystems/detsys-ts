@@ -12,11 +12,15 @@ const getBool = (name: string): boolean => {
 };
 
 /**
- * Convert a comma-separated string input into an array of strings, stripping all whitespace from the string.
+ * Convert a comma-separated string input into an array of strings, leaving whitespace intact.
  */
-const getCommaSeparatedArrayOfStrings = (name: string): string[] => {
+const getCommaSeparatedArrayOfStrings = (
+  name: string,
+  stripWhitespace?: boolean,
+): string[] => {
+  const strip = stripWhitespace ?? false;
   const original = getString(name);
-  return original.replace(/\s+/g, "").split(",");
+  return (strip ? original.replace(/\s+/g, "") : original).split(",");
 };
 
 /**

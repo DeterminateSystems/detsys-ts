@@ -12,9 +12,9 @@ type AnonymizedCorrelationHashes = {
  */
 declare const getBool: (name: string) => boolean;
 /**
- * Convert a comma-separated string input into an array of strings, stripping all whitespace from the string.
+ * Convert a comma-separated string input into an array of strings, leaving whitespace intact.
  */
-declare const getCommaSeparatedArrayOfStrings: (name: string) => string[];
+declare const getCommaSeparatedArrayOfStrings: (name: string, stripWhitespace?: boolean) => string[];
 /**
  * Get a multi-line string input from the Action's configuration by name or return `null` if not set.
  */
