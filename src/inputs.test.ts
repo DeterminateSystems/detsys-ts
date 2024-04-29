@@ -9,6 +9,7 @@ test("converting strings into arrays", () => {
   };
 
   const testCases: TestCase[] = [
+    // Properly formed strings
     {
       input: "one,two,three",
       separator: "comma",
@@ -20,29 +21,47 @@ test("converting strings into arrays", () => {
       expected: ["one", "two", "three"],
     },
     {
+      input: "one two one-two-three",
+      separator: "space",
+      expected: ["one", "two", "one-two-three"],
+    },
+    // Malformed but still acceptable strings
+    {
       input: "  foo bar     baz",
       separator: "space",
       expected: ["foo", "bar", "baz"],
     },
     {
-      input: "   foo,   bar,  baz",
+      input: "one ,  two,  three",
       separator: "comma",
-      expected: ["foo", "bar", "baz"],
+      expected: ["one", "two", "three"],
+    },
+    // Malformed with predictably dicey results
+    {
+      input: "  foo bar    ' foo bar baz'",
+      separator: "space",
+      expected: ["foo", "bar", "'", "foo", "bar", "baz'"],
     },
     {
-      input: "booper",
+      input: "  foo, bar,    ' foo bar baz'",
       separator: "comma",
-      expected: ["booper"],
+      expected: ["foo", "bar", "' foo bar baz'"],
     },
+    // Strings with the wrong separator (and predictably dicey output)
     {
-      input: "booper       bopper    mooper    mopper",
+      input: "foo bar baz",
       separator: "comma",
-      expected: ["booperboppermoopermopper"],
+      expected: ["foo bar baz"],
     },
     {
       input: "foo,bar,baz",
       separator: "space",
       expected: ["foo,bar,baz"],
+    },
+    {
+      input: "booper       bopper    mooper    mopper",
+      separator: "comma",
+      expected: ["booper       bopper    mooper    mopper"],
     },
   ];
 

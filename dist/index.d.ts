@@ -20,7 +20,7 @@ type Separator = "space" | "comma";
  * all whitespace is removed from the string before converting to an array.
  */
 declare const getArrayOfStrings: (name: string, separator: Separator) => string[];
-declare const handleString: (s: string, separator: Separator) => string[];
+declare const handleString: (input: string, separator: Separator) => string[];
 /**
  * Get a multi-line string input from the Action's configuration by name or return `null` if not set.
  */
