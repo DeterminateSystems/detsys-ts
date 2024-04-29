@@ -35,9 +35,14 @@ test("converting strings into arrays", () => {
       expected: ["booper"],
     },
     {
-      input: "booper bopper mooper mopper",
+      input: "booper       bopper    mooper    mopper",
       separator: "comma",
       expected: ["booperboppermoopermopper"],
+    },
+    {
+      input: "foo,bar,baz",
+      separator: "space",
+      expected: ["foo,bar,baz"],
     },
   ];
 
