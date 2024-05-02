@@ -24,6 +24,7 @@ function handle(res) {
   if (res.ok) {
     return res.val;
   } else {
+    actionsCore.setFailed(res.val);
     throw new Error(res.val);
   }
 }
@@ -39,7 +40,7 @@ function coerceErrorToString(e) {
 async function handleHook(callback) {
   const res = await callback;
   if (res.err) {
-    actionsCore.error(res.val);
+    actionsCore.setFailed(res.val);
   }
 }
 var SUCCESS = Ok(void 0);
@@ -496,9 +497,9 @@ var IdsToolbox = class _IdsToolbox {
       },
       hooks: {
         beforeRetry: [
-          (error3, retryCount) => {
+          (error2, retryCount) => {
             actionsCore7.info(
-              `Retrying after error ${error3.code}, retry #: ${retryCount}`
+              `Retrying after error ${error2.code}, retry #: ${retryCount}`
             );
           }
         ]
@@ -570,8 +571,8 @@ var IdsToolbox = class _IdsToolbox {
     this.recordEvent(`begin_${this.executionPhase}`);
   }
   execute() {
-    this.executeAsync().catch((error3) => {
-      console.log(error3);
+    this.executeAsync().catch((error2) => {
+      console.log(error2);
       process.exitCode = 1;
     });
   }

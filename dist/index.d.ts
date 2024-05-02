@@ -14,7 +14,7 @@ type AnonymizedCorrelationHashes = {
  */
 type Result<T> = Result$1<T, string>;
 /**
- * Convert a `Result<T>` into a `T` (if okay) or throw an `Error` with a message.
+ * Convert a `Result<T>` into a `T` (if okay) or fail the Action (if error).
  */
 declare function handle<T>(res: Result<T>): T;
 /**
@@ -22,10 +22,10 @@ declare function handle<T>(res: Result<T>): T;
  */
 declare function coerceErrorToString(e: unknown): string;
 /**
- * If the supplied hook function returns an error, log that error using the
- * Actions toolkit.
+ * If the supplied hook function returns an error, fail the Action with the
+ * error message supplied by the callback.
  */
-declare function handleHook(callback: Promise<Result<void>>): Promise<void>;
+declare function handleHook(callback: Promise<Result<string>>): Promise<void>;
 /**
  * A useful constant for declaring success as an `Ok<void>`.
  */
@@ -148,11 +148,11 @@ type ActionOptions = {
     /**
      * The main logic of the Action.
      */
-    hookMain: () => Promise<Result<void>>;
+    hookMain: () => Promise<Result<string>>;
     /**
      * The post logic of the Action.
      */
-    hookPost?: () => Promise<Result<void>>;
+    hookPost?: () => Promise<Result<string>>;
 };
 declare class IdsToolbox {
     private identity;

@@ -90,12 +90,12 @@ export type ActionOptions = {
   /**
    * The main logic of the Action.
    */
-  hookMain: () => Promise<Result<void>>;
+  hookMain: () => Promise<Result<string>>;
 
   /**
    * The post logic of the Action.
    */
-  hookPost?: () => Promise<Result<void>>;
+  hookPost?: () => Promise<Result<string>>;
 };
 
 /**
@@ -109,8 +109,8 @@ type ConfidentActionOptions = {
   legacySourcePrefix?: string;
   requireNix: NixRequirementHandling;
   diagnosticsUrl?: URL;
-  hookMain: () => Promise<Result<void>>;
-  hookPost?: () => Promise<Result<void>>;
+  hookMain: () => Promise<Result<string>>;
+  hookPost?: () => Promise<Result<string>>;
 };
 
 type DiagnosticEvent = {

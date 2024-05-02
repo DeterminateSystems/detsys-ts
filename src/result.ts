@@ -7,12 +7,15 @@ import { Ok, Result as TsResult } from "ts-results";
 export type Result<T> = TsResult<T, string>;
 
 /**
- * Convert a `Result<T>` into a `T` (if okay) or throw an `Error` with a message.
+ * Convert a `Result<T>` into a `T` (if okay) or fail the Action (if error).
  */
 export function handle<T>(res: Result<T>): T {
   if (res.ok) {
     return res.val;
   } else {
+    actionsCore.setFailed(res.val);
+    // The Action has already failed so this should have no effect (save
+    // satisfying the TypeScript compiler)
     throw new Error(res.val);
   }
 }
@@ -31,15 +34,15 @@ export function coerceErrorToString(e: unknown): string {
 }
 
 /**
- * If the supplied hook function returns an error, log that error using the
- * Actions toolkit.
+ * If the supplied hook function returns an error, fail the Action with the
+ * error message supplied by the callback.
  */
 export async function handleHook(
-  callback: Promise<Result<void>>,
+  callback: Promise<Result<string>>,
 ): Promise<void> {
   const res = await callback;
   if (res.err) {
-    actionsCore.error(res.val);
+    actionsCore.setFailed(res.val);
   }
 }
 
