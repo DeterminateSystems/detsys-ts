@@ -16,11 +16,11 @@ jobs:
       - uses: DeterminateSystems/magic-nix-cache-action@main
       - name: Install pnpm dependencies
         run: nix develop --command pnpm install
-      - name: Check formatting
+      - name: Check prettier formatting
         run: nix develop --command pnpm run check-fmt
-      - name: Lint
+      - name: ESLint
         run: nix develop --command pnpm run lint
-      - name: Build
+      - name: tsup build
         run: nix develop --command pnpm run build
       - name: Check git status
         run: git status --porcelain=v1
