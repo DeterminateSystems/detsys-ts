@@ -22,14 +22,14 @@ async function main(): Promise<void> {
       name: "nix-installer",
       fetchStyle: "nix-style",
       requireNix: "warn",
+      hookMain: async () => {
+        toolbox.recordEvent("my_event");
+        toolbox.recordEvent("my_next_event");
+        await toolbox.fetch();
+        return Ok(undefined);
+      },
     }).unwrap();
 
-    toolbox.onMain(async () => {
-      toolbox.recordEvent("my_event");
-      toolbox.recordEvent("my_next_event");
-      await toolbox.fetch();
-      return Ok(undefined);
-    });
     toolbox.execute();
   }
 
@@ -38,13 +38,13 @@ async function main(): Promise<void> {
       name: "magic-nix-cache",
       fetchStyle: "gh-env-style",
       requireNix: "warn",
+      hookMain: async () => {
+        toolbox.recordEvent("cache_hit");
+        toolbox.recordEvent("cache_miss");
+        return Ok(undefined);
+      },
     }).unwrap();
 
-    toolbox.onMain(async () => {
-      toolbox.recordEvent("cache_hit");
-      toolbox.recordEvent("cache_miss");
-      return Ok(undefined);
-    });
     toolbox.execute();
   }
 }
