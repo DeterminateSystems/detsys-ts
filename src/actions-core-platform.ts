@@ -116,42 +116,19 @@ function getPropertyWithDefault<T, Property extends string>(
  */
 const platform = os.platform();
 
-/**
- * The Action runner's architecture.
- */
-const arch = os.arch();
-
-/**
- * Whether the Action runner is a Windows system.
- */
+// Whether the Action runner is a Windows system.
 const isWindows = platform === "win32";
 
-/**
- * Whether the Action runner is a macOS system.
- */
+// Whether the Action runner is a macOS system.
 const isMacOS = platform === "darwin";
 
-/**
- * Whether the Action runner is a Linux system.
- */
-const isLinux = platform === "linux";
-
-/**
- * System-level information about the current host (platform, architecture, etc.).
- */
-type SystemDetails = {
+// System-level information about the current host (platform, architecture, etc.).
+export type SystemDetails = {
   name: string;
-  platform: string;
-  arch: string;
   version: string;
-  isWindows: boolean;
-  isMacOS: boolean;
-  isLinux: boolean;
 };
 
-/**
- * Get system-level information about the current host (platform, architecture, etc.).
- */
+// Get system-level information about the current host (platform, architecture, etc.).
 export async function getDetails(): Promise<SystemDetails> {
   return {
     ...(await (isWindows
@@ -159,10 +136,5 @@ export async function getDetails(): Promise<SystemDetails> {
       : isMacOS
         ? getMacOsInfo()
         : getLinuxInfo())),
-    platform,
-    arch,
-    isWindows,
-    isMacOS,
-    isLinux,
   };
 }

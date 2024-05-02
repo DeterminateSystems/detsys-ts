@@ -201,23 +201,22 @@ export class IdsToolbox {
     this.facts.arch_os = this.archOs;
     this.facts.nix_system = this.nixSystem;
 
-    {
-      ghActionsCorePlatform
-        .getDetails()
-        // eslint-disable-next-line github/no-then
-        .then((details) => {
-          if (details.name !== "unknown") {
-            this.addFact("$os", details.name);
-          }
-          if (details.version !== "unknown") {
-            this.addFact("$os_version", details.version);
-          }
-        })
-        // eslint-disable-next-line github/no-then
-        .catch((e) => {
-          actionsCore.debug(`Failure getting platform details: ${e}`);
-        });
-    }
+    // Display some platform details
+    async () => {
+      try {
+        const details = await ghActionsCorePlatform.getDetails();
+        if (details.name !== "unknown") {
+          this.addFact("$os", details.name);
+        }
+        if (details.version !== "unknown") {
+          this.addFact("$os_version", details.version);
+        }
+      } catch (e: unknown) {
+        actionsCore.debug(
+          `Failure getting platform details: ${coerceErrorToString(e)}`,
+        );
+      }
+    };
 
     {
       const phase = actionsCore.getState("idstoolbox_execution_phase");

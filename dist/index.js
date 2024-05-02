@@ -234,18 +234,11 @@ function getPropertyWithDefault(data, name, defaultValue) {
   return value;
 }
 var platform2 = os2.platform();
-var arch2 = os2.arch();
 var isWindows = platform2 === "win32";
 var isMacOS = platform2 === "darwin";
-var isLinux = platform2 === "linux";
 async function getDetails() {
   return {
-    ...await (isWindows ? getWindowsInfo() : isMacOS ? getMacOsInfo() : getLinuxInfo()),
-    platform: platform2,
-    arch: arch2,
-    isWindows,
-    isMacOS,
-    isLinux
+    ...await (isWindows ? getWindowsInfo() : isMacOS ? getMacOsInfo() : getLinuxInfo())
   };
 }
 
@@ -538,18 +531,21 @@ var IdsToolbox = class _IdsToolbox {
     this.nixSystem = handle(getNixPlatform(this.archOs));
     this.facts.arch_os = this.archOs;
     this.facts.nix_system = this.nixSystem;
-    {
-      getDetails().then((details) => {
+    async () => {
+      try {
+        const details = await getDetails();
         if (details.name !== "unknown") {
           this.addFact("$os", details.name);
         }
         if (details.version !== "unknown") {
           this.addFact("$os_version", details.version);
         }
-      }).catch((e) => {
-        actionsCore6.debug(`Failure getting platform details: ${e}`);
-      });
-    }
+      } catch (e) {
+        actionsCore6.debug(
+          `Failure getting platform details: ${coerceErrorToString(e)}`
+        );
+      }
+    };
     {
       const phase = actionsCore6.getState("idstoolbox_execution_phase");
       if (phase === "") {
