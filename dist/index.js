@@ -160,17 +160,17 @@ ${fileData}`);
 
 // src/actions-core-platform.ts
 import * as actionsCore2 from "@actions/core";
-import * as exec from "@actions/exec";
+import * as actionsExec from "@actions/exec";
 import os2 from "os";
-var getWindowsInfo = async () => {
-  const { stdout: version2 } = await exec.getExecOutput(
+async function getWindowsInfo() {
+  const { stdout: version2 } = await actionsExec.getExecOutput(
     'powershell -command "(Get-CimInstance -ClassName Win32_OperatingSystem).Version"',
     void 0,
     {
       silent: true
     }
   );
-  const { stdout: name } = await exec.getExecOutput(
+  const { stdout: name } = await actionsExec.getExecOutput(
     'powershell -command "(Get-CimInstance -ClassName Win32_OperatingSystem).Caption"',
     void 0,
     {
@@ -181,9 +181,9 @@ var getWindowsInfo = async () => {
     name: name.trim(),
     version: version2.trim()
   };
-};
-var getMacOsInfo = async () => {
-  const { stdout } = await exec.getExecOutput("sw_vers", void 0, {
+}
+async function getMacOsInfo() {
+  const { stdout } = await actionsExec.getExecOutput("sw_vers", void 0, {
     silent: true
   });
   const version2 = stdout.match(/ProductVersion:\s*(.+)/)?.[1] ?? "";
@@ -192,8 +192,8 @@ var getMacOsInfo = async () => {
     name,
     version: version2
   };
-};
-var getLinuxInfo = async () => {
+}
+async function getLinuxInfo() {
   let data = {};
   try {
     data = releaseInfo({ mode: "sync" });
@@ -213,7 +213,7 @@ var getLinuxInfo = async () => {
       "unknown"
     )
   };
-};
+}
 function getPropertyViaWithDefault(data, names, defaultValue) {
   for (const name of names) {
     const ret = getPropertyWithDefault(data, name, defaultValue);

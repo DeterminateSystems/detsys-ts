@@ -3,22 +3,18 @@
 // Changes: Replaced the lsb_release call in Linux with `linux-release-info` to parse the os-release file directly.
 import { releaseInfo } from "./linux-release-info.js";
 import * as actionsCore from "@actions/core";
-import * as exec from "@actions/exec";
+import * as actionsExec from "@actions/exec";
 import os from "os";
 
-/**
- * The name and version of the Action runner's system.
- */
+// The name and version of the Action runner's system.
 type SystemInfo = {
   name: string;
   version: string;
 };
 
-/**
- * Get the name and version of the current Windows system.
- */
-const getWindowsInfo = async (): Promise<SystemInfo> => {
-  const { stdout: version } = await exec.getExecOutput(
+// Get the name and version of the current Windows system.
+async function getWindowsInfo(): Promise<SystemInfo> {
+  const { stdout: version } = await actionsExec.getExecOutput(
     'powershell -command "(Get-CimInstance -ClassName Win32_OperatingSystem).Version"',
     undefined,
     {
@@ -26,7 +22,7 @@ const getWindowsInfo = async (): Promise<SystemInfo> => {
     },
   );
 
-  const { stdout: name } = await exec.getExecOutput(
+  const { stdout: name } = await actionsExec.getExecOutput(
     'powershell -command "(Get-CimInstance -ClassName Win32_OperatingSystem).Caption"',
     undefined,
     {
@@ -38,13 +34,11 @@ const getWindowsInfo = async (): Promise<SystemInfo> => {
     name: name.trim(),
     version: version.trim(),
   };
-};
+}
 
-/**
- * Get the name and version of the current macOS system.
- */
-const getMacOsInfo = async (): Promise<SystemInfo> => {
-  const { stdout } = await exec.getExecOutput("sw_vers", undefined, {
+// Get the name and version of the current macOS system.
+async function getMacOsInfo(): Promise<SystemInfo> {
+  const { stdout } = await actionsExec.getExecOutput("sw_vers", undefined, {
     silent: true,
   });
 
@@ -55,12 +49,10 @@ const getMacOsInfo = async (): Promise<SystemInfo> => {
     name,
     version,
   };
-};
+}
 
-/**
- * Get the name and version of the current Linux system.
- */
-const getLinuxInfo = async (): Promise<SystemInfo> => {
+// Get the name and version of the current Linux system.
+async function getLinuxInfo(): Promise<SystemInfo> {
   let data: object = {};
 
   try {
@@ -82,7 +74,7 @@ const getLinuxInfo = async (): Promise<SystemInfo> => {
       "unknown",
     ),
   };
-};
+}
 
 function getPropertyViaWithDefault<T, Property extends string>(
   data: object,
