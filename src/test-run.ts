@@ -1,5 +1,5 @@
 import { IdsToolbox } from "./index.js";
-import { Ok } from "./result.js";
+import { SUCCESS } from "./result.js";
 
 process.env["RUNNER_ARCH"] = "ARM64";
 process.env["RUNNER_OS"] = "macOS";
@@ -26,7 +26,7 @@ async function main(): Promise<void> {
         toolbox.recordEvent("my_event");
         toolbox.recordEvent("my_next_event");
         await toolbox.fetch();
-        return Ok(undefined);
+        return SUCCESS;
       },
     }).unwrap();
 
@@ -41,7 +41,7 @@ async function main(): Promise<void> {
       hookMain: async () => {
         toolbox.recordEvent("cache_hit");
         toolbox.recordEvent("cache_miss");
-        return Ok(undefined);
+        return SUCCESS;
       },
     }).unwrap();
 
