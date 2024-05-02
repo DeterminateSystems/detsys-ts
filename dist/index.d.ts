@@ -27,7 +27,7 @@ declare function coerceErrorToString(e: unknown): string;
  */
 declare function failOnError<T>(callback: Promise<Result<T>>): Promise<void>;
 /**
- * A useful constant for declaring success as an `Ok<void>`.
+ * A useful constant for declaring success as an `Ok<string>`.
  */
 declare const SUCCESS: Ok<string>;
 

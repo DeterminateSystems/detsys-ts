@@ -42,6 +42,7 @@ async function failOnError(callback) {
   if (res.err) {
     actionsCore.setFailed(res.val);
   }
+  return;
 }
 var SUCCESS = Ok("SUCCESS");
 

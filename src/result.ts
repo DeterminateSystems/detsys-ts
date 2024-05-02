@@ -44,10 +44,11 @@ export async function failOnError<T>(
   if (res.err) {
     actionsCore.setFailed(res.val);
   }
+  return;
 }
 
 /**
- * A useful constant for declaring success as an `Ok<void>`.
+ * A useful constant for declaring success as an `Ok<string>`.
  */
 export const SUCCESS: Ok<string> = Ok("SUCCESS");
 
