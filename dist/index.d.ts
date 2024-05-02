@@ -47,6 +47,10 @@ declare namespace result {
  */
 declare const getBool: (name: string) => boolean;
 /**
+ * Convert a comma-separated string input into an array of strings, leaving whitespace intact.
+ */
+declare const getCommaSeparatedArrayOfStrings: (name: string, stripWhitespace?: boolean) => string[];
+/**
  * Get a multi-line string input from the Action's configuration by name or return `null` if not set.
  */
 declare const getMultilineStringOrNull: (name: string) => string[] | null;
@@ -68,13 +72,14 @@ declare const getStringOrNull: (name: string) => string | null;
 declare const getStringOrUndefined: (name: string) => string | undefined;
 
 declare const inputs_getBool: typeof getBool;
+declare const inputs_getCommaSeparatedArrayOfStrings: typeof getCommaSeparatedArrayOfStrings;
 declare const inputs_getMultilineStringOrNull: typeof getMultilineStringOrNull;
 declare const inputs_getNumberOrNull: typeof getNumberOrNull;
 declare const inputs_getString: typeof getString;
 declare const inputs_getStringOrNull: typeof getStringOrNull;
 declare const inputs_getStringOrUndefined: typeof getStringOrUndefined;
 declare namespace inputs {
-  export { inputs_getBool as getBool, inputs_getMultilineStringOrNull as getMultilineStringOrNull, inputs_getNumberOrNull as getNumberOrNull, inputs_getString as getString, inputs_getStringOrNull as getStringOrNull, inputs_getStringOrUndefined as getStringOrUndefined };
+  export { inputs_getBool as getBool, inputs_getCommaSeparatedArrayOfStrings as getCommaSeparatedArrayOfStrings, inputs_getMultilineStringOrNull as getMultilineStringOrNull, inputs_getNumberOrNull as getNumberOrNull, inputs_getString as getString, inputs_getStringOrNull as getStringOrNull, inputs_getStringOrUndefined as getStringOrUndefined };
 }
 
 /**
