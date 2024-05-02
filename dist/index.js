@@ -498,8 +498,6 @@ var IdsToolbox = class _IdsToolbox {
    */
   constructor(actionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
-    this.hookMain = void 0;
-    this.hookPost = void 0;
     this.events = [];
     this.client = got.extend({
       retry: {
@@ -578,12 +576,6 @@ var IdsToolbox = class _IdsToolbox {
     );
     this.recordEvent(`begin_${this.executionPhase}`);
   }
-  onMain(callback) {
-    this.hookMain = callback;
-  }
-  onPost(callback) {
-    this.hookPost = callback;
-  }
   execute() {
     this.executeAsync().catch((error2) => {
       console.log(error2);
@@ -599,10 +591,10 @@ var IdsToolbox = class _IdsToolbox {
         this.recordEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
         return;
       }
-      if (this.executionPhase === "main" && this.hookMain) {
-        await handleHook(this.hookMain());
-      } else if (this.executionPhase === "post" && this.hookPost) {
-        await handleHook(this.hookPost());
+      if (this.executionPhase === "main") {
+        await handleHook(this.actionOptions.hookMain());
+      } else if (this.executionPhase === "post" && this.actionOptions.hookPost) {
+        await handleHook(this.actionOptions.hookPost());
       }
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
     } catch (error2) {
@@ -854,7 +846,9 @@ function makeOptionsConfident(actionOptions) {
     diagnosticsUrl: determineDiagnosticsUrl(
       idsProjectName,
       actionOptions.diagnosticsUrl
-    )
+    ),
+    hookMain: actionOptions.hookMain,
+    hookPost: actionOptions.hookPost
   };
   actionsCore6.debug("idslib options:");
   actionsCore6.debug(JSON.stringify(finalOpts, void 0, 2));

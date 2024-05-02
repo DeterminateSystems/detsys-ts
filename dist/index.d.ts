@@ -105,14 +105,54 @@ declare namespace platform {
 type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 type ExecutionPhase = "main" | "post";
 type NixRequirementHandling = "fail" | "warn" | "ignore";
+/**
+ * The options passed to the Action.
+ */
 type ActionOptions = {
+    /**
+     * Name of the project generally, and the name of the binary on disk.
+     */
     name: string;
+    /**
+     * Defaults to `name` and corresponds to the `ProjectHost` entry on i.d.s.
+     */
     idsProjectName?: string;
+    /**
+     * Defaults to `action:`
+     */
     eventPrefix?: string;
+    /**
+     * The "architecture" URL component expected by i.d.s. for the `ProjectHost`.
+     */
     fetchStyle: FetchSuffixStyle;
+    /**
+     * IdsToolbox assumes the GitHub Action exposes source overrides, like branch/pr/etc. to be named `source-*`.
+     * This prefix adds a fallback name, prefixed by `${legacySourcePrefix}-`.
+     * Users who configure legacySourcePrefix will get warnings asking them to change to `source-*`.
+     */
     legacySourcePrefix?: string;
+    /**
+     * Check if Nix is installed before running this action.
+     * If Nix isn't installed, this action will not fail, and will instead do nothing.
+     * The action will emit a user-visible warning instructing them to install Nix.
+     */
     requireNix: NixRequirementHandling;
+    /**
+     * The URL to send diagnostics events to.
+     * Specifically:
+     *   * `undefined` -> Attempt to read the `diagnostic-enpdoint` action input, and calculate the default diagnostics URL for IDS from there.
+     *   * `null` -> Disable sending diagnostics altogether.
+     *   * URL(...) -> Send diagnostics to this other URL instead
+     */
     diagnosticsUrl?: URL | null;
+    /**
+     * The main logic of the Action.
+     */
+    hookMain: () => Promise<Result<void>>;
+    /**
+     * The post logic of the Action.
+     */
+    hookPost?: () => Promise<Result<void>>;
 };
 declare class IdsToolbox {
     private identity;
@@ -125,8 +165,6 @@ declare class IdsToolbox {
     private facts;
     private events;
     private client;
-    private hookMain?;
-    private hookPost?;
     /**
      * The preferred instantiator for `IdsToolbox`. Unless using standard
      * `new IdsToolbox(...)`, this instantiator returns a `Result` rather than
@@ -137,8 +175,6 @@ declare class IdsToolbox {
      * The standard constructor for `IdsToolbox`. Use `create` instead.
      */
     constructor(actionOptions: ActionOptions);
-    onMain(callback: () => Promise<Result<void>>): void;
-    onPost(callback: () => Promise<Result<void>>): void;
     execute(): void;
     private executeAsync;
     addFact(key: string, value: string | boolean): void;

@@ -40,38 +40,67 @@ export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 export type ExecutionPhase = "main" | "post";
 export type NixRequirementHandling = "fail" | "warn" | "ignore";
 
+/**
+ * The options passed to the Action.
+ */
 export type ActionOptions = {
-  // Name of the project generally, and the name of the binary on disk.
+  /**
+   * Name of the project generally, and the name of the binary on disk.
+   */
   name: string;
 
-  // Defaults to `name`, Corresponds to the ProjectHost entry on i.d.s.
+  /**
+   * Defaults to `name` and corresponds to the `ProjectHost` entry on i.d.s.
+   */
   idsProjectName?: string;
 
-  // Defaults to `action:`
+  /**
+   * Defaults to `action:`
+   */
   eventPrefix?: string;
 
-  // The "architecture" URL component expected by I.D.S. for the ProjectHost.
+  /**
+   * The "architecture" URL component expected by i.d.s. for the `ProjectHost`.
+   */
   fetchStyle: FetchSuffixStyle;
 
-  // IdsToolbox assumes the GitHub Action exposes source overrides, like branch/pr/etc. to be named `source-*`.
-  // This prefix adds a fallback name, prefixed by `${legacySourcePrefix}-`.
-  // Users who configure legacySourcePrefix will get warnings asking them to change to `source-*`.
+  /**
+   * IdsToolbox assumes the GitHub Action exposes source overrides, like branch/pr/etc. to be named `source-*`.
+   * This prefix adds a fallback name, prefixed by `${legacySourcePrefix}-`.
+   * Users who configure legacySourcePrefix will get warnings asking them to change to `source-*`.
+   */
   legacySourcePrefix?: string;
 
-  // Check if Nix is installed before running this action.
-  // If Nix isn't installed, this action will not fail, and will instead do nothing.
-  // The action will emit a user-visible warning instructing them to install Nix.
+  /**
+   * Check if Nix is installed before running this action.
+   * If Nix isn't installed, this action will not fail, and will instead do nothing.
+   * The action will emit a user-visible warning instructing them to install Nix.
+   */
   requireNix: NixRequirementHandling;
 
-  // The URL to send diagnostics events to.
-  // Specifically:
-  //  * `undefined` -> Attempt to read the `diagnostic-enpdoint` action input, and calculate the default diagnostics URL for IDS from there.
-  //  * `null` -> Disable sending diagnostics altogether.
-  //  * URL(...) -> Send diagnostics to this other URL instead
+  /**
+   * The URL to send diagnostics events to.
+   * Specifically:
+   *   * `undefined` -> Attempt to read the `diagnostic-enpdoint` action input, and calculate the default diagnostics URL for IDS from there.
+   *   * `null` -> Disable sending diagnostics altogether.
+   *   * URL(...) -> Send diagnostics to this other URL instead
+   */
   diagnosticsUrl?: URL | null;
+
+  /**
+   * The main logic of the Action.
+   */
+  hookMain: () => Promise<Result<void>>;
+
+  /**
+   * The post logic of the Action.
+   */
+  hookPost?: () => Promise<Result<void>>;
 };
 
-// A confident version of Options, where defaults have been resolved into final values
+/**
+ * A confident version of Options, where defaults have been resolved into final values
+ */
 type ConfidentActionOptions = {
   name: string;
   idsProjectName: string;
@@ -80,6 +109,8 @@ type ConfidentActionOptions = {
   legacySourcePrefix?: string;
   requireNix: NixRequirementHandling;
   diagnosticsUrl?: URL;
+  hookMain: () => Promise<Result<void>>;
+  hookPost?: () => Promise<Result<void>>;
 };
 
 type DiagnosticEvent = {
@@ -103,9 +134,6 @@ export class IdsToolbox {
   private events: DiagnosticEvent[];
   private client: Got;
 
-  private hookMain?: () => Promise<Result<void>>;
-  private hookPost?: () => Promise<Result<void>>;
-
   /**
    * The preferred instantiator for `IdsToolbox`. Unless using standard
    * `new IdsToolbox(...)`, this instantiator returns a `Result` rather than
@@ -125,8 +153,6 @@ export class IdsToolbox {
    */
   constructor(actionOptions: ActionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
-    this.hookMain = undefined;
-    this.hookPost = undefined;
 
     this.events = [];
     this.client = got.extend({
@@ -223,14 +249,6 @@ export class IdsToolbox {
     this.recordEvent(`begin_${this.executionPhase}`);
   }
 
-  onMain(callback: () => Promise<Result<void>>): void {
-    this.hookMain = callback;
-  }
-
-  onPost(callback: () => Promise<Result<void>>): void {
-    this.hookPost = callback;
-  }
-
   execute(): void {
     // eslint-disable-next-line github/no-then
     this.executeAsync().catch((error: Error) => {
@@ -251,10 +269,13 @@ export class IdsToolbox {
         return;
       }
 
-      if (this.executionPhase === "main" && this.hookMain) {
-        await handleHook(this.hookMain());
-      } else if (this.executionPhase === "post" && this.hookPost) {
-        await handleHook(this.hookPost());
+      if (this.executionPhase === "main") {
+        await handleHook(this.actionOptions.hookMain());
+      } else if (
+        this.executionPhase === "post" &&
+        this.actionOptions.hookPost
+      ) {
+        await handleHook(this.actionOptions.hookPost());
       }
 
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
@@ -577,6 +598,8 @@ function makeOptionsConfident(
       idsProjectName,
       actionOptions.diagnosticsUrl,
     ),
+    hookMain: actionOptions.hookMain,
+    hookPost: actionOptions.hookPost,
   };
 
   actionsCore.debug("idslib options:");
