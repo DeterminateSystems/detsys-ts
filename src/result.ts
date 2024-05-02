@@ -9,7 +9,7 @@ export type Result<T> = TsResult<T, string>;
 /**
  * Convert a `Result<T>` into a `T` (if okay) or fail the Action (if error).
  */
-export function handle<T>(res: Result<T>): T {
+export function valueOrFail<T>(res: Result<T>): T {
   if (res.ok) {
     return res.val;
   } else {
@@ -37,7 +37,7 @@ export function coerceErrorToString(e: unknown): string {
  * If the supplied hook function returns an error, fail the Action with the
  * error message supplied by the callback.
  */
-export async function handleHook(
+export async function failOnError(
   callback: Promise<Result<string>>,
 ): Promise<void> {
   const res = await callback;

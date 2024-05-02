@@ -16,7 +16,7 @@ type Result<T> = Result$1<T, string>;
 /**
  * Convert a `Result<T>` into a `T` (if okay) or fail the Action (if error).
  */
-declare function handle<T>(res: Result<T>): T;
+declare function valueOrFail<T>(res: Result<T>): T;
 /**
  * Coerce an error into a string.
  */
@@ -25,7 +25,7 @@ declare function coerceErrorToString(e: unknown): string;
  * If the supplied hook function returns an error, fail the Action with the
  * error message supplied by the callback.
  */
-declare function handleHook(callback: Promise<Result<string>>): Promise<void>;
+declare function failOnError(callback: Promise<Result<string>>): Promise<void>;
 /**
  * A useful constant for declaring success as an `Ok<void>`.
  */
@@ -36,10 +36,10 @@ declare const result_Ok: typeof Ok;
 type result_Result<T> = Result<T>;
 declare const result_SUCCESS: typeof SUCCESS;
 declare const result_coerceErrorToString: typeof coerceErrorToString;
-declare const result_handle: typeof handle;
-declare const result_handleHook: typeof handleHook;
+declare const result_failOnError: typeof failOnError;
+declare const result_valueOrFail: typeof valueOrFail;
 declare namespace result {
-  export { result_Err as Err, result_Ok as Ok, type result_Result as Result, result_SUCCESS as SUCCESS, result_coerceErrorToString as coerceErrorToString, result_handle as handle, result_handleHook as handleHook };
+  export { result_Err as Err, result_Ok as Ok, type result_Result as Result, result_SUCCESS as SUCCESS, result_coerceErrorToString as coerceErrorToString, result_failOnError as failOnError, result_valueOrFail as valueOrFail };
 }
 
 /**

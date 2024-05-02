@@ -14,13 +14,13 @@ __export(result_exports, {
   Ok: () => Ok2,
   SUCCESS: () => SUCCESS,
   coerceErrorToString: () => coerceErrorToString,
-  handle: () => handle,
-  handleHook: () => handleHook
+  failOnError: () => failOnError,
+  valueOrFail: () => valueOrFail
 });
 import * as actionsCore from "@actions/core";
 import { Ok } from "ts-results";
 import { Err, Ok as Ok2 } from "ts-results";
-function handle(res) {
+function valueOrFail(res) {
   if (res.ok) {
     return res.val;
   } else {
@@ -37,7 +37,7 @@ function coerceErrorToString(e) {
     return `unknown error: ${e}`;
   }
 }
-async function handleHook(callback) {
+async function failOnError(callback) {
   const res = await callback;
   if (res.err) {
     actionsCore.setFailed(res.val);
@@ -525,8 +525,8 @@ var IdsToolbox = class _IdsToolbox {
       }
     }
     this.identity = identify(this.actionOptions.name);
-    this.archOs = handle(getArchOs());
-    this.nixSystem = handle(getNixPlatform(this.archOs));
+    this.archOs = valueOrFail(getArchOs());
+    this.nixSystem = valueOrFail(getNixPlatform(this.archOs));
     this.facts.arch_os = this.archOs;
     this.facts.nix_system = this.nixSystem;
     async () => {
@@ -586,9 +586,9 @@ var IdsToolbox = class _IdsToolbox {
         return;
       }
       if (this.executionPhase === "main") {
-        await handleHook(this.actionOptions.hookMain());
+        await failOnError(this.actionOptions.hookMain());
       } else if (this.executionPhase === "post" && this.actionOptions.hookPost) {
-        await handleHook(this.actionOptions.hookPost());
+        await failOnError(this.actionOptions.hookPost());
       }
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
     } catch (e) {

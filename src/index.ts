@@ -11,8 +11,8 @@ import {
   Ok,
   Result,
   coerceErrorToString,
-  handle,
-  handleHook,
+  failOnError,
+  valueOrFail,
 } from "./result.js";
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
@@ -195,8 +195,8 @@ export class IdsToolbox {
     }
 
     this.identity = correlation.identify(this.actionOptions.name);
-    this.archOs = handle(platform.getArchOs());
-    this.nixSystem = handle(platform.getNixPlatform(this.archOs));
+    this.archOs = valueOrFail(platform.getArchOs());
+    this.nixSystem = valueOrFail(platform.getNixPlatform(this.archOs));
 
     this.facts.arch_os = this.archOs;
     this.facts.nix_system = this.nixSystem;
@@ -269,12 +269,12 @@ export class IdsToolbox {
       }
 
       if (this.executionPhase === "main") {
-        await handleHook(this.actionOptions.hookMain());
+        await failOnError(this.actionOptions.hookMain());
       } else if (
         this.executionPhase === "post" &&
         this.actionOptions.hookPost
       ) {
-        await handleHook(this.actionOptions.hookPost());
+        await failOnError(this.actionOptions.hookPost());
       }
 
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
