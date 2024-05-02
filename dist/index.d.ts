@@ -29,7 +29,7 @@ declare function handleHook(callback: Promise<Result<string>>): Promise<void>;
 /**
  * A useful constant for declaring success as an `Ok<void>`.
  */
-declare const SUCCESS: Ok<void>;
+declare const SUCCESS: Ok<string>;
 
 declare const result_Err: typeof Err;
 declare const result_Ok: typeof Ok;

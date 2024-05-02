@@ -49,7 +49,7 @@ export async function handleHook(
 /**
  * A useful constant for declaring success as an `Ok<void>`.
  */
-export const SUCCESS: Ok<void> = Ok(undefined);
+export const SUCCESS: Ok<string> = Ok("SUCCESS");
 
 // Public exports from ts-results
 export { Err, Ok } from "ts-results";

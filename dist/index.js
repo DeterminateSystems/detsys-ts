@@ -43,7 +43,7 @@ async function handleHook(callback) {
     actionsCore.setFailed(res.val);
   }
 }
-var SUCCESS = Ok(void 0);
+var SUCCESS = Ok("SUCCESS");
 
 // src/linux-release-info.ts
 import * as actionsCore2 from "@actions/core";
