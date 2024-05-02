@@ -13,6 +13,7 @@
 // and fixing ESLint issues. Originally drawn from:
 // https://github.com/samuelcarreira/linux-release-info/blob/84a91aa5442b47900da03020c590507545d3dc74/src/index.ts
 import { Err, Ok, Result, coerceErrorToString } from "./result.js";
+import * as actionsCore from "@actions/core";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { promisify } from "node:util";
@@ -159,24 +160,20 @@ async function readAsyncOsReleaseFile(
 
   for (const osReleaseFile of fileList) {
     try {
-      if (options.debug) {
-        /* eslint-disable no-console */
-        console.log(`Trying to read '${osReleaseFile}'...`);
-      }
+      if (options.debug)
+        actionsCore.debug(`Trying to read '${osReleaseFile}'...`);
 
       fileData = await readFileAsync(osReleaseFile, "binary");
 
-      if (options.debug) {
-        console.log(`Read data:\n${fileData}`);
-      }
+      if (options.debug) actionsCore.debug(`Read data:\n${fileData}`);
 
       break;
-    } catch (error: unknown) {
-      if (options.debug) {
-        console.error(error);
-      }
+    } catch (e: unknown) {
+      const msg = coerceErrorToString(e);
 
-      return Err(coerceErrorToString(error));
+      if (options.debug) actionsCore.debug(msg);
+
+      return Err(msg);
     }
   }
 
@@ -196,23 +193,19 @@ function readSyncOsreleaseFile(
 
   for (const osReleaseFile of releaseFileList) {
     try {
-      if (options.debug) {
-        console.log(`Trying to read '${osReleaseFile}'...`);
-      }
-
+      if (options.debug)
+        actionsCore.debug(`Trying to read '${osReleaseFile}'...`);
       fileData = fs.readFileSync(osReleaseFile, "binary");
 
-      if (options.debug) {
-        console.log(`Read data:\n${fileData}`);
-      }
+      if (options.debug) actionsCore.debug(`Read data:\n${fileData}`);
 
       break;
-    } catch (error: unknown) {
-      if (options.debug) {
-        console.error(error);
-      }
+    } catch (e: unknown) {
+      const msg = coerceErrorToString(e);
 
-      return Err(coerceErrorToString(error));
+      if (options.debug) actionsCore.error(msg);
+
+      return Err(msg);
     }
   }
 

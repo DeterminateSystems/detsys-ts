@@ -278,17 +278,17 @@ export class IdsToolbox {
       }
 
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
-    } catch (error) {
+    } catch (e: unknown) {
       this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
 
-      const reportable = coerceErrorToString(error);
+      const msg = coerceErrorToString(e);
 
-      this.addFact(FACT_FINAL_EXCEPTION, reportable);
+      this.addFact(FACT_FINAL_EXCEPTION, msg);
 
       if (this.executionPhase === "post") {
-        actionsCore.warning(reportable);
+        actionsCore.warning(msg);
       } else {
-        actionsCore.setFailed(reportable);
+        actionsCore.setFailed(msg);
       }
 
       this.recordEvent(EVENT_EXCEPTION);
@@ -380,7 +380,7 @@ export class IdsToolbox {
 
         try {
           await this.saveCachedVersion(v, destFile);
-        } catch (e) {
+        } catch (e: unknown) {
           actionsCore.debug(`Error caching the artifact: ${e}`);
         }
       }
@@ -569,8 +569,8 @@ export class IdsToolbox {
       await this.client.post(this.actionOptions.diagnosticsUrl, {
         json: batch,
       });
-    } catch (error) {
-      actionsCore.debug(`Error submitting diagnostics event: ${error}`);
+    } catch (e: unknown) {
+      actionsCore.debug(`Error submitting diagnostics event: ${e}`);
     }
     this.events = [];
   }
@@ -635,7 +635,7 @@ function determineDiagnosticsUrl(
     if (providedDiagnosticEndpoint !== undefined) {
       try {
         return mungeDiagnosticEndpoint(new URL(providedDiagnosticEndpoint));
-      } catch (e) {
+      } catch (e: unknown) {
         actionsCore.info(
           `User-provided diagnostic endpoint ignored: not a valid URL: ${e}`,
         );
@@ -648,7 +648,7 @@ function determineDiagnosticsUrl(
     diagnosticUrl.pathname += idsProjectName;
     diagnosticUrl.pathname += "/diagnostics";
     return diagnosticUrl;
-  } catch (e) {
+  } catch (e: unknown) {
     actionsCore.info(
       `Generated diagnostic endpoint ignored: not a valid URL: ${e}`,
     );
@@ -676,7 +676,7 @@ function mungeDiagnosticEndpoint(inputUrl: URL): URL {
     inputUrl.password = currentIdsHost.password;
 
     return inputUrl;
-  } catch (e) {
+  } catch (e: unknown) {
     actionsCore.info(`Default or overridden IDS host isn't a valid URL: ${e}`);
   }
 

@@ -58,7 +58,7 @@ async function getLinuxInfo(): Promise<SystemInfo> {
   try {
     data = releaseInfo({ mode: "sync" });
     actionsCore.debug(`Identified release info: ${JSON.stringify(data)}`);
-  } catch (e) {
+  } catch (e: unknown) {
     actionsCore.debug(`Error collecting release info: ${e}`);
   }
 

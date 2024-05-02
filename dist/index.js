@@ -45,6 +45,7 @@ async function handleHook(callback) {
 var SUCCESS = Ok(void 0);
 
 // src/linux-release-info.ts
+import * as actionsCore2 from "@actions/core";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { promisify } from "node:util";
@@ -111,20 +112,18 @@ async function readAsyncOsReleaseFile(fileList, options) {
   let fileData = null;
   for (const osReleaseFile of fileList) {
     try {
-      if (options.debug) {
-        console.log(`Trying to read '${osReleaseFile}'...`);
-      }
+      if (options.debug)
+        actionsCore2.debug(`Trying to read '${osReleaseFile}'...`);
       fileData = await readFileAsync(osReleaseFile, "binary");
-      if (options.debug) {
-        console.log(`Read data:
+      if (options.debug)
+        actionsCore2.debug(`Read data:
 ${fileData}`);
-      }
       break;
-    } catch (error2) {
-      if (options.debug) {
-        console.error(error2);
-      }
-      return Err(coerceErrorToString(error2));
+    } catch (e) {
+      const msg = coerceErrorToString(e);
+      if (options.debug)
+        actionsCore2.debug(msg);
+      return Err(msg);
     }
   }
   if (fileData === null) {
@@ -136,20 +135,18 @@ function readSyncOsreleaseFile(releaseFileList, options) {
   let fileData = null;
   for (const osReleaseFile of releaseFileList) {
     try {
-      if (options.debug) {
-        console.log(`Trying to read '${osReleaseFile}'...`);
-      }
+      if (options.debug)
+        actionsCore2.debug(`Trying to read '${osReleaseFile}'...`);
       fileData = fs.readFileSync(osReleaseFile, "binary");
-      if (options.debug) {
-        console.log(`Read data:
+      if (options.debug)
+        actionsCore2.debug(`Read data:
 ${fileData}`);
-      }
       break;
-    } catch (error2) {
-      if (options.debug) {
-        console.error(error2);
-      }
-      return Err(coerceErrorToString(error2));
+    } catch (e) {
+      const msg = coerceErrorToString(e);
+      if (options.debug)
+        actionsCore2.error(msg);
+      return Err(msg);
     }
   }
   if (fileData === null) {
@@ -159,7 +156,7 @@ ${fileData}`);
 }
 
 // src/actions-core-platform.ts
-import * as actionsCore2 from "@actions/core";
+import * as actionsCore3 from "@actions/core";
 import * as actionsExec from "@actions/exec";
 import os2 from "os";
 async function getWindowsInfo() {
@@ -197,9 +194,9 @@ async function getLinuxInfo() {
   let data = {};
   try {
     data = releaseInfo({ mode: "sync" });
-    actionsCore2.debug(`Identified release info: ${JSON.stringify(data)}`);
+    actionsCore3.debug(`Identified release info: ${JSON.stringify(data)}`);
   } catch (e) {
-    actionsCore2.debug(`Error collecting release info: ${e}`);
+    actionsCore3.debug(`Error collecting release info: ${e}`);
   }
   return {
     name: getPropertyViaWithDefault(
@@ -243,7 +240,7 @@ async function getDetails() {
 }
 
 // src/correlation.ts
-import * as actionsCore3 from "@actions/core";
+import * as actionsCore4 from "@actions/core";
 import { createHash } from "node:crypto";
 var OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 function identify(projectName) {
@@ -306,8 +303,8 @@ function identify(projectName) {
       ])
     }
   };
-  actionsCore3.debug("Correlation data:");
-  actionsCore3.debug(JSON.stringify(ident, null, 2));
+  actionsCore4.debug("Correlation data:");
+  actionsCore4.debug(JSON.stringify(ident, null, 2));
   return ident;
 }
 function hashEnvironmentVariables(prefix, variables) {
@@ -316,12 +313,12 @@ function hashEnvironmentVariables(prefix, variables) {
     let value = process.env[varName];
     if (value === void 0) {
       if (OPTIONAL_VARIABLES.includes(varName)) {
-        actionsCore3.debug(
+        actionsCore4.debug(
           `Optional environment variable not set: ${varName} -- substituting with the variable name`
         );
         value = varName;
       } else {
-        actionsCore3.debug(
+        actionsCore4.debug(
           `Environment variable not set: ${varName} -- can't generate the requested identity`
         );
         return void 0;
@@ -376,9 +373,9 @@ __export(inputs_exports, {
   getStringOrNull: () => getStringOrNull,
   getStringOrUndefined: () => getStringOrUndefined
 });
-import * as actionsCore4 from "@actions/core";
+import * as actionsCore5 from "@actions/core";
 var getBool = (name) => {
-  return actionsCore4.getBooleanInput(name);
+  return actionsCore5.getBooleanInput(name);
 };
 var getCommaSeparatedArrayOfStrings = (name, stripWhitespace) => {
   const strip = stripWhitespace ?? false;
@@ -386,7 +383,7 @@ var getCommaSeparatedArrayOfStrings = (name, stripWhitespace) => {
   return (strip ? original.replace(/\s+/g, "") : original).split(",");
 };
 var getMultilineStringOrNull = (name) => {
-  const value = actionsCore4.getMultilineInput(name);
+  const value = actionsCore5.getMultilineInput(name);
   if (value.length === 0) {
     return null;
   } else {
@@ -394,7 +391,7 @@ var getMultilineStringOrNull = (name) => {
   }
 };
 var getNumberOrNull = (name) => {
-  const value = actionsCore4.getInput(name);
+  const value = actionsCore5.getInput(name);
   if (value === "") {
     return null;
   } else {
@@ -402,10 +399,10 @@ var getNumberOrNull = (name) => {
   }
 };
 var getString = (name) => {
-  return actionsCore4.getInput(name);
+  return actionsCore5.getInput(name);
 };
 var getStringOrNull = (name) => {
-  const value = actionsCore4.getInput(name);
+  const value = actionsCore5.getInput(name);
   if (value === "") {
     return null;
   } else {
@@ -413,7 +410,7 @@ var getStringOrNull = (name) => {
   }
 };
 var getStringOrUndefined = (name) => {
-  const value = actionsCore4.getInput(name);
+  const value = actionsCore5.getInput(name);
   if (value === "") {
     return void 0;
   } else {
@@ -422,7 +419,7 @@ var getStringOrUndefined = (name) => {
 };
 
 // src/sourcedef.ts
-import * as actionsCore5 from "@actions/core";
+import * as actionsCore6 from "@actions/core";
 function constructSourceParameters(legacyPrefix) {
   const noisilyGetInput = (suffix) => {
     const preferredInput = getStringOrUndefined(`source-${suffix}`);
@@ -431,12 +428,12 @@ function constructSourceParameters(legacyPrefix) {
     }
     const legacyInput = getStringOrUndefined(`${legacyPrefix}-${suffix}`);
     if (preferredInput && legacyInput) {
-      actionsCore5.warning(
+      actionsCore6.warning(
         `The supported option source-${suffix} and the legacy option ${legacyPrefix}-${suffix} are both set. Preferring source-${suffix}. Please stop setting ${legacyPrefix}-${suffix}.`
       );
       return preferredInput;
     } else if (legacyInput) {
-      actionsCore5.warning(
+      actionsCore6.warning(
         `The legacy option ${legacyPrefix}-${suffix} is set. Please migrate to source-${suffix}.`
       );
       return legacyInput;
@@ -456,7 +453,7 @@ function constructSourceParameters(legacyPrefix) {
 
 // src/index.ts
 import * as actionsCache from "@actions/cache";
-import * as actionsCore6 from "@actions/core";
+import * as actionsCore7 from "@actions/core";
 import got from "got";
 import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
@@ -499,9 +496,9 @@ var IdsToolbox = class _IdsToolbox {
       },
       hooks: {
         beforeRetry: [
-          (error2, retryCount) => {
-            actionsCore6.info(
-              `Retrying after error ${error2.code}, retry #: ${retryCount}`
+          (error3, retryCount) => {
+            actionsCore7.info(
+              `Retrying after error ${error3.code}, retry #: ${retryCount}`
             );
           }
         ]
@@ -541,15 +538,15 @@ var IdsToolbox = class _IdsToolbox {
           this.addFact("$os_version", details.version);
         }
       } catch (e) {
-        actionsCore6.debug(
+        actionsCore7.debug(
           `Failure getting platform details: ${coerceErrorToString(e)}`
         );
       }
     };
     {
-      const phase = actionsCore6.getState("idstoolbox_execution_phase");
+      const phase = actionsCore7.getState("idstoolbox_execution_phase");
       if (phase === "") {
-        actionsCore6.saveState("idstoolbox_execution_phase", "post");
+        actionsCore7.saveState("idstoolbox_execution_phase", "post");
         this.executionPhase = "main";
       } else {
         this.executionPhase = "post";
@@ -573,8 +570,8 @@ var IdsToolbox = class _IdsToolbox {
     this.recordEvent(`begin_${this.executionPhase}`);
   }
   execute() {
-    this.executeAsync().catch((error2) => {
-      console.log(error2);
+    this.executeAsync().catch((error3) => {
+      console.log(error3);
       process.exitCode = 1;
     });
   }
@@ -593,14 +590,14 @@ var IdsToolbox = class _IdsToolbox {
         await handleHook(this.actionOptions.hookPost());
       }
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
-    } catch (error2) {
+    } catch (e) {
       this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
-      const reportable = coerceErrorToString(error2);
-      this.addFact(FACT_FINAL_EXCEPTION, reportable);
+      const msg = coerceErrorToString(e);
+      this.addFact(FACT_FINAL_EXCEPTION, msg);
       if (this.executionPhase === "post") {
-        actionsCore6.warning(reportable);
+        actionsCore7.warning(msg);
       } else {
-        actionsCore6.setFailed(reportable);
+        actionsCore7.setFailed(msg);
       }
       this.recordEvent(EVENT_EXCEPTION);
     } finally {
@@ -630,11 +627,11 @@ var IdsToolbox = class _IdsToolbox {
     });
   }
   async fetch() {
-    actionsCore6.startGroup(
+    actionsCore7.startGroup(
       `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`
     );
     try {
-      actionsCore6.info(`Fetching from ${this.getUrl()}`);
+      actionsCore7.info(`Fetching from ${this.getUrl()}`);
       const correlatedUrl = this.getUrl();
       correlatedUrl.searchParams.set("ci", "github");
       correlatedUrl.searchParams.set(
@@ -644,18 +641,18 @@ var IdsToolbox = class _IdsToolbox {
       const versionCheckup = await this.client.head(correlatedUrl);
       if (versionCheckup.headers.etag) {
         const v = versionCheckup.headers.etag;
-        actionsCore6.debug(
+        actionsCore7.debug(
           `Checking the tool cache for ${this.getUrl()} at ${v}`
         );
         const cached = await this.getCachedVersion(v);
         if (cached) {
           this.facts["artifact_fetched_from_cache"] = true;
-          actionsCore6.debug(`Tool cache hit.`);
+          actionsCore7.debug(`Tool cache hit.`);
           return cached;
         }
       }
       this.facts["artifact_fetched_from_cache"] = false;
-      actionsCore6.debug(
+      actionsCore7.debug(
         `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`
       );
       const destFile = this.getTemporaryName();
@@ -672,12 +669,12 @@ var IdsToolbox = class _IdsToolbox {
         try {
           await this.saveCachedVersion(v, destFile);
         } catch (e) {
-          actionsCore6.debug(`Error caching the artifact: ${e}`);
+          actionsCore7.debug(`Error caching the artifact: ${e}`);
         }
       }
       return destFile;
     } finally {
-      actionsCore6.endGroup();
+      actionsCore7.endGroup();
     }
   }
   async fetchExecutable() {
@@ -769,17 +766,17 @@ var IdsToolbox = class _IdsToolbox {
       const candidateNix = path.join(location, "nix");
       try {
         await fs2.access(candidateNix, fs2.constants.X_OK);
-        actionsCore6.debug(`Found Nix at ${candidateNix}`);
+        actionsCore7.debug(`Found Nix at ${candidateNix}`);
         nixLocation = candidateNix;
       } catch {
-        actionsCore6.debug(`Nix not at ${candidateNix}`);
+        actionsCore7.debug(`Nix not at ${candidateNix}`);
       }
     }
     this.addFact("nix_location", nixLocation || "");
     if (this.actionOptions.requireNix === "ignore") {
       return true;
     }
-    const currentNotFoundState = actionsCore6.getState(
+    const currentNotFoundState = actionsCore7.getState(
       "idstoolbox_nix_not_found"
     );
     if (currentNotFoundState === "not-found") {
@@ -788,15 +785,15 @@ var IdsToolbox = class _IdsToolbox {
     if (nixLocation !== void 0) {
       return true;
     }
-    actionsCore6.saveState("idstoolbox_nix_not_found", "not-found");
+    actionsCore7.saveState("idstoolbox_nix_not_found", "not-found");
     switch (this.actionOptions.requireNix) {
       case "fail":
-        actionsCore6.setFailed(
+        actionsCore7.setFailed(
           "This action can only be used when Nix is installed. Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
         );
         break;
       case "warn":
-        actionsCore6.warning(
+        actionsCore7.warning(
           "This action is in no-op mode because Nix is not installed. Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
         );
         break;
@@ -805,10 +802,10 @@ var IdsToolbox = class _IdsToolbox {
   }
   async submitEvents() {
     if (!this.actionOptions.diagnosticsUrl) {
-      actionsCore6.debug(
+      actionsCore7.debug(
         "Diagnostics are disabled. Not sending the following events:"
       );
-      actionsCore6.debug(JSON.stringify(this.events, void 0, 2));
+      actionsCore7.debug(JSON.stringify(this.events, void 0, 2));
       return;
     }
     const batch = {
@@ -820,8 +817,8 @@ var IdsToolbox = class _IdsToolbox {
       await this.client.post(this.actionOptions.diagnosticsUrl, {
         json: batch
       });
-    } catch (error2) {
-      actionsCore6.debug(`Error submitting diagnostics event: ${error2}`);
+    } catch (e) {
+      actionsCore7.debug(`Error submitting diagnostics event: ${e}`);
     }
     this.events = [];
   }
@@ -846,8 +843,8 @@ function makeOptionsConfident(actionOptions) {
     hookMain: actionOptions.hookMain,
     hookPost: actionOptions.hookPost
   };
-  actionsCore6.debug("idslib options:");
-  actionsCore6.debug(JSON.stringify(finalOpts, void 0, 2));
+  actionsCore7.debug("idslib options:");
+  actionsCore7.debug(JSON.stringify(finalOpts, void 0, 2));
   return finalOpts;
 }
 function determineDiagnosticsUrl(idsProjectName, urlOption) {
@@ -866,7 +863,7 @@ function determineDiagnosticsUrl(idsProjectName, urlOption) {
       try {
         return mungeDiagnosticEndpoint(new URL(providedDiagnosticEndpoint));
       } catch (e) {
-        actionsCore6.info(
+        actionsCore7.info(
           `User-provided diagnostic endpoint ignored: not a valid URL: ${e}`
         );
       }
@@ -878,7 +875,7 @@ function determineDiagnosticsUrl(idsProjectName, urlOption) {
     diagnosticUrl.pathname += "/diagnostics";
     return diagnosticUrl;
   } catch (e) {
-    actionsCore6.info(
+    actionsCore7.info(
       `Generated diagnostic endpoint ignored: not a valid URL: ${e}`
     );
   }
@@ -900,7 +897,7 @@ function mungeDiagnosticEndpoint(inputUrl) {
     inputUrl.password = currentIdsHost.password;
     return inputUrl;
   } catch (e) {
-    actionsCore6.info(`Default or overridden IDS host isn't a valid URL: ${e}`);
+    actionsCore7.info(`Default or overridden IDS host isn't a valid URL: ${e}`);
   }
   return inputUrl;
 }
