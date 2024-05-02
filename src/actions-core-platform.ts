@@ -122,27 +122,27 @@ function getPropertyWithDefault<T, Property extends string>(
 /**
  * The Action runner's platform.
  */
-export const platform = os.platform();
+const platform = os.platform();
 
 /**
  * The Action runner's architecture.
  */
-export const arch = os.arch();
+const arch = os.arch();
 
 /**
  * Whether the Action runner is a Windows system.
  */
-export const isWindows = platform === "win32";
+const isWindows = platform === "win32";
 
 /**
  * Whether the Action runner is a macOS system.
  */
-export const isMacOS = platform === "darwin";
+const isMacOS = platform === "darwin";
 
 /**
  * Whether the Action runner is a Linux system.
  */
-export const isLinux = platform === "linux";
+const isLinux = platform === "linux";
 
 /**
  * System-level information about the current host (platform, architecture, etc.).
