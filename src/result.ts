@@ -37,8 +37,8 @@ export function coerceErrorToString(e: unknown): string {
  * If the supplied hook function returns an error, fail the Action with the
  * error message supplied by the callback.
  */
-export async function failOnError(
-  callback: Promise<Result<string>>,
+export async function failOnError<T>(
+  callback: Promise<Result<T>>,
 ): Promise<void> {
   const res = await callback;
   if (res.err) {

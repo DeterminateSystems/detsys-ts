@@ -25,7 +25,7 @@ declare function coerceErrorToString(e: unknown): string;
  * If the supplied hook function returns an error, fail the Action with the
  * error message supplied by the callback.
  */
-declare function failOnError(callback: Promise<Result<string>>): Promise<void>;
+declare function failOnError<T>(callback: Promise<Result<T>>): Promise<void>;
 /**
  * A useful constant for declaring success as an `Ok<void>`.
  */
