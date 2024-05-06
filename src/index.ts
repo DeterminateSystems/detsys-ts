@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
-import { deflate } from "node:zlib";
+import { gzip } from "node:zlib";
 
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
@@ -262,7 +262,7 @@ export class IdsToolbox {
         actionsCore.setFailed(reportable);
       }
 
-      const do_deflate = promisify(deflate);
+      const do_gzip = promisify(gzip);
 
       const exceptionContext: Map<string, string> = new Map();
       for (const [attachmentLabel, filePath] of this.exceptionAttachments) {
@@ -273,7 +273,7 @@ export class IdsToolbox {
           logText = Buffer.from(this.stringifyError(e));
         }
 
-        const buf = await do_deflate(logText);
+        const buf = await do_gzip(logText);
         exceptionContext.set(
           `staple_${attachmentLabel}`,
           buf.toString("base64"),

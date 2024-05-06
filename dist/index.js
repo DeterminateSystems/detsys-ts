@@ -444,7 +444,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { promisify as promisify2 } from "node:util";
-import { deflate } from "node:zlib";
+import { gzip } from "node:zlib";
 var DEFAULT_IDS_HOST = "https://install.determinate.systems";
 var IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 var EVENT_EXCEPTION = "exception";
@@ -582,7 +582,7 @@ var IdsToolbox = class {
       } else {
         actionsCore6.setFailed(reportable);
       }
-      const do_deflate = promisify2(deflate);
+      const do_gzip = promisify2(gzip);
       const exceptionContext = /* @__PURE__ */ new Map();
       for (const [attachmentLabel, filePath] of this.exceptionAttachments) {
         let logText;
@@ -591,7 +591,7 @@ var IdsToolbox = class {
         } catch (e) {
           logText = Buffer.from(this.stringifyError(e));
         }
-        const buf = await do_deflate(logText);
+        const buf = await do_gzip(logText);
         exceptionContext.set(
           `staple_${attachmentLabel}`,
           buf.toString("base64")
