@@ -22,8 +22,8 @@ const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 
 const EVENT_EXCEPTION = "exception";
 const EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
-const EVENT_ARTIFACT_CACHE_PERSIST = "artifact_cache_persist";
 const EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
+const EVENT_ARTIFACT_CACHE_PERSIST = "artifact_cache_persist";
 
 const FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
 const FACT_FINAL_EXCEPTION = "final_exception";
@@ -366,6 +366,7 @@ export class IdsToolbox {
     const p = this.sourceParameters;
 
     if (p.url) {
+      this.addFact(FACT_SOURCE_URL, p.url);
       return new URL(p.url);
     }
 
