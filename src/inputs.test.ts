@@ -16,6 +16,16 @@ test("converting strings into arrays", () => {
       expected: ["one", "two", "three"],
     },
     {
+      input: "",
+      separator: "comma",
+      expected: [],
+    },
+    {
+      input: "   ",
+      separator: "comma",
+      expected: [],
+    },
+    {
       input: "one two three",
       separator: "space",
       expected: ["one", "two", "three"],
