@@ -91,14 +91,17 @@ declare class IdsToolbox {
     private executionPhase;
     private sourceParameters;
     private facts;
+    private exceptionAttachments;
     private events;
     private client;
     private hookMain?;
     private hookPost?;
     constructor(actionOptions: ActionOptions);
+    stapleFile(name: string, location: string): void;
     onMain(callback: () => Promise<void>): void;
     onPost(callback: () => Promise<void>): void;
     execute(): void;
+    private stringifyError;
     private executeAsync;
     addFact(key: string, value: string | boolean): void;
     getDiagnosticsUrl(): URL | undefined;
