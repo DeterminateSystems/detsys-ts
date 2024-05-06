@@ -343,22 +343,26 @@ function getNixPlatform(archOs) {
 // src/inputs.ts
 var inputs_exports = {};
 __export(inputs_exports, {
+  getArrayOfStrings: () => getArrayOfStrings,
   getBool: () => getBool,
-  getCommaSeparatedArrayOfStrings: () => getCommaSeparatedArrayOfStrings,
   getMultilineStringOrNull: () => getMultilineStringOrNull,
   getNumberOrNull: () => getNumberOrNull,
   getString: () => getString,
   getStringOrNull: () => getStringOrNull,
-  getStringOrUndefined: () => getStringOrUndefined
+  getStringOrUndefined: () => getStringOrUndefined,
+  handleString: () => handleString
 });
 import * as actionsCore4 from "@actions/core";
 var getBool = (name) => {
   return actionsCore4.getBooleanInput(name);
 };
-var getCommaSeparatedArrayOfStrings = (name, stripWhitespace) => {
-  const strip = stripWhitespace ?? false;
+var getArrayOfStrings = (name, separator) => {
   const original = getString(name);
-  return (strip ? original.replace(/\s+/g, "") : original).split(",");
+  return handleString(original, separator);
+};
+var handleString = (input, separator) => {
+  const sepChar = separator === "comma" ? "," : /\s+/;
+  return input.trim().split(sepChar).map((s) => s.trim());
 };
 var getMultilineStringOrNull = (name) => {
   const value = actionsCore4.getMultilineInput(name);

@@ -12,9 +12,15 @@ type AnonymizedCorrelationHashes = {
  */
 declare const getBool: (name: string) => boolean;
 /**
- * Convert a comma-separated string input into an array of strings, leaving whitespace intact.
+ * The character used to separate values in the input string.
  */
-declare const getCommaSeparatedArrayOfStrings: (name: string, stripWhitespace?: boolean) => string[];
+type Separator = "space" | "comma";
+/**
+ * Convert a comma-separated string input into an array of strings. If `comma` is selected,
+ * all whitespace is removed from the string before converting to an array.
+ */
+declare const getArrayOfStrings: (name: string, separator: Separator) => string[];
+declare const handleString: (input: string, separator: Separator) => string[];
 /**
  * Get a multi-line string input from the Action's configuration by name or return `null` if not set.
  */
@@ -36,15 +42,17 @@ declare const getStringOrNull: (name: string) => string | null;
  */
 declare const getStringOrUndefined: (name: string) => string | undefined;
 
+type inputs_Separator = Separator;
+declare const inputs_getArrayOfStrings: typeof getArrayOfStrings;
 declare const inputs_getBool: typeof getBool;
-declare const inputs_getCommaSeparatedArrayOfStrings: typeof getCommaSeparatedArrayOfStrings;
 declare const inputs_getMultilineStringOrNull: typeof getMultilineStringOrNull;
 declare const inputs_getNumberOrNull: typeof getNumberOrNull;
 declare const inputs_getString: typeof getString;
 declare const inputs_getStringOrNull: typeof getStringOrNull;
 declare const inputs_getStringOrUndefined: typeof getStringOrUndefined;
+declare const inputs_handleString: typeof handleString;
 declare namespace inputs {
-  export { inputs_getBool as getBool, inputs_getCommaSeparatedArrayOfStrings as getCommaSeparatedArrayOfStrings, inputs_getMultilineStringOrNull as getMultilineStringOrNull, inputs_getNumberOrNull as getNumberOrNull, inputs_getString as getString, inputs_getStringOrNull as getStringOrNull, inputs_getStringOrUndefined as getStringOrUndefined };
+  export { type inputs_Separator as Separator, inputs_getArrayOfStrings as getArrayOfStrings, inputs_getBool as getBool, inputs_getMultilineStringOrNull as getMultilineStringOrNull, inputs_getNumberOrNull as getNumberOrNull, inputs_getString as getString, inputs_getStringOrNull as getStringOrNull, inputs_getStringOrUndefined as getStringOrUndefined, inputs_handleString as handleString };
 }
 
 /**
