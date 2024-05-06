@@ -585,17 +585,19 @@ var IdsToolbox = class {
       const do_gzip = promisify2(gzip);
       const exceptionContext = /* @__PURE__ */ new Map();
       for (const [attachmentLabel, filePath] of this.exceptionAttachments) {
-        let logText;
         try {
-          logText = readFileSync2(filePath);
+          const logText = readFileSync2(filePath);
+          const buf = await do_gzip(logText);
+          exceptionContext.set(
+            `staple_value_${attachmentLabel}`,
+            buf.toString("base64")
+          );
         } catch (e) {
-          logText = Buffer.from(this.stringifyError(e));
+          exceptionContext.set(
+            `staple_failure_${attachmentLabel}`,
+            this.stringifyError(e)
+          );
         }
-        const buf = await do_gzip(logText);
-        exceptionContext.set(
-          `staple_${attachmentLabel}`,
-          buf.toString("base64")
-        );
       }
       this.recordEvent(EVENT_EXCEPTION, Object.fromEntries(exceptionContext));
     } finally {

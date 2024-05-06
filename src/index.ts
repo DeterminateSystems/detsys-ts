@@ -266,18 +266,19 @@ export class IdsToolbox {
 
       const exceptionContext: Map<string, string> = new Map();
       for (const [attachmentLabel, filePath] of this.exceptionAttachments) {
-        let logText: Buffer;
         try {
-          logText = readFileSync(filePath);
+          const logText = readFileSync(filePath);
+          const buf = await do_gzip(logText);
+          exceptionContext.set(
+            `staple_value_${attachmentLabel}`,
+            buf.toString("base64"),
+          );
         } catch (e: unknown) {
-          logText = Buffer.from(this.stringifyError(e));
+          exceptionContext.set(
+            `staple_failure_${attachmentLabel}`,
+            this.stringifyError(e),
+          );
         }
-
-        const buf = await do_gzip(logText);
-        exceptionContext.set(
-          `staple_${attachmentLabel}`,
-          buf.toString("base64"),
-        );
       }
 
       this.recordEvent(EVENT_EXCEPTION, Object.fromEntries(exceptionContext));
