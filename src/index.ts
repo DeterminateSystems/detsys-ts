@@ -27,6 +27,8 @@ const EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
 
 const FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
 const FACT_FINAL_EXCEPTION = "final_exception";
+const FACT_SOURCE_URL = "source_url";
+const FACT_SOURCE_URL_ETAG = "source_url_etag";
 
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 export type ExecutionPhase = "main" | "post";
@@ -303,6 +305,7 @@ export class IdsToolbox {
       const versionCheckup = await this.client.head(correlatedUrl);
       if (versionCheckup.headers.etag) {
         const v = versionCheckup.headers.etag;
+        this.addFact(FACT_SOURCE_URL_ETAG, v);
 
         actionsCore.debug(
           `Checking the tool cache for ${this.getUrl()} at ${v}`,
@@ -382,6 +385,8 @@ export class IdsToolbox {
     }
 
     fetchUrl.pathname += `/${this.architectureFetchSuffix}`;
+
+    this.addFact(FACT_SOURCE_URL, fetchUrl.toString());
 
     return fetchUrl;
   }
