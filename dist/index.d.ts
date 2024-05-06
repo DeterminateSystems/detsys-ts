@@ -117,7 +117,7 @@ declare class IdsToolbox {
     private saveCachedVersion;
     private preflightRequireNix;
     private submitEvents;
-    private getTemporaryName;
+    getTemporaryName(): string;
 }
 
 export { type ActionOptions, type ExecutionPhase, type FetchSuffixStyle, IdsToolbox, type NixRequirementHandling, inputs, platform };

@@ -568,7 +568,7 @@ export class IdsToolbox {
     this.events = [];
   }
 
-  private getTemporaryName(): string {
+  getTemporaryName(): string {
     const _tmpdir = process.env["RUNNER_TEMP"] || tmpdir();
     return path.join(_tmpdir, `${this.actionOptions.name}-${randomUUID()}`);
   }
