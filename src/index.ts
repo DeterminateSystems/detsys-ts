@@ -205,7 +205,7 @@ export class IdsToolbox {
   }
 
   // Attach a file to the diagnostics data in error conditions.
-  // 
+  //
   // The file at `location` doesn't need to exist when stapleFile is called.
   //
   // If the file doesn't exist or is unreadable when trying to staple the attachments, the JS error will be stored in a context value at `staple_failure_{name}`.
