@@ -91,14 +91,25 @@ declare class IdsToolbox {
     private executionPhase;
     private sourceParameters;
     private facts;
+    private exceptionAttachments;
     private events;
     private client;
     private hookMain?;
     private hookPost?;
     constructor(actionOptions: ActionOptions);
+    /**
+     * Attach a file to the diagnostics data in error conditions.
+     *
+     * The file at `location` doesn't need to exist when stapleFile is called.
+     *
+     * If the file doesn't exist or is unreadable when trying to staple the attachments, the JS error will be stored in a context value at `staple_failure_{name}`.
+     * If the file is readable, the file's contents will be stored in a context value at `staple_value_{name}`.
+     */
+    stapleFile(name: string, location: string): void;
     onMain(callback: () => Promise<void>): void;
     onPost(callback: () => Promise<void>): void;
     execute(): void;
+    private stringifyError;
     private executeAsync;
     addFact(key: string, value: string | boolean): void;
     getDiagnosticsUrl(): URL | undefined;
@@ -114,7 +125,7 @@ declare class IdsToolbox {
     private saveCachedVersion;
     private preflightRequireNix;
     private submitEvents;
-    private getTemporaryName;
+    getTemporaryName(): string;
 }
 
 export { type ActionOptions, type ExecutionPhase, type FetchSuffixStyle, IdsToolbox, type NixRequirementHandling, inputs, platform };

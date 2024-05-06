@@ -438,11 +438,13 @@ import * as actionsCache from "@actions/cache";
 import * as actionsCore6 from "@actions/core";
 import got from "got";
 import { randomUUID } from "node:crypto";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, readFileSync as readFileSync2 } from "node:fs";
 import fs2, { chmod, copyFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
+import { promisify as promisify2 } from "node:util";
+import { gzip } from "node:zlib";
 var DEFAULT_IDS_HOST = "https://install.determinate.systems";
 var IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 var EVENT_EXCEPTION = "exception";
@@ -458,6 +460,7 @@ var IdsToolbox = class {
     this.actionOptions = makeOptionsConfident(actionOptions);
     this.hookMain = void 0;
     this.hookPost = void 0;
+    this.exceptionAttachments = /* @__PURE__ */ new Map();
     this.events = [];
     this.client = got.extend({
       retry: {
@@ -536,6 +539,17 @@ var IdsToolbox = class {
     );
     this.recordEvent(`begin_${this.executionPhase}`);
   }
+  /**
+   * Attach a file to the diagnostics data in error conditions.
+   *
+   * The file at `location` doesn't need to exist when stapleFile is called.
+   *
+   * If the file doesn't exist or is unreadable when trying to staple the attachments, the JS error will be stored in a context value at `staple_failure_{name}`.
+   * If the file is readable, the file's contents will be stored in a context value at `staple_value_{name}`.
+   */
+  stapleFile(name, location) {
+    this.exceptionAttachments.set(name, location);
+  }
   onMain(callback) {
     this.hookMain = callback;
   }
@@ -547,6 +561,9 @@ var IdsToolbox = class {
       console.log(error2);
       process.exitCode = 1;
     });
+  }
+  stringifyError(error2) {
+    return error2 instanceof Error || typeof error2 == "string" ? error2.toString() : JSON.stringify(error2);
   }
   async executeAsync() {
     try {
@@ -565,14 +582,31 @@ var IdsToolbox = class {
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
     } catch (error2) {
       this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
-      const reportable = error2 instanceof Error || typeof error2 == "string" ? error2.toString() : JSON.stringify(error2);
+      const reportable = this.stringifyError(error2);
       this.addFact(FACT_FINAL_EXCEPTION, reportable);
       if (this.executionPhase === "post") {
         actionsCore6.warning(reportable);
       } else {
         actionsCore6.setFailed(reportable);
       }
-      this.recordEvent(EVENT_EXCEPTION);
+      const do_gzip = promisify2(gzip);
+      const exceptionContext = /* @__PURE__ */ new Map();
+      for (const [attachmentLabel, filePath] of this.exceptionAttachments) {
+        try {
+          const logText = readFileSync2(filePath);
+          const buf = await do_gzip(logText);
+          exceptionContext.set(
+            `staple_value_${attachmentLabel}`,
+            buf.toString("base64")
+          );
+        } catch (e) {
+          exceptionContext.set(
+            `staple_failure_${attachmentLabel}`,
+            this.stringifyError(e)
+          );
+        }
+      }
+      this.recordEvent(EVENT_EXCEPTION, Object.fromEntries(exceptionContext));
     } finally {
       await this.complete();
     }

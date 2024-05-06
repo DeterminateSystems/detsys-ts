@@ -11,11 +11,13 @@ import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import got, { Got } from "got";
 import { UUID, randomUUID } from "node:crypto";
-import { createWriteStream } from "node:fs";
+import { PathLike, createWriteStream, readFileSync } from "node:fs";
 import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
+import { promisify } from "node:util";
+import { gzip } from "node:zlib";
 
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
@@ -94,6 +96,7 @@ export class IdsToolbox {
   private executionPhase: ExecutionPhase;
   private sourceParameters: SourceDef;
   private facts: Record<string, string | boolean>;
+  private exceptionAttachments: Map<string, PathLike>;
   private events: DiagnosticEvent[];
   private client: Got;
 
@@ -104,6 +107,7 @@ export class IdsToolbox {
     this.actionOptions = makeOptionsConfident(actionOptions);
     this.hookMain = undefined;
     this.hookPost = undefined;
+    this.exceptionAttachments = new Map();
 
     this.events = [];
     this.client = got.extend({
@@ -200,6 +204,18 @@ export class IdsToolbox {
     this.recordEvent(`begin_${this.executionPhase}`);
   }
 
+  /**
+   * Attach a file to the diagnostics data in error conditions.
+   *
+   * The file at `location` doesn't need to exist when stapleFile is called.
+   *
+   * If the file doesn't exist or is unreadable when trying to staple the attachments, the JS error will be stored in a context value at `staple_failure_{name}`.
+   * If the file is readable, the file's contents will be stored in a context value at `staple_value_{name}`.
+   */
+  stapleFile(name: string, location: string): void {
+    this.exceptionAttachments.set(name, location);
+  }
+
   onMain(callback: () => Promise<void>): void {
     this.hookMain = callback;
   }
@@ -215,6 +231,12 @@ export class IdsToolbox {
       console.log(error);
       process.exitCode = 1;
     });
+  }
+
+  private stringifyError(error: unknown): string {
+    return error instanceof Error || typeof error == "string"
+      ? error.toString()
+      : JSON.stringify(error);
   }
 
   private async executeAsync(): Promise<void> {
@@ -237,10 +259,7 @@ export class IdsToolbox {
     } catch (error) {
       this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
 
-      const reportable =
-        error instanceof Error || typeof error == "string"
-          ? error.toString()
-          : JSON.stringify(error);
+      const reportable = this.stringifyError(error);
 
       this.addFact(FACT_FINAL_EXCEPTION, reportable);
 
@@ -250,7 +269,26 @@ export class IdsToolbox {
         actionsCore.setFailed(reportable);
       }
 
-      this.recordEvent(EVENT_EXCEPTION);
+      const do_gzip = promisify(gzip);
+
+      const exceptionContext: Map<string, string> = new Map();
+      for (const [attachmentLabel, filePath] of this.exceptionAttachments) {
+        try {
+          const logText = readFileSync(filePath);
+          const buf = await do_gzip(logText);
+          exceptionContext.set(
+            `staple_value_${attachmentLabel}`,
+            buf.toString("base64"),
+          );
+        } catch (e: unknown) {
+          exceptionContext.set(
+            `staple_failure_${attachmentLabel}`,
+            this.stringifyError(e),
+          );
+        }
+      }
+
+      this.recordEvent(EVENT_EXCEPTION, Object.fromEntries(exceptionContext));
     } finally {
       await this.complete();
     }
@@ -538,7 +576,7 @@ export class IdsToolbox {
     this.events = [];
   }
 
-  private getTemporaryName(): string {
+  getTemporaryName(): string {
     const _tmpdir = process.env["RUNNER_TEMP"] || tmpdir();
     return path.join(_tmpdir, `${this.actionOptions.name}-${randomUUID()}`);
   }
