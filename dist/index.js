@@ -448,8 +448,11 @@ var IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 var EVENT_EXCEPTION = "exception";
 var EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
 var EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
+var EVENT_ARTIFACT_CACHE_PERSIST = "artifact_cache_persist";
 var FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
 var FACT_FINAL_EXCEPTION = "final_exception";
+var FACT_SOURCE_URL = "source_url";
+var FACT_SOURCE_URL_ETAG = "source_url_etag";
 var IdsToolbox = class {
   constructor(actionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
@@ -611,6 +614,7 @@ var IdsToolbox = class {
       const versionCheckup = await this.client.head(correlatedUrl);
       if (versionCheckup.headers.etag) {
         const v = versionCheckup.headers.etag;
+        this.addFact(FACT_SOURCE_URL_ETAG, v);
         actionsCore6.debug(
           `Checking the tool cache for ${this.getUrl()} at ${v}`
         );
@@ -659,6 +663,7 @@ var IdsToolbox = class {
   getUrl() {
     const p = this.sourceParameters;
     if (p.url) {
+      this.addFact(FACT_SOURCE_URL, p.url);
       return new URL(p.url);
     }
     const fetchUrl = new URL(IDS_HOST);
@@ -675,6 +680,7 @@ var IdsToolbox = class {
       fetchUrl.pathname += `/stable`;
     }
     fetchUrl.pathname += `/${this.architectureFetchSuffix}`;
+    this.addFact(FACT_SOURCE_URL, fetchUrl.toString());
     return fetchUrl;
   }
   cacheKey(version2) {
@@ -722,7 +728,7 @@ var IdsToolbox = class {
         void 0,
         true
       );
-      this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
+      this.recordEvent(EVENT_ARTIFACT_CACHE_PERSIST);
     } finally {
       process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
       delete process.env.GITHUB_WORKSPACE_BACKUP;
