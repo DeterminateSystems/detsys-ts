@@ -362,7 +362,11 @@ var getArrayOfStrings = (name, separator) => {
 };
 var handleString = (input, separator) => {
   const sepChar = separator === "comma" ? "," : /\s+/;
-  return input.trim().split(sepChar).map((s) => s.trim());
+  const trimmed = input.trim();
+  if (trimmed === "") {
+    return [];
+  }
+  return trimmed.split(sepChar).map((s) => s.trim());
 };
 var getMultilineStringOrNull = (name) => {
   const value = actionsCore4.getMultilineInput(name);

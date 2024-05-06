@@ -28,14 +28,12 @@ const getArrayOfStrings = (name: string, separator: Separator): string[] => {
 // Split out this function for use in testing
 export const handleString = (input: string, separator: Separator): string[] => {
   const sepChar = separator === "comma" ? "," : /\s+/;
-  const trimmed = input.trim() // Remove whitespace at the beginning and end
+  const trimmed = input.trim(); // Remove whitespace at the beginning and end
   if (trimmed === "") {
     return [];
   }
 
-  return trimmed
-    .split(sepChar)
-    .map((s: string) => s.trim());
+  return trimmed.split(sepChar).map((s: string) => s.trim());
 };
 
 /**
