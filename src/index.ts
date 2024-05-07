@@ -327,10 +327,10 @@ export class IdsToolbox {
             `staple_value_${attachmentLabel}`,
             buf.toString("base64"),
           );
-        } catch (e: unknown) {
+        } catch (err: unknown) {
           exceptionContext.set(
             `staple_failure_${attachmentLabel}`,
-            this.stringifyError(e),
+            this.stringifyError(err),
           );
         }
       }
