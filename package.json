@@ -9,8 +9,10 @@
     "build": "tsup",
     "check-fmt": "prettier --check .",
     "format": "prettier --write .",
-    "lint": "eslint src/**/*.ts",
+    "lint": "eslint src/**/*.ts --ignore-pattern *.test.ts",
     "docs": "typedoc src/index.ts",
+    "test": "vitest --watch false",
+    "test-dev": "vitest",
     "all": "rm -rf dist && pnpm run format && pnpm run lint && pnpm run build"
   },
   "repository": {
@@ -43,6 +45,7 @@
     "prettier": "^3.2.5",
     "tsup": "^8.0.2",
     "typedoc": "^0.25.13",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "vitest": "^1.5.2"
   }
 }

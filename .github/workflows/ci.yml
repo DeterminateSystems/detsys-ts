@@ -20,7 +20,9 @@ jobs:
         run: nix develop --command pnpm run check-fmt
       - name: ESLint
         run: nix develop --command pnpm run lint
-      - name: tsup build
+      - name: Run test suite
+        run: nix develop --command pnpm run test
+      - name: Build
         run: nix develop --command pnpm run build
       - name: Check git status
         run: git status --porcelain=v1
