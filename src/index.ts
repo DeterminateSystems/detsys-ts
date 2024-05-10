@@ -510,6 +510,7 @@ export class IdsToolbox {
         await fs.access(candidateNix, fs.constants.X_OK);
         actionsCore.debug(`Found Nix at ${candidateNix}`);
         nixLocation = candidateNix;
+        break;
       } catch {
         actionsCore.debug(`Nix not at ${candidateNix}`);
       }
