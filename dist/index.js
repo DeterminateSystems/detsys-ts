@@ -440,6 +440,7 @@ function constructSourceParameters(legacyPrefix) {
 // src/index.ts
 import * as actionsCache from "@actions/cache";
 import * as actionsCore6 from "@actions/core";
+import * as actionsExec from "@actions/exec";
 import got from "got";
 import { randomUUID } from "node:crypto";
 import { createWriteStream, readFileSync as readFileSync2 } from "node:fs";
@@ -459,12 +460,17 @@ var FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
 var FACT_FINAL_EXCEPTION = "final_exception";
 var FACT_SOURCE_URL = "source_url";
 var FACT_SOURCE_URL_ETAG = "source_url_etag";
+var FACT_NIX_STORE_TRUST = "nix_store_trusted";
+var FACT_NIX_STORE_VERSION = "nix_store_version";
+var FACT_NIX_STORE_CHECK_METHOD = "nix_store_check_method";
+var FACT_NIX_STORE_CHECK_ERROR = "nix_store_check_error";
 var IdsToolbox = class {
   constructor(actionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
     this.hookMain = void 0;
     this.hookPost = void 0;
     this.exceptionAttachments = /* @__PURE__ */ new Map();
+    this.nixStoreTrust = "unknown";
     this.events = [];
     this.client = got.extend({
       retry: {
@@ -577,6 +583,9 @@ var IdsToolbox = class {
       if (!await this.preflightRequireNix()) {
         this.recordEvent("preflight-require-nix-denied");
         return;
+      } else {
+        await this.preflightNixStoreInfo();
+        this.addFact(FACT_NIX_STORE_TRUST, this.nixStoreTrust);
       }
       if (this.executionPhase === "main" && this.hookMain) {
         await this.hookMain();
@@ -782,6 +791,7 @@ var IdsToolbox = class {
         await fs2.access(candidateNix, fs2.constants.X_OK);
         actionsCore6.debug(`Found Nix at ${candidateNix}`);
         nixLocation = candidateNix;
+        break;
       } catch {
         actionsCore6.debug(`Nix not at ${candidateNix}`);
       }
@@ -813,6 +823,46 @@ var IdsToolbox = class {
         break;
     }
     return false;
+  }
+  async preflightNixStoreInfo() {
+    this.nixStoreTrust = "unknown";
+    let output = "";
+    const options = {};
+    options.listeners = {
+      stdout: (data) => {
+        output += data.toString();
+      }
+    };
+    try {
+      output = "";
+      await actionsExec.exec("nix", ["store", "info", "--json"], options);
+      this.addFact(FACT_NIX_STORE_CHECK_METHOD, "info");
+    } catch {
+      try {
+        output = "";
+        await actionsExec.exec("nix", ["store", "ping", "--json"], options);
+        this.addFact(FACT_NIX_STORE_CHECK_METHOD, "ping");
+      } catch {
+        this.addFact(FACT_NIX_STORE_CHECK_METHOD, "none");
+        return;
+      }
+    }
+    try {
+      const parsed = JSON.parse(output);
+      if (parsed.trusted === 1) {
+        this.nixStoreTrust = "trusted";
+      } else if (parsed.trusted === 0) {
+        this.nixStoreTrust = "untrusted";
+      } else if (parsed.trusted !== void 0) {
+        this.addFact(
+          FACT_NIX_STORE_CHECK_ERROR,
+          `Mysterious trusted value: ${JSON.stringify(parsed.trusted)}`
+        );
+      }
+      this.addFact(FACT_NIX_STORE_VERSION, JSON.stringify(parsed.version));
+    } catch (e) {
+      this.addFact(FACT_NIX_STORE_CHECK_ERROR, this.stringifyError(e));
+    }
   }
   async submitEvents() {
     if (!this.actionOptions.diagnosticsUrl) {
