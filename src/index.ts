@@ -9,6 +9,7 @@ import * as platform from "./platform.js";
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
+import * as actionsExec from "@actions/exec";
 import got, { Got } from "got";
 import { UUID, randomUUID } from "node:crypto";
 import { PathLike, createWriteStream, readFileSync } from "node:fs";
@@ -32,9 +33,15 @@ const FACT_FINAL_EXCEPTION = "final_exception";
 const FACT_SOURCE_URL = "source_url";
 const FACT_SOURCE_URL_ETAG = "source_url_etag";
 
+const FACT_NIX_STORE_TRUST = "nix_store_trusted";
+const FACT_NIX_STORE_VERSION = "nix_store_version";
+const FACT_NIX_STORE_CHECK_METHOD = "nix_store_check_method";
+const FACT_NIX_STORE_CHECK_ERROR = "nix_store_check_error";
+
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 export type ExecutionPhase = "main" | "post";
 export type NixRequirementHandling = "fail" | "warn" | "ignore";
+export type NixStoreTrust = "trusted" | "untrusted" | "unknown";
 
 export type ActionOptions = {
   // Name of the project generally, and the name of the binary on disk.
@@ -88,6 +95,8 @@ type DiagnosticEvent = {
 };
 
 export class IdsToolbox {
+  nixStoreTrust: NixStoreTrust;
+
   private identity: correlation.AnonymizedCorrelationHashes;
   private actionOptions: ConfidentActionOptions;
   private archOs: string;
@@ -108,6 +117,7 @@ export class IdsToolbox {
     this.hookMain = undefined;
     this.hookPost = undefined;
     this.exceptionAttachments = new Map();
+    this.nixStoreTrust = "unknown";
 
     this.events = [];
     this.client = got.extend({
@@ -248,6 +258,9 @@ export class IdsToolbox {
       if (!(await this.preflightRequireNix())) {
         this.recordEvent("preflight-require-nix-denied");
         return;
+      } else {
+        await this.preflightNixStoreInfo();
+        this.addFact(FACT_NIX_STORE_TRUST, this.nixStoreTrust);
       }
 
       if (this.executionPhase === "main" && this.hookMain) {
@@ -510,6 +523,7 @@ export class IdsToolbox {
         await fs.access(candidateNix, fs.constants.X_OK);
         actionsCore.debug(`Found Nix at ${candidateNix}`);
         nixLocation = candidateNix;
+        break;
       } catch {
         actionsCore.debug(`Nix not at ${candidateNix}`);
       }
@@ -549,6 +563,52 @@ export class IdsToolbox {
     }
 
     return false;
+  }
+
+  private async preflightNixStoreInfo(): Promise<void> {
+    let output = "";
+
+    const options: actionsExec.ExecOptions = {};
+    options.silent = true;
+    options.listeners = {
+      stdout: (data) => {
+        output += data.toString();
+      },
+    };
+
+    try {
+      output = "";
+      await actionsExec.exec("nix", ["store", "info", "--json"], options);
+      this.addFact(FACT_NIX_STORE_CHECK_METHOD, "info");
+    } catch {
+      try {
+        // reset output
+        output = "";
+        await actionsExec.exec("nix", ["store", "ping", "--json"], options);
+        this.addFact(FACT_NIX_STORE_CHECK_METHOD, "ping");
+      } catch {
+        this.addFact(FACT_NIX_STORE_CHECK_METHOD, "none");
+        return;
+      }
+    }
+
+    try {
+      const parsed = JSON.parse(output);
+      if (parsed.trusted === 1) {
+        this.nixStoreTrust = "trusted";
+      } else if (parsed.trusted === 0) {
+        this.nixStoreTrust = "untrusted";
+      } else if (parsed.trusted !== undefined) {
+        this.addFact(
+          FACT_NIX_STORE_CHECK_ERROR,
+          `Mysterious trusted value: ${JSON.stringify(parsed.trusted)}`,
+        );
+      }
+
+      this.addFact(FACT_NIX_STORE_VERSION, JSON.stringify(parsed.version));
+    } catch (e: unknown) {
+      this.addFact(FACT_NIX_STORE_CHECK_ERROR, this.stringifyError(e));
+    }
   }
 
   private async submitEvents(): Promise<void> {

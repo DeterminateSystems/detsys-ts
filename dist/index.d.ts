@@ -73,6 +73,7 @@ declare namespace platform {
 type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 type ExecutionPhase = "main" | "post";
 type NixRequirementHandling = "fail" | "warn" | "ignore";
+type NixStoreTrust = "trusted" | "untrusted" | "unknown";
 type ActionOptions = {
     name: string;
     idsProjectName?: string;
@@ -83,6 +84,7 @@ type ActionOptions = {
     diagnosticsUrl?: URL | null;
 };
 declare class IdsToolbox {
+    nixStoreTrust: NixStoreTrust;
     private identity;
     private actionOptions;
     private archOs;
@@ -124,8 +126,9 @@ declare class IdsToolbox {
     private getCachedVersion;
     private saveCachedVersion;
     private preflightRequireNix;
+    private preflightNixStoreInfo;
     private submitEvents;
     getTemporaryName(): string;
 }
 
-export { type ActionOptions, type ExecutionPhase, type FetchSuffixStyle, IdsToolbox, type NixRequirementHandling, inputs, platform };
+export { type ActionOptions, type ExecutionPhase, type FetchSuffixStyle, IdsToolbox, type NixRequirementHandling, type NixStoreTrust, inputs, platform };
