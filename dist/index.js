@@ -825,7 +825,6 @@ var IdsToolbox = class {
     return false;
   }
   async preflightNixStoreInfo() {
-    this.nixStoreTrust = "unknown";
     let output = "";
     const options = {};
     options.silent = true;
