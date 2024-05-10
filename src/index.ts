@@ -566,7 +566,6 @@ export class IdsToolbox {
   }
 
   private async preflightNixStoreInfo(): Promise<void> {
-    this.nixStoreTrust = "unknown";
     let output = "";
 
     const options: actionsExec.ExecOptions = {};
