@@ -828,6 +828,7 @@ var IdsToolbox = class {
     this.nixStoreTrust = "unknown";
     let output = "";
     const options = {};
+    options.silent = true;
     options.listeners = {
       stdout: (data) => {
         output += data.toString();

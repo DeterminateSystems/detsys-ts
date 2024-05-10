@@ -570,6 +570,7 @@ export class IdsToolbox {
     let output = "";
 
     const options: actionsExec.ExecOptions = {};
+    options.silent = true;
     options.listeners = {
       stdout: (data) => {
         output += data.toString();
