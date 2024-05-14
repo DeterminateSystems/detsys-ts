@@ -467,8 +467,8 @@ var FACT_NIX_STORE_CHECK_ERROR = "nix_store_check_error";
 var IdsToolbox = class {
   constructor(actionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
-    this.hookMain = void 0;
-    this.hookPost = void 0;
+    this.mainFunc = actionOptions.mainFunc;
+    this.postFunc = actionOptions.postFunc;
     this.exceptionAttachments = /* @__PURE__ */ new Map();
     this.nixStoreTrust = "unknown";
     this.events = [];
@@ -560,12 +560,6 @@ var IdsToolbox = class {
   stapleFile(name, location) {
     this.exceptionAttachments.set(name, location);
   }
-  onMain(callback) {
-    this.hookMain = callback;
-  }
-  onPost(callback) {
-    this.hookPost = callback;
-  }
   execute() {
     this.executeAsync().catch((error2) => {
       console.log(error2);
@@ -587,10 +581,10 @@ var IdsToolbox = class {
         await this.preflightNixStoreInfo();
         this.addFact(FACT_NIX_STORE_TRUST, this.nixStoreTrust);
       }
-      if (this.executionPhase === "main" && this.hookMain) {
-        await this.hookMain();
-      } else if (this.executionPhase === "post" && this.hookPost) {
-        await this.hookPost();
+      if (this.executionPhase === "main") {
+        await this.mainFunc();
+      } else if (this.executionPhase === "post" && this.postFunc) {
+        await this.postFunc();
       }
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
     } catch (error2) {

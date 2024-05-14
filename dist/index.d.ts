@@ -82,9 +82,19 @@ type ActionOptions = {
     legacySourcePrefix?: string;
     requireNix: NixRequirementHandling;
     diagnosticsUrl?: URL | null;
+    /**
+     * The main logic of the Action.
+     */
+    mainFunc: () => Promise<void>;
+    /**
+     * The post logic of the Action (if any).
+     */
+    postFunc?: () => Promise<void>;
 };
 declare class IdsToolbox {
     nixStoreTrust: NixStoreTrust;
+    private mainFunc;
+    private postFunc?;
     private identity;
     private actionOptions;
     private archOs;
@@ -96,8 +106,6 @@ declare class IdsToolbox {
     private exceptionAttachments;
     private events;
     private client;
-    private hookMain?;
-    private hookPost?;
     constructor(actionOptions: ActionOptions);
     /**
      * Attach a file to the diagnostics data in error conditions.
@@ -108,8 +116,6 @@ declare class IdsToolbox {
      * If the file is readable, the file's contents will be stored in a context value at `staple_value_{name}`.
      */
     stapleFile(name: string, location: string): void;
-    onMain(callback: () => Promise<void>): void;
-    onPost(callback: () => Promise<void>): void;
     execute(): void;
     private stringifyError;
     private executeAsync;

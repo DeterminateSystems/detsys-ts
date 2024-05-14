@@ -72,6 +72,16 @@ export type ActionOptions = {
   //  * `null` -> Disable sending diagnostics altogether.
   //  * URL(...) -> Send diagnostics to this other URL instead
   diagnosticsUrl?: URL | null;
+
+  /**
+   * The main logic of the Action.
+   */
+  mainFunc: () => Promise<void>;
+
+  /**
+   * The post logic of the Action (if any).
+   */
+  postFunc?: () => Promise<void>;
 };
 
 // A confident version of Options, where defaults have been resolved into final values
@@ -97,6 +107,9 @@ type DiagnosticEvent = {
 export class IdsToolbox {
   nixStoreTrust: NixStoreTrust;
 
+  private mainFunc: () => Promise<void>;
+  private postFunc?: () => Promise<void>;
+
   private identity: correlation.AnonymizedCorrelationHashes;
   private actionOptions: ConfidentActionOptions;
   private archOs: string;
@@ -109,13 +122,12 @@ export class IdsToolbox {
   private events: DiagnosticEvent[];
   private client: Got;
 
-  private hookMain?: () => Promise<void>;
-  private hookPost?: () => Promise<void>;
-
   constructor(actionOptions: ActionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
-    this.hookMain = undefined;
-    this.hookPost = undefined;
+
+    this.mainFunc = actionOptions.mainFunc;
+    this.postFunc = actionOptions.postFunc;
+
     this.exceptionAttachments = new Map();
     this.nixStoreTrust = "unknown";
 
@@ -226,14 +238,6 @@ export class IdsToolbox {
     this.exceptionAttachments.set(name, location);
   }
 
-  onMain(callback: () => Promise<void>): void {
-    this.hookMain = callback;
-  }
-
-  onPost(callback: () => Promise<void>): void {
-    this.hookPost = callback;
-  }
-
   execute(): void {
     // eslint-disable-next-line github/no-then
     this.executeAsync().catch((error: Error) => {
@@ -263,10 +267,10 @@ export class IdsToolbox {
         this.addFact(FACT_NIX_STORE_TRUST, this.nixStoreTrust);
       }
 
-      if (this.executionPhase === "main" && this.hookMain) {
-        await this.hookMain();
-      } else if (this.executionPhase === "post" && this.hookPost) {
-        await this.hookPost();
+      if (this.executionPhase === "main") {
+        await this.mainFunc();
+      } else if (this.executionPhase === "post" && this.postFunc) {
+        await this.postFunc();
       }
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
     } catch (error) {
