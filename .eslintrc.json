@@ -15,6 +15,7 @@
   "rules": {
     "camelcase": "error",
     "i18n-text/no-en": "off",
+    "@typescript-eslint/no-shadow": "error",
     "eslint-comments/no-use": "off",
     "import/extensions": [
       "error",
