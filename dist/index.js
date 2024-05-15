@@ -407,34 +407,34 @@ var getStringOrUndefined = (name) => {
 // src/sourcedef.ts
 import * as actionsCore5 from "@actions/core";
 function constructSourceParameters(legacyPrefix) {
-  const noisilyGetInput = (suffix) => {
-    const preferredInput = getStringOrUndefined(`source-${suffix}`);
-    if (!legacyPrefix) {
-      return preferredInput;
-    }
-    const legacyInput = getStringOrUndefined(`${legacyPrefix}-${suffix}`);
-    if (preferredInput && legacyInput) {
-      actionsCore5.warning(
-        `The supported option source-${suffix} and the legacy option ${legacyPrefix}-${suffix} are both set. Preferring source-${suffix}. Please stop setting ${legacyPrefix}-${suffix}.`
-      );
-      return preferredInput;
-    } else if (legacyInput) {
-      actionsCore5.warning(
-        `The legacy option ${legacyPrefix}-${suffix} is set. Please migrate to source-${suffix}.`
-      );
-      return legacyInput;
-    } else {
-      return preferredInput;
-    }
-  };
   return {
-    path: noisilyGetInput("path"),
-    url: noisilyGetInput("url"),
-    tag: noisilyGetInput("tag"),
-    pr: noisilyGetInput("pr"),
-    branch: noisilyGetInput("branch"),
-    revision: noisilyGetInput("revision")
+    path: noisilyGetInput("path", legacyPrefix),
+    url: noisilyGetInput("url", legacyPrefix),
+    tag: noisilyGetInput("tag", legacyPrefix),
+    pr: noisilyGetInput("pr", legacyPrefix),
+    branch: noisilyGetInput("branch", legacyPrefix),
+    revision: noisilyGetInput("revision", legacyPrefix)
   };
+}
+function noisilyGetInput(suffix, legacyPrefix) {
+  const preferredInput = getStringOrUndefined(`source-${suffix}`);
+  if (!legacyPrefix) {
+    return preferredInput;
+  }
+  const legacyInput = getStringOrUndefined(`${legacyPrefix}-${suffix}`);
+  if (preferredInput && legacyInput) {
+    actionsCore5.warning(
+      `The supported option source-${suffix} and the legacy option ${legacyPrefix}-${suffix} are both set. Preferring source-${suffix}. Please stop setting ${legacyPrefix}-${suffix}.`
+    );
+    return preferredInput;
+  } else if (legacyInput) {
+    actionsCore5.warning(
+      `The legacy option ${legacyPrefix}-${suffix} is set. Please migrate to source-${suffix}.`
+    );
+    return legacyInput;
+  } else {
+    return preferredInput;
+  }
 }
 
 // src/index.ts
