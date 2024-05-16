@@ -46,10 +46,12 @@ const FACT_NIX_STORE_CHECK_ERROR = "nix_store_check_error";
  * - `universal` means that the suffix is the static `universal` (for non-system-specific things)
  */
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
+
 /**
  * GitHub Actions has two possible execution phases: `main` and `post`.
  */
 export type ExecutionPhase = "main" | "post";
+
 /**
  * How to handle whether Nix is currently installed on the runner.
  *
@@ -58,6 +60,16 @@ export type ExecutionPhase = "main" | "post";
  * - `ignore` means that Nix will not be checked
  */
 export type NixRequirementHandling = "fail" | "warn" | "ignore";
+
+/**
+ * Whether the Nix store on the runner is trusted.
+ *
+ * - `trusted` means yes
+ * - `untrusted` means no
+ * - `unknown` means that the status couldn't be determined
+ *
+ * This is determined via the output of `nix store info --json`.
+ */
 export type NixStoreTrust = "trusted" | "untrusted" | "unknown";
 
 export type ActionOptions = {
