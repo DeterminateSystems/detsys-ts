@@ -38,9 +38,38 @@ const FACT_NIX_STORE_VERSION = "nix_store_version";
 const FACT_NIX_STORE_CHECK_METHOD = "nix_store_check_method";
 const FACT_NIX_STORE_CHECK_ERROR = "nix_store_check_error";
 
+/**
+ * An enum for describing different "fetch suffixes" for i.d.s.
+ *
+ * - `nix-style` means that system names like `x86_64-linux` and `aarch64-darwin` are used
+ * - `gh-env-style` means that names like `X64-Linux` and `ARM64-macOS` are used
+ * - `universal` means that the suffix is the static `universal` (for non-system-specific things)
+ */
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
+
+/**
+ * GitHub Actions has two possible execution phases: `main` and `post`.
+ */
 export type ExecutionPhase = "main" | "post";
+
+/**
+ * How to handle whether Nix is currently installed on the runner.
+ *
+ * - `fail` means that the workflow fails if Nix isn't installed
+ * - `warn` means that a warning is logged if Nix isn't installed
+ * - `ignore` means that Nix will not be checked
+ */
 export type NixRequirementHandling = "fail" | "warn" | "ignore";
+
+/**
+ * Whether the Nix store on the runner is trusted.
+ *
+ * - `trusted` means yes
+ * - `untrusted` means no
+ * - `unknown` means that the status couldn't be determined
+ *
+ * This is determined via the output of `nix store info --json`.
+ */
 export type NixStoreTrust = "trusted" | "untrusted" | "unknown";
 
 export type ActionOptions = {
