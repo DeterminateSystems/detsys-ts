@@ -70,9 +70,35 @@ declare namespace platform {
   export { platform_getArchOs as getArchOs, platform_getNixPlatform as getNixPlatform };
 }
 
+/**
+ * An enum for describing different "fetch suffixes" for i.d.s.
+ *
+ * - `nix-style` means that system names like `x86_64-linux` and `aarch64-darwin` are used
+ * - `gh-env-style` means that names like `X64-Linux` and `ARM64-macOS` are used
+ * - `universal` means that the suffix is the static `universal` (for non-system-specific things)
+ */
 type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
+/**
+ * GitHub Actions has two possible execution phases: `main` and `post`.
+ */
 type ExecutionPhase = "main" | "post";
+/**
+ * How to handle whether Nix is currently installed on the runner.
+ *
+ * - `fail` means that the workflow fails if Nix isn't installed
+ * - `warn` means that a warning is logged if Nix isn't installed
+ * - `ignore` means that Nix will not be checked
+ */
 type NixRequirementHandling = "fail" | "warn" | "ignore";
+/**
+ * Whether the Nix store on the runner is trusted.
+ *
+ * - `trusted` means yes
+ * - `untrusted` means no
+ * - `unknown` means that the status couldn't be determined
+ *
+ * This is determined via the output of `nix store info --json`.
+ */
 type NixStoreTrust = "trusted" | "untrusted" | "unknown";
 type ActionOptions = {
     name: string;
