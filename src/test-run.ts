@@ -22,7 +22,7 @@ class NixInstallerAction extends DetSysAction {
     await this.fetch();
   }
 
-  async post(): undefined;
+  async post(): Promise<void> {}
 }
 
 class MagicNixCacheAction extends DetSysAction {
