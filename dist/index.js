@@ -456,19 +456,24 @@ var EVENT_EXCEPTION = "exception";
 var EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
 var EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
 var EVENT_ARTIFACT_CACHE_PERSIST = "artifact_cache_persist";
+var EVENT_PREFLIGHT_REQUIRE_NIX_DENIED = "preflight-require-nix-denied";
 var FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
 var FACT_FINAL_EXCEPTION = "final_exception";
+var FACT_OS = "$os";
+var FACT_OS_VERSION = "$os_version";
 var FACT_SOURCE_URL = "source_url";
 var FACT_SOURCE_URL_ETAG = "source_url_etag";
+var FACT_NIX_LOCATION = "nix_location";
 var FACT_NIX_STORE_TRUST = "nix_store_trusted";
 var FACT_NIX_STORE_VERSION = "nix_store_version";
 var FACT_NIX_STORE_CHECK_METHOD = "nix_store_check_method";
 var FACT_NIX_STORE_CHECK_ERROR = "nix_store_check_error";
-var IdsToolbox = class {
+var STATE_KEY_EXECUTION_PHASE = "detsys_action_execution_phase";
+var STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
+var STATE_NOT_FOUND = "not-found";
+var DetSysAction = class {
   constructor(actionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
-    this.hookMain = void 0;
-    this.hookPost = void 0;
     this.exceptionAttachments = /* @__PURE__ */ new Map();
     this.nixStoreTrust = "unknown";
     this.events = [];
@@ -514,19 +519,19 @@ var IdsToolbox = class {
     {
       getDetails().then((details) => {
         if (details.name !== "unknown") {
-          this.addFact("$os", details.name);
+          this.addFact(FACT_OS, details.name);
         }
         if (details.version !== "unknown") {
-          this.addFact("$os_version", details.version);
+          this.addFact(FACT_OS_VERSION, details.version);
         }
       }).catch((e) => {
         actionsCore6.debug(`Failure getting platform details: ${e}`);
       });
     }
     {
-      const phase = actionsCore6.getState("idstoolbox_execution_phase");
+      const phase = actionsCore6.getState(STATE_KEY_EXECUTION_PHASE);
       if (phase === "") {
-        actionsCore6.saveState("idstoolbox_execution_phase", "post");
+        actionsCore6.saveState(STATE_KEY_EXECUTION_PHASE, "post");
         this.executionPhase = "main";
       } else {
         this.executionPhase = "post";
@@ -560,20 +565,17 @@ var IdsToolbox = class {
   stapleFile(name, location) {
     this.exceptionAttachments.set(name, location);
   }
-  onMain(callback) {
-    this.hookMain = callback;
-  }
-  onPost(callback) {
-    this.hookPost = callback;
-  }
   execute() {
     this.executeAsync().catch((error2) => {
       console.log(error2);
       process.exitCode = 1;
     });
   }
-  stringifyError(error2) {
-    return error2 instanceof Error || typeof error2 == "string" ? error2.toString() : JSON.stringify(error2);
+  get isMain() {
+    return this.executionPhase === "main";
+  }
+  get isPost() {
+    return this.executionPhase === "post";
   }
   async executeAsync() {
     try {
@@ -581,33 +583,33 @@ var IdsToolbox = class {
         this.getCorrelationHashes()
       );
       if (!await this.preflightRequireNix()) {
-        this.recordEvent("preflight-require-nix-denied");
+        this.recordEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
         return;
       } else {
         await this.preflightNixStoreInfo();
         this.addFact(FACT_NIX_STORE_TRUST, this.nixStoreTrust);
       }
-      if (this.executionPhase === "main" && this.hookMain) {
-        await this.hookMain();
-      } else if (this.executionPhase === "post" && this.hookPost) {
-        await this.hookPost();
+      if (this.isMain) {
+        await this.main();
+      } else if (this.isPost) {
+        await this.post();
       }
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
     } catch (error2) {
       this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
-      const reportable = this.stringifyError(error2);
+      const reportable = stringifyError(error2);
       this.addFact(FACT_FINAL_EXCEPTION, reportable);
-      if (this.executionPhase === "post") {
+      if (this.isPost) {
         actionsCore6.warning(reportable);
       } else {
         actionsCore6.setFailed(reportable);
       }
-      const do_gzip = promisify2(gzip);
+      const doGzip = promisify2(gzip);
       const exceptionContext = /* @__PURE__ */ new Map();
       for (const [attachmentLabel, filePath] of this.exceptionAttachments) {
         try {
           const logText = readFileSync2(filePath);
-          const buf = await do_gzip(logText);
+          const buf = await doGzip(logText);
           exceptionContext.set(
             `staple_value_${attachmentLabel}`,
             buf.toString("base64")
@@ -615,7 +617,7 @@ var IdsToolbox = class {
         } catch (e) {
           exceptionContext.set(
             `staple_failure_${attachmentLabel}`,
-            this.stringifyError(e)
+            stringifyError(e)
           );
         }
       }
@@ -796,29 +798,33 @@ var IdsToolbox = class {
         actionsCore6.debug(`Nix not at ${candidateNix}`);
       }
     }
-    this.addFact("nix_location", nixLocation || "");
+    this.addFact(FACT_NIX_LOCATION, nixLocation || "");
     if (this.actionOptions.requireNix === "ignore") {
       return true;
     }
-    const currentNotFoundState = actionsCore6.getState(
-      "idstoolbox_nix_not_found"
-    );
-    if (currentNotFoundState === "not-found") {
+    const currentNotFoundState = actionsCore6.getState(STATE_KEY_NIX_NOT_FOUND);
+    if (currentNotFoundState === STATE_NOT_FOUND) {
       return false;
     }
     if (nixLocation !== void 0) {
       return true;
     }
-    actionsCore6.saveState("idstoolbox_nix_not_found", "not-found");
+    actionsCore6.saveState(STATE_KEY_NIX_NOT_FOUND, STATE_NOT_FOUND);
     switch (this.actionOptions.requireNix) {
       case "fail":
         actionsCore6.setFailed(
-          "This action can only be used when Nix is installed. Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
+          [
+            "This action can only be used when Nix is installed.",
+            "Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
+          ].join(" ")
         );
         break;
       case "warn":
         actionsCore6.warning(
-          "This action is in no-op mode because Nix is not installed. Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
+          [
+            "This action is in no-op mode because Nix is not installed.",
+            "Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
+          ].join(" ")
         );
         break;
     }
@@ -861,7 +867,7 @@ var IdsToolbox = class {
       }
       this.addFact(FACT_NIX_STORE_VERSION, JSON.stringify(parsed.version));
     } catch (e) {
-      this.addFact(FACT_NIX_STORE_CHECK_ERROR, this.stringifyError(e));
+      this.addFact(FACT_NIX_STORE_CHECK_ERROR, stringifyError(e));
     }
   }
   async submitEvents() {
@@ -891,6 +897,9 @@ var IdsToolbox = class {
     return path.join(_tmpdir, `${this.actionOptions.name}-${randomUUID()}`);
   }
 };
+function stringifyError(error2) {
+  return error2 instanceof Error || typeof error2 == "string" ? error2.toString() : JSON.stringify(error2);
+}
 function makeOptionsConfident(actionOptions) {
   const idsProjectName = actionOptions.idsProjectName ?? actionOptions.name;
   const finalOpts = {
@@ -964,7 +973,7 @@ function mungeDiagnosticEndpoint(inputUrl) {
   return inputUrl;
 }
 export {
-  IdsToolbox,
+  DetSysAction,
   inputs_exports as inputs,
   platform_exports as platform
 };

@@ -27,16 +27,24 @@ const EVENT_EXCEPTION = "exception";
 const EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
 const EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
 const EVENT_ARTIFACT_CACHE_PERSIST = "artifact_cache_persist";
+const EVENT_PREFLIGHT_REQUIRE_NIX_DENIED = "preflight-require-nix-denied";
 
 const FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
 const FACT_FINAL_EXCEPTION = "final_exception";
+const FACT_OS = "$os";
+const FACT_OS_VERSION = "$os_version";
 const FACT_SOURCE_URL = "source_url";
 const FACT_SOURCE_URL_ETAG = "source_url_etag";
 
+const FACT_NIX_LOCATION = "nix_location";
 const FACT_NIX_STORE_TRUST = "nix_store_trusted";
 const FACT_NIX_STORE_VERSION = "nix_store_version";
 const FACT_NIX_STORE_CHECK_METHOD = "nix_store_check_method";
 const FACT_NIX_STORE_CHECK_ERROR = "nix_store_check_error";
+
+const STATE_KEY_EXECUTION_PHASE = "detsys_action_execution_phase";
+const STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
+const STATE_NOT_FOUND = "not-found";
 
 /**
  * An enum for describing different "fetch suffixes" for i.d.s.
@@ -123,7 +131,7 @@ type DiagnosticEvent = {
   uuid: UUID;
 };
 
-export class IdsToolbox {
+export abstract class DetSysAction {
   nixStoreTrust: NixStoreTrust;
 
   private identity: correlation.AnonymizedCorrelationHashes;
@@ -138,13 +146,8 @@ export class IdsToolbox {
   private events: DiagnosticEvent[];
   private client: Got;
 
-  private hookMain?: () => Promise<void>;
-  private hookPost?: () => Promise<void>;
-
   constructor(actionOptions: ActionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
-    this.hookMain = undefined;
-    this.hookPost = undefined;
     this.exceptionAttachments = new Map();
     this.nixStoreTrust = "unknown";
 
@@ -201,10 +204,10 @@ export class IdsToolbox {
         // eslint-disable-next-line github/no-then
         .then((details) => {
           if (details.name !== "unknown") {
-            this.addFact("$os", details.name);
+            this.addFact(FACT_OS, details.name);
           }
           if (details.version !== "unknown") {
-            this.addFact("$os_version", details.version);
+            this.addFact(FACT_OS_VERSION, details.version);
           }
         })
         // eslint-disable-next-line github/no-then
@@ -214,9 +217,9 @@ export class IdsToolbox {
     }
 
     {
-      const phase = actionsCore.getState("idstoolbox_execution_phase");
+      const phase = actionsCore.getState(STATE_KEY_EXECUTION_PHASE);
       if (phase === "") {
-        actionsCore.saveState("idstoolbox_execution_phase", "post");
+        actionsCore.saveState(STATE_KEY_EXECUTION_PHASE, "post");
         this.executionPhase = "main";
       } else {
         this.executionPhase = "post";
@@ -255,13 +258,8 @@ export class IdsToolbox {
     this.exceptionAttachments.set(name, location);
   }
 
-  onMain(callback: () => Promise<void>): void {
-    this.hookMain = callback;
-  }
-
-  onPost(callback: () => Promise<void>): void {
-    this.hookPost = callback;
-  }
+  abstract main(): Promise<void>;
+  abstract post(): Promise<void> | undefined;
 
   execute(): void {
     // eslint-disable-next-line github/no-then
@@ -272,10 +270,12 @@ export class IdsToolbox {
     });
   }
 
-  private stringifyError(error: unknown): string {
-    return error instanceof Error || typeof error == "string"
-      ? error.toString()
-      : JSON.stringify(error);
+  private get isMain(): boolean {
+    return this.executionPhase === "main";
+  }
+
+  private get isPost(): boolean {
+    return this.executionPhase === "post";
   }
 
   private async executeAsync(): Promise<void> {
@@ -285,39 +285,39 @@ export class IdsToolbox {
       );
 
       if (!(await this.preflightRequireNix())) {
-        this.recordEvent("preflight-require-nix-denied");
+        this.recordEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
         return;
       } else {
         await this.preflightNixStoreInfo();
         this.addFact(FACT_NIX_STORE_TRUST, this.nixStoreTrust);
       }
 
-      if (this.executionPhase === "main" && this.hookMain) {
-        await this.hookMain();
-      } else if (this.executionPhase === "post" && this.hookPost) {
-        await this.hookPost();
+      if (this.isMain) {
+        await this.main();
+      } else if (this.isPost) {
+        await this.post();
       }
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
     } catch (error) {
       this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
 
-      const reportable = this.stringifyError(error);
+      const reportable = stringifyError(error);
 
       this.addFact(FACT_FINAL_EXCEPTION, reportable);
 
-      if (this.executionPhase === "post") {
+      if (this.isPost) {
         actionsCore.warning(reportable);
       } else {
         actionsCore.setFailed(reportable);
       }
 
-      const do_gzip = promisify(gzip);
+      const doGzip = promisify(gzip);
 
       const exceptionContext: Map<string, string> = new Map();
       for (const [attachmentLabel, filePath] of this.exceptionAttachments) {
         try {
           const logText = readFileSync(filePath);
-          const buf = await do_gzip(logText);
+          const buf = await doGzip(logText);
           exceptionContext.set(
             `staple_value_${attachmentLabel}`,
             buf.toString("base64"),
@@ -325,7 +325,7 @@ export class IdsToolbox {
         } catch (e: unknown) {
           exceptionContext.set(
             `staple_failure_${attachmentLabel}`,
-            this.stringifyError(e),
+            stringifyError(e),
           );
         }
       }
@@ -557,16 +557,14 @@ export class IdsToolbox {
         actionsCore.debug(`Nix not at ${candidateNix}`);
       }
     }
-    this.addFact("nix_location", nixLocation || "");
+    this.addFact(FACT_NIX_LOCATION, nixLocation || "");
 
     if (this.actionOptions.requireNix === "ignore") {
       return true;
     }
 
-    const currentNotFoundState = actionsCore.getState(
-      "idstoolbox_nix_not_found",
-    );
-    if (currentNotFoundState === "not-found") {
+    const currentNotFoundState = actionsCore.getState(STATE_KEY_NIX_NOT_FOUND);
+    if (currentNotFoundState === STATE_NOT_FOUND) {
       // It was previously not found, so don't run subsequent actions
       return false;
     }
@@ -574,19 +572,23 @@ export class IdsToolbox {
     if (nixLocation !== undefined) {
       return true;
     }
-    actionsCore.saveState("idstoolbox_nix_not_found", "not-found");
+    actionsCore.saveState(STATE_KEY_NIX_NOT_FOUND, STATE_NOT_FOUND);
 
     switch (this.actionOptions.requireNix) {
       case "fail":
         actionsCore.setFailed(
-          "This action can only be used when Nix is installed." +
-            " Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.",
+          [
+            "This action can only be used when Nix is installed.",
+            "Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.",
+          ].join(" "),
         );
         break;
       case "warn":
         actionsCore.warning(
-          "This action is in no-op mode because Nix is not installed." +
-            " Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.",
+          [
+            "This action is in no-op mode because Nix is not installed.",
+            "Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.",
+          ].join(" "),
         );
         break;
     }
@@ -636,7 +638,7 @@ export class IdsToolbox {
 
       this.addFact(FACT_NIX_STORE_VERSION, JSON.stringify(parsed.version));
     } catch (e: unknown) {
-      this.addFact(FACT_NIX_STORE_CHECK_ERROR, this.stringifyError(e));
+      this.addFact(FACT_NIX_STORE_CHECK_ERROR, stringifyError(e));
     }
   }
 
@@ -669,6 +671,12 @@ export class IdsToolbox {
     const _tmpdir = process.env["RUNNER_TEMP"] || tmpdir();
     return path.join(_tmpdir, `${this.actionOptions.name}-${randomUUID()}`);
   }
+}
+
+function stringifyError(error: unknown): string {
+  return error instanceof Error || typeof error == "string"
+    ? error.toString()
+    : JSON.stringify(error);
 }
 
 function makeOptionsConfident(

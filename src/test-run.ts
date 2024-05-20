@@ -1,4 +1,4 @@
-import { IdsToolbox } from "./index.js";
+import { DetSysAction } from "./index.js";
 
 process.env["RUNNER_ARCH"] = "ARM64";
 process.env["RUNNER_OS"] = "macOS";
@@ -15,35 +15,37 @@ process.env["GITHUB_RUN_ID"] = "58";
 process.env["GITHUB_RUN_NUMBER"] = "78";
 process.env["GITHUB_RUN_ATTEMPT"] = "1";
 
+class NixInstallerAction extends DetSysAction {
+  async main(): Promise<void> {
+    this.recordEvent("my_event");
+    this.recordEvent("my_next_event");
+    await this.fetch();
+  }
+
+  async post(): undefined;
+}
+
+class MagicNixCacheAction extends DetSysAction {
+  async main(): Promise<void> {
+    this.recordEvent("cache_hit");
+    this.recordEvent("cache_miss");
+  }
+
+  async post(): Promise<void> {}
+}
+
 async function main(): Promise<void> {
-  {
-    const toolbox = new IdsToolbox({
-      name: "nix-installer",
-      fetchStyle: "nix-style",
-      requireNix: "warn",
-    });
+  new NixInstallerAction({
+    name: "nix-installer",
+    fetchStyle: "nix-style",
+    requireNix: "warn",
+  }).execute();
 
-    toolbox.onMain(async () => {
-      toolbox.recordEvent("my_event");
-      toolbox.recordEvent("my_next_event");
-      await toolbox.fetch();
-    });
-    toolbox.execute();
-  }
-
-  {
-    const toolbox = new IdsToolbox({
-      name: "magic-nix-cache",
-      fetchStyle: "gh-env-style",
-      requireNix: "warn",
-    });
-
-    toolbox.onMain(async () => {
-      toolbox.recordEvent("cache_hit");
-      toolbox.recordEvent("cache_miss");
-    });
-    toolbox.execute();
-  }
+  new MagicNixCacheAction({
+    name: "magic-nix-cache",
+    fetchStyle: "gh-env-style",
+    requireNix: "warn",
+  }).execute();
 }
 
 await main();
