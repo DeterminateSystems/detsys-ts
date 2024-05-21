@@ -142,13 +142,23 @@ export abstract class DetSysAction {
   private client: Got;
   private exceptionAttachments: Map<string, PathLike>;
   private archOs: string;
+  private executionPhase: ExecutionPhase;
   private nixSystem: string;
   private architectureFetchSuffix: string;
-  private executionPhase: ExecutionPhase;
   private sourceParameters: SourceDef;
   private facts: Record<string, string | boolean>;
   private events: DiagnosticEvent[];
   private identity: correlation.AnonymizedCorrelationHashes;
+
+  private determineExecutionPhase(): ExecutionPhase {
+    const currentPhase = actionsCore.getState(STATE_KEY_EXECUTION_PHASE);
+    if (currentPhase === "") {
+      actionsCore.saveState(STATE_KEY_EXECUTION_PHASE, "post");
+      return "main";
+    } else {
+      return "post";
+    }
+  }
 
   constructor(actionOptions: ActionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
@@ -223,16 +233,8 @@ export abstract class DetSysAction {
         });
     }
 
-    {
-      const phase = actionsCore.getState(STATE_KEY_EXECUTION_PHASE);
-      if (phase === "") {
-        actionsCore.saveState(STATE_KEY_EXECUTION_PHASE, "post");
-        this.executionPhase = "main";
-      } else {
-        this.executionPhase = "post";
-      }
-      this.facts.execution_phase = this.executionPhase;
-    }
+    this.executionPhase = this.determineExecutionPhase();
+    this.facts.execution_phase = this.executionPhase;
 
     if (this.actionOptions.fetchStyle === "gh-env-style") {
       this.architectureFetchSuffix = this.archOs;
@@ -265,9 +267,30 @@ export abstract class DetSysAction {
     this.exceptionAttachments.set(name, location);
   }
 
-  abstract main(): Promise<void>;
-  abstract post(): Promise<void> | undefined;
+  private setExecutionPhase(): void {
+    const phase = actionsCore.getState(STATE_KEY_EXECUTION_PHASE);
+    if (phase === "") {
+      actionsCore.saveState(STATE_KEY_EXECUTION_PHASE, "post");
+      this.executionPhase = "main";
+    } else {
+      this.executionPhase = "post";
+    }
+    this.facts.execution_phase = this.executionPhase;
+  }
 
+  /**
+   * The main execution phase.
+   */
+  abstract main(): Promise<void>;
+
+  /**
+   * The post execution phase.
+   */
+  abstract post(): Promise<void>;
+
+  /**
+   * Execute the Action as defined.
+   */
   execute(): void {
     // eslint-disable-next-line github/no-then
     this.executeAsync().catch((error: Error) => {
@@ -277,6 +300,7 @@ export abstract class DetSysAction {
     });
   }
 
+  // Whether the
   private get isMain(): boolean {
     return this.executionPhase === "main";
   }
@@ -456,12 +480,20 @@ export abstract class DetSysAction {
     }
   }
 
+  /**
+   * Fetches the executable at the URL determined by the `source-*` inputs and
+   * other facts, `chmod`s it, and returns the path to the executable on disk.
+   */
   async fetchExecutable(): Promise<string> {
     const binaryPath = await this.fetchArtifact();
     await chmod(binaryPath, fs.constants.S_IXUSR | fs.constants.S_IXGRP);
     return binaryPath;
   }
 
+  /**
+   * A helper function for failing on error only if strict mode is enabled.
+   * This is intended only for CI environments testing Actions themselves.
+   */
   failOnError(msg: string): void {
     if (this.strictMode) {
       actionsCore.setFailed(`strict mode failure: ${msg}`);
@@ -674,7 +706,7 @@ export abstract class DetSysAction {
   }
 
   private async submitEvents(): Promise<void> {
-    if (!this.actionOptions.diagnosticsUrl) {
+    if (this.actionOptions.diagnosticsUrl === undefined) {
       actionsCore.debug(
         "Diagnostics are disabled. Not sending the following events:",
       );

@@ -474,6 +474,15 @@ var STATE_KEY_EXECUTION_PHASE = "detsys_action_execution_phase";
 var STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
 var STATE_NOT_FOUND = "not-found";
 var DetSysAction = class {
+  determineExecutionPhase() {
+    const currentPhase = actionsCore6.getState(STATE_KEY_EXECUTION_PHASE);
+    if (currentPhase === "") {
+      actionsCore6.saveState(STATE_KEY_EXECUTION_PHASE, "post");
+      return "main";
+    } else {
+      return "post";
+    }
+  }
   constructor(actionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
     this.exceptionAttachments = /* @__PURE__ */ new Map();
@@ -533,16 +542,8 @@ var DetSysAction = class {
         );
       });
     }
-    {
-      const phase = actionsCore6.getState(STATE_KEY_EXECUTION_PHASE);
-      if (phase === "") {
-        actionsCore6.saveState(STATE_KEY_EXECUTION_PHASE, "post");
-        this.executionPhase = "main";
-      } else {
-        this.executionPhase = "post";
-      }
-      this.facts.execution_phase = this.executionPhase;
-    }
+    this.executionPhase = this.determineExecutionPhase();
+    this.facts.execution_phase = this.executionPhase;
     if (this.actionOptions.fetchStyle === "gh-env-style") {
       this.architectureFetchSuffix = this.archOs;
     } else if (this.actionOptions.fetchStyle === "nix-style") {
@@ -570,12 +571,26 @@ var DetSysAction = class {
   stapleFile(name, location) {
     this.exceptionAttachments.set(name, location);
   }
+  setExecutionPhase() {
+    const phase = actionsCore6.getState(STATE_KEY_EXECUTION_PHASE);
+    if (phase === "") {
+      actionsCore6.saveState(STATE_KEY_EXECUTION_PHASE, "post");
+      this.executionPhase = "main";
+    } else {
+      this.executionPhase = "post";
+    }
+    this.facts.execution_phase = this.executionPhase;
+  }
+  /**
+   * Execute the Action as defined.
+   */
   execute() {
     this.executeAsync().catch((error2) => {
       console.log(error2);
       process.exitCode = 1;
     });
   }
+  // Whether the
   get isMain() {
     return this.executionPhase === "main";
   }
@@ -722,11 +737,19 @@ var DetSysAction = class {
       actionsCore6.endGroup();
     }
   }
+  /**
+   * Fetches the executable at the URL determined by the `source-*` inputs and
+   * other facts, `chmod`s it, and returns the path to the executable on disk.
+   */
   async fetchExecutable() {
     const binaryPath = await this.fetchArtifact();
     await chmod(binaryPath, fs2.constants.S_IXUSR | fs2.constants.S_IXGRP);
     return binaryPath;
   }
+  /**
+   * A helper function for failing on error only if strict mode is enabled.
+   * This is intended only for CI environments testing Actions themselves.
+   */
   failOnError(msg) {
     if (this.strictMode) {
       actionsCore6.setFailed(`strict mode failure: ${msg}`);
@@ -898,7 +921,7 @@ var DetSysAction = class {
     }
   }
   async submitEvents() {
-    if (!this.actionOptions.diagnosticsUrl) {
+    if (this.actionOptions.diagnosticsUrl === void 0) {
       actionsCore6.debug(
         "Diagnostics are disabled. Not sending the following events:"
       );

@@ -116,13 +116,14 @@ declare abstract class DetSysAction {
     private client;
     private exceptionAttachments;
     private archOs;
+    private executionPhase;
     private nixSystem;
     private architectureFetchSuffix;
-    private executionPhase;
     private sourceParameters;
     private facts;
     private events;
     private identity;
+    private determineExecutionPhase;
     constructor(actionOptions: ActionOptions);
     /**
      * Attach a file to the diagnostics data in error conditions.
@@ -133,8 +134,18 @@ declare abstract class DetSysAction {
      * If the file is readable, the file's contents will be stored in a context value at `staple_value_{name}`.
      */
     stapleFile(name: string, location: string): void;
+    private setExecutionPhase;
+    /**
+     * The main execution phase.
+     */
     abstract main(): Promise<void>;
-    abstract post(): Promise<void> | undefined;
+    /**
+     * The post execution phase.
+     */
+    abstract post(): Promise<void>;
+    /**
+     * Execute the Action as defined.
+     */
     execute(): void;
     private get isMain();
     private get isPost();
@@ -154,7 +165,15 @@ declare abstract class DetSysAction {
      * inputs and other factors.
      */
     private fetchArtifact;
+    /**
+     * Fetches the executable at the URL determined by the `source-*` inputs and
+     * other facts, `chmod`s it, and returns the path to the executable on disk.
+     */
     fetchExecutable(): Promise<string>;
+    /**
+     * A helper function for failing on error only if strict mode is enabled.
+     * This is intended only for CI environments testing Actions themselves.
+     */
     failOnError(msg: string): void;
     private complete;
     private getUrl;
