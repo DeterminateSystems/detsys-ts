@@ -111,17 +111,18 @@ type ActionOptions = {
 };
 declare abstract class DetSysAction {
     nixStoreTrust: NixStoreTrust;
-    private identity;
     private actionOptions;
+    private strictMode;
+    private client;
+    private exceptionAttachments;
     private archOs;
     private nixSystem;
     private architectureFetchSuffix;
     private executionPhase;
     private sourceParameters;
     private facts;
-    private exceptionAttachments;
     private events;
-    private client;
+    private identity;
     constructor(actionOptions: ActionOptions);
     /**
      * Attach a file to the diagnostics data in error conditions.
@@ -143,8 +144,18 @@ declare abstract class DetSysAction {
     getUniqueId(): string;
     getCorrelationHashes(): AnonymizedCorrelationHashes;
     recordEvent(eventName: string, context?: Record<string, unknown>): void;
-    fetch(): Promise<string>;
+    /**
+     * Fetches a file in `.xz` format, imports its contents into the Nix store,
+     * and returns the path of the executable at `/nix/store/STORE_PATH/bin/${bin}`.
+     */
+    unpackClosure(bin: string): Promise<string>;
+    /**
+     * Fetch an artifact, such as a tarball, from the URL determined by the `source-*`
+     * inputs and other factors.
+     */
+    private fetchArtifact;
     fetchExecutable(): Promise<string>;
+    failOnError(msg: string): void;
     private complete;
     private getUrl;
     private cacheKey;

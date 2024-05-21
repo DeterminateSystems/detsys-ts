@@ -5,15 +5,18 @@
 import { version as pkgVersion } from "../package.json";
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import * as correlation from "./correlation.js";
+import { getBool } from "./inputs.js";
 import * as platform from "./platform.js";
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import * as actionsExec from "@actions/exec";
 import got, { Got } from "got";
+import { exec } from "node:child_process";
 import { UUID, randomUUID } from "node:crypto";
 import { PathLike, createWriteStream, readFileSync } from "node:fs";
 import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
+import * as os from "node:os";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -134,22 +137,24 @@ type DiagnosticEvent = {
 export abstract class DetSysAction {
   nixStoreTrust: NixStoreTrust;
 
-  private identity: correlation.AnonymizedCorrelationHashes;
   private actionOptions: ConfidentActionOptions;
+  private strictMode: boolean;
+  private client: Got;
+  private exceptionAttachments: Map<string, PathLike>;
   private archOs: string;
   private nixSystem: string;
   private architectureFetchSuffix: string;
   private executionPhase: ExecutionPhase;
   private sourceParameters: SourceDef;
   private facts: Record<string, string | boolean>;
-  private exceptionAttachments: Map<string, PathLike>;
   private events: DiagnosticEvent[];
-  private client: Got;
+  private identity: correlation.AnonymizedCorrelationHashes;
 
   constructor(actionOptions: ActionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
     this.exceptionAttachments = new Map();
     this.nixStoreTrust = "unknown";
+    this.strictMode = getBool("ci-mode");
 
     this.events = [];
     this.client = got.extend({
@@ -211,8 +216,10 @@ export abstract class DetSysAction {
           }
         })
         // eslint-disable-next-line github/no-then
-        .catch((e) => {
-          actionsCore.debug(`Failure getting platform details: ${e}`);
+        .catch((e: unknown) => {
+          actionsCore.debug(
+            `Failure getting platform details: ${stringifyError(e)}`,
+          );
         });
     }
 
@@ -298,10 +305,10 @@ export abstract class DetSysAction {
         await this.post();
       }
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
-    } catch (error) {
+    } catch (e: unknown) {
       this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
 
-      const reportable = stringifyError(error);
+      const reportable = stringifyError(e);
 
       this.addFact(FACT_FINAL_EXCEPTION, reportable);
 
@@ -322,10 +329,10 @@ export abstract class DetSysAction {
             `staple_value_${attachmentLabel}`,
             buf.toString("base64"),
           );
-        } catch (e: unknown) {
+        } catch (innerError: unknown) {
           exceptionContext.set(
             `staple_failure_${attachmentLabel}`,
-            stringifyError(e),
+            stringifyError(innerError),
           );
         }
       }
@@ -367,7 +374,25 @@ export abstract class DetSysAction {
     });
   }
 
-  async fetch(): Promise<string> {
+  /**
+   * Fetches a file in `.xz` format, imports its contents into the Nix store,
+   * and returns the path of the executable at `/nix/store/STORE_PATH/bin/${bin}`.
+   */
+  async unpackClosure(bin: string): Promise<string> {
+    const artifact = this.fetchArtifact();
+    const { stdout } = await promisify(exec)(
+      `cat "${artifact}" | xz -d | nix-store --import`,
+    );
+    const paths = stdout.split(os.EOL);
+    const lastPath = paths.at(-2);
+    return `${lastPath}/bin/${bin}`;
+  }
+
+  /**
+   * Fetch an artifact, such as a tarball, from the URL determined by the `source-*`
+   * inputs and other factors.
+   */
+  private async fetchArtifact(): Promise<string> {
     actionsCore.startGroup(
       `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`,
     );
@@ -420,8 +445,8 @@ export abstract class DetSysAction {
 
         try {
           await this.saveCachedVersion(v, destFile);
-        } catch (e) {
-          actionsCore.debug(`Error caching the artifact: ${e}`);
+        } catch (e: unknown) {
+          actionsCore.debug(`Error caching the artifact: ${stringifyError(e)}`);
         }
       }
 
@@ -432,9 +457,15 @@ export abstract class DetSysAction {
   }
 
   async fetchExecutable(): Promise<string> {
-    const binaryPath = await this.fetch();
+    const binaryPath = await this.fetchArtifact();
     await chmod(binaryPath, fs.constants.S_IXUSR | fs.constants.S_IXGRP);
     return binaryPath;
+  }
+
+  failOnError(msg: string): void {
+    if (this.strictMode) {
+      actionsCore.setFailed(`strict mode failure: ${msg}`);
+    }
   }
 
   private async complete(): Promise<void> {
@@ -661,8 +692,10 @@ export abstract class DetSysAction {
       await this.client.post(this.actionOptions.diagnosticsUrl, {
         json: batch,
       });
-    } catch (error) {
-      actionsCore.debug(`Error submitting diagnostics event: ${error}`);
+    } catch (e: unknown) {
+      actionsCore.debug(
+        `Error submitting diagnostics event: ${stringifyError(e)}`,
+      );
     }
     this.events = [];
   }
@@ -731,9 +764,9 @@ function determineDiagnosticsUrl(
     if (providedDiagnosticEndpoint !== undefined) {
       try {
         return mungeDiagnosticEndpoint(new URL(providedDiagnosticEndpoint));
-      } catch (e) {
+      } catch (e: unknown) {
         actionsCore.info(
-          `User-provided diagnostic endpoint ignored: not a valid URL: ${e}`,
+          `User-provided diagnostic endpoint ignored: not a valid URL: ${stringifyError(e)}`,
         );
       }
     }
@@ -744,9 +777,9 @@ function determineDiagnosticsUrl(
     diagnosticUrl.pathname += idsProjectName;
     diagnosticUrl.pathname += "/diagnostics";
     return diagnosticUrl;
-  } catch (e) {
+  } catch (e: unknown) {
     actionsCore.info(
-      `Generated diagnostic endpoint ignored: not a valid URL: ${e}`,
+      `Generated diagnostic endpoint ignored: not a valid URL: ${stringifyError(e)}`,
     );
   }
 
@@ -772,8 +805,10 @@ function mungeDiagnosticEndpoint(inputUrl: URL): URL {
     inputUrl.password = currentIdsHost.password;
 
     return inputUrl;
-  } catch (e) {
-    actionsCore.info(`Default or overridden IDS host isn't a valid URL: ${e}`);
+  } catch (e: unknown) {
+    actionsCore.info(
+      `Default or overridden IDS host isn't a valid URL: ${stringifyError(e)}`,
+    );
   }
 
   return inputUrl;

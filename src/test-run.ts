@@ -19,7 +19,7 @@ class NixInstallerAction extends DetSysAction {
   async main(): Promise<void> {
     this.recordEvent("my_event");
     this.recordEvent("my_next_event");
-    await this.fetch();
+    await this.fetchArtifact();
   }
 
   async post(): Promise<void> {}
