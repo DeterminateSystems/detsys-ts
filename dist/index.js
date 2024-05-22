@@ -571,16 +571,6 @@ var DetSysAction = class {
   stapleFile(name, location) {
     this.exceptionAttachments.set(name, location);
   }
-  setExecutionPhase() {
-    const phase = actionsCore6.getState(STATE_KEY_EXECUTION_PHASE);
-    if (phase === "") {
-      actionsCore6.saveState(STATE_KEY_EXECUTION_PHASE, "post");
-      this.executionPhase = "main";
-    } else {
-      this.executionPhase = "post";
-    }
-    this.facts.execution_phase = this.executionPhase;
-  }
   /**
    * Execute the Action as defined.
    */
@@ -590,7 +580,56 @@ var DetSysAction = class {
       process.exitCode = 1;
     });
   }
-  // Whether the
+  getTemporaryName() {
+    const tmpDir = process.env["RUNNER_TEMP"] || tmpdir();
+    return path.join(tmpDir, `${this.actionOptions.name}-${randomUUID()}`);
+  }
+  addFact(key, value) {
+    this.facts[key] = value;
+  }
+  getDiagnosticsUrl() {
+    return this.actionOptions.diagnosticsUrl;
+  }
+  getUniqueId() {
+    return this.identity.run_differentiator || process.env.RUNNER_TRACKING_ID || randomUUID();
+  }
+  getCorrelationHashes() {
+    return this.identity;
+  }
+  recordEvent(eventName, context = {}) {
+    this.events.push({
+      event_name: `${this.actionOptions.eventPrefix}${eventName}`,
+      context,
+      correlation: this.identity,
+      facts: this.facts,
+      timestamp: /* @__PURE__ */ new Date(),
+      uuid: randomUUID()
+    });
+  }
+  /**
+   * Fetches a file in `.xz` format from the URL determined by the `source-*`
+   * parameters (or `source-binary` if set). It then imports that file's
+   * contents into the Nix store and returns the path of the executable at
+   * `/nix/store/STORE_PATH/bin/${bin}`.
+   */
+  async unpackClosure(bin) {
+    const artifact = await this.fetchArtifact();
+    const { stdout } = await promisify2(exec3)(
+      `cat "${artifact}" | xz -d | nix-store --import`
+    );
+    const paths = stdout.split(os3.EOL);
+    const lastPath = paths.at(-2);
+    return `${lastPath}/bin/${bin}`;
+  }
+  /**
+   * Fetches the executable at the URL determined by the `source-*` inputs and
+   * other facts, `chmod`s it, and returns the path to the executable on disk.
+   */
+  async fetchExecutable() {
+    const binaryPath = await this.fetchArtifact();
+    await chmod(binaryPath, fs2.constants.S_IXUSR | fs2.constants.S_IXGRP);
+    return binaryPath;
+  }
   get isMain() {
     return this.executionPhase === "main";
   }
@@ -645,43 +684,6 @@ var DetSysAction = class {
     } finally {
       await this.complete();
     }
-  }
-  addFact(key, value) {
-    this.facts[key] = value;
-  }
-  getDiagnosticsUrl() {
-    return this.actionOptions.diagnosticsUrl;
-  }
-  getUniqueId() {
-    return this.identity.run_differentiator || process.env.RUNNER_TRACKING_ID || randomUUID();
-  }
-  getCorrelationHashes() {
-    return this.identity;
-  }
-  recordEvent(eventName, context = {}) {
-    this.events.push({
-      event_name: `${this.actionOptions.eventPrefix}${eventName}`,
-      context,
-      correlation: this.identity,
-      facts: this.facts,
-      timestamp: /* @__PURE__ */ new Date(),
-      uuid: randomUUID()
-    });
-  }
-  /**
-   * Fetches a file in `.xz` format from the URL determined by the `source-*`
-   * parameters (or `source-binary` if set). It then imports that file's
-   * contents into the Nix store and returns the path of the executable at
-   * `/nix/store/STORE_PATH/bin/${bin}`.
-   */
-  async unpackClosure(bin) {
-    const artifact = await this.fetchArtifact();
-    const { stdout } = await promisify2(exec3)(
-      `cat "${artifact}" | xz -d | nix-store --import`
-    );
-    const paths = stdout.split(os3.EOL);
-    const lastPath = paths.at(-2);
-    return `${lastPath}/bin/${bin}`;
   }
   /**
    * Fetch an artifact, such as a tarball, from the URL determined by the `source-*`
@@ -744,15 +746,6 @@ var DetSysAction = class {
     } finally {
       actionsCore6.endGroup();
     }
-  }
-  /**
-   * Fetches the executable at the URL determined by the `source-*` inputs and
-   * other facts, `chmod`s it, and returns the path to the executable on disk.
-   */
-  async fetchExecutable() {
-    const binaryPath = await this.fetchArtifact();
-    await chmod(binaryPath, fs2.constants.S_IXUSR | fs2.constants.S_IXGRP);
-    return binaryPath;
   }
   /**
    * A helper function for failing on error only if strict mode is enabled.
@@ -951,10 +944,6 @@ var DetSysAction = class {
       );
     }
     this.events = [];
-  }
-  getTemporaryName() {
-    const _tmpdir = process.env["RUNNER_TEMP"] || tmpdir();
-    return path.join(_tmpdir, `${this.actionOptions.name}-${randomUUID()}`);
   }
 };
 function stringifyError(error2) {
