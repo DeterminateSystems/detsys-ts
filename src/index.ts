@@ -32,6 +32,7 @@ const EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
 const EVENT_ARTIFACT_CACHE_PERSIST = "artifact_cache_persist";
 const EVENT_PREFLIGHT_REQUIRE_NIX_DENIED = "preflight-require-nix-denied";
 
+const FACT_ARTIFACT_FETCHED_FROM_CACHE = "artifact_fetched_from_cache";
 const FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
 const FACT_FINAL_EXCEPTION = "final_exception";
 const FACT_OS = "$os";
@@ -417,8 +418,11 @@ export abstract class DetSysAction {
   }
 
   /**
-   * Fetch an artifact, such as a tarball, from the URL determined by the
-   * `source-*` inputs.
+   * Fetch an artifact, such as a tarball, from the location determined by the
+   * `source-*` inputs. If `source-binary` is specified, this will return a path
+   * to a binary on disk; otherwise, the artifact will be downloaded from the
+   * URL determined by the other `source-*` inputs (`source-url`, `source-pr`,
+   * etc.).
    */
   private async fetchArtifact(): Promise<string> {
     const sourceBinary = getStringOrNull("source-binary");
@@ -453,13 +457,13 @@ export abstract class DetSysAction {
         );
         const cached = await this.getCachedVersion(v);
         if (cached) {
-          this.facts["artifact_fetched_from_cache"] = true;
+          this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = true;
           actionsCore.debug(`Tool cache hit.`);
           return cached;
         }
       }
 
-      this.facts["artifact_fetched_from_cache"] = false;
+      this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = false;
 
       actionsCore.debug(
         `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`,

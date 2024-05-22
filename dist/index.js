@@ -459,6 +459,7 @@ var EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
 var EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
 var EVENT_ARTIFACT_CACHE_PERSIST = "artifact_cache_persist";
 var EVENT_PREFLIGHT_REQUIRE_NIX_DENIED = "preflight-require-nix-denied";
+var FACT_ARTIFACT_FETCHED_FROM_CACHE = "artifact_fetched_from_cache";
 var FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
 var FACT_FINAL_EXCEPTION = "final_exception";
 var FACT_OS = "$os";
@@ -685,8 +686,11 @@ var DetSysAction = class {
     }
   }
   /**
-   * Fetch an artifact, such as a tarball, from the URL determined by the
-   * `source-*` inputs.
+   * Fetch an artifact, such as a tarball, from the location determined by the
+   * `source-*` inputs. If `source-binary` is specified, this will return a path
+   * to a binary on disk; otherwise, the artifact will be downloaded from the
+   * URL determined by the other `source-*` inputs (`source-url`, `source-pr`,
+   * etc.).
    */
   async fetchArtifact() {
     const sourceBinary = getStringOrNull("source-binary");
@@ -714,12 +718,12 @@ var DetSysAction = class {
         );
         const cached = await this.getCachedVersion(v);
         if (cached) {
-          this.facts["artifact_fetched_from_cache"] = true;
+          this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = true;
           actionsCore6.debug(`Tool cache hit.`);
           return cached;
         }
       }
-      this.facts["artifact_fetched_from_cache"] = false;
+      this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = false;
       actionsCore6.debug(
         `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`
       );
