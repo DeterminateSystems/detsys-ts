@@ -167,8 +167,11 @@ declare abstract class DetSysAction {
     private get isPost();
     private executeAsync;
     /**
-     * Fetch an artifact, such as a tarball, from the URL determined by the
-     * `source-*` inputs.
+     * Fetch an artifact, such as a tarball, from the location determined by the
+     * `source-*` inputs. If `source-binary` is specified, this will return a path
+     * to a binary on disk; otherwise, the artifact will be downloaded from the
+     * URL determined by the other `source-*` inputs (`source-url`, `source-pr`,
+     * etc.).
      */
     private fetchArtifact;
     /**
