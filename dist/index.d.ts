@@ -109,21 +109,21 @@ type ActionOptions = {
     requireNix: NixRequirementHandling;
     diagnosticsUrl?: URL | null;
 };
-declare class IdsToolbox {
+declare abstract class DetSysAction {
     nixStoreTrust: NixStoreTrust;
-    private identity;
     private actionOptions;
+    private strictMode;
+    private client;
+    private exceptionAttachments;
     private archOs;
+    private executionPhase;
     private nixSystem;
     private architectureFetchSuffix;
-    private executionPhase;
     private sourceParameters;
     private facts;
-    private exceptionAttachments;
     private events;
-    private client;
-    private hookMain?;
-    private hookPost?;
+    private identity;
+    private determineExecutionPhase;
     constructor(actionOptions: ActionOptions);
     /**
      * Attach a file to the diagnostics data in error conditions.
@@ -134,18 +134,47 @@ declare class IdsToolbox {
      * If the file is readable, the file's contents will be stored in a context value at `staple_value_{name}`.
      */
     stapleFile(name: string, location: string): void;
-    onMain(callback: () => Promise<void>): void;
-    onPost(callback: () => Promise<void>): void;
+    private setExecutionPhase;
+    /**
+     * The main execution phase.
+     */
+    abstract main(): Promise<void>;
+    /**
+     * The post execution phase.
+     */
+    abstract post(): Promise<void>;
+    /**
+     * Execute the Action as defined.
+     */
     execute(): void;
-    private stringifyError;
+    private get isMain();
+    private get isPost();
     private executeAsync;
     addFact(key: string, value: string | boolean): void;
     getDiagnosticsUrl(): URL | undefined;
     getUniqueId(): string;
     getCorrelationHashes(): AnonymizedCorrelationHashes;
     recordEvent(eventName: string, context?: Record<string, unknown>): void;
-    fetch(): Promise<string>;
+    /**
+     * Fetches a file in `.xz` format, imports its contents into the Nix store,
+     * and returns the path of the executable at `/nix/store/STORE_PATH/bin/${bin}`.
+     */
+    unpackClosure(bin: string): Promise<string>;
+    /**
+     * Fetch an artifact, such as a tarball, from the URL determined by the `source-*`
+     * inputs and other factors.
+     */
+    private fetchArtifact;
+    /**
+     * Fetches the executable at the URL determined by the `source-*` inputs and
+     * other facts, `chmod`s it, and returns the path to the executable on disk.
+     */
     fetchExecutable(): Promise<string>;
+    /**
+     * A helper function for failing on error only if strict mode is enabled.
+     * This is intended only for CI environments testing Actions themselves.
+     */
+    failOnError(msg: string): void;
     private complete;
     private getUrl;
     private cacheKey;
@@ -157,4 +186,4 @@ declare class IdsToolbox {
     getTemporaryName(): string;
 }
 
-export { type ActionOptions, type ExecutionPhase, type FetchSuffixStyle, IdsToolbox, type NixRequirementHandling, type NixStoreTrust, inputs, platform };
+export { type ActionOptions, DetSysAction, type ExecutionPhase, type FetchSuffixStyle, type NixRequirementHandling, type NixStoreTrust, inputs, platform };

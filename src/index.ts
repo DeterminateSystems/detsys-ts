@@ -5,15 +5,18 @@
 import { version as pkgVersion } from "../package.json";
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import * as correlation from "./correlation.js";
+import { getBool } from "./inputs.js";
 import * as platform from "./platform.js";
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import * as actionsExec from "@actions/exec";
 import got, { Got } from "got";
+import { exec } from "node:child_process";
 import { UUID, randomUUID } from "node:crypto";
 import { PathLike, createWriteStream, readFileSync } from "node:fs";
 import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
+import * as os from "node:os";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -27,16 +30,24 @@ const EVENT_EXCEPTION = "exception";
 const EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
 const EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
 const EVENT_ARTIFACT_CACHE_PERSIST = "artifact_cache_persist";
+const EVENT_PREFLIGHT_REQUIRE_NIX_DENIED = "preflight-require-nix-denied";
 
 const FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
 const FACT_FINAL_EXCEPTION = "final_exception";
+const FACT_OS = "$os";
+const FACT_OS_VERSION = "$os_version";
 const FACT_SOURCE_URL = "source_url";
 const FACT_SOURCE_URL_ETAG = "source_url_etag";
 
+const FACT_NIX_LOCATION = "nix_location";
 const FACT_NIX_STORE_TRUST = "nix_store_trusted";
 const FACT_NIX_STORE_VERSION = "nix_store_version";
 const FACT_NIX_STORE_CHECK_METHOD = "nix_store_check_method";
 const FACT_NIX_STORE_CHECK_ERROR = "nix_store_check_error";
+
+const STATE_KEY_EXECUTION_PHASE = "detsys_action_execution_phase";
+const STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
+const STATE_NOT_FOUND = "not-found";
 
 /**
  * An enum for describing different "fetch suffixes" for i.d.s.
@@ -123,30 +134,37 @@ type DiagnosticEvent = {
   uuid: UUID;
 };
 
-export class IdsToolbox {
+export abstract class DetSysAction {
   nixStoreTrust: NixStoreTrust;
 
-  private identity: correlation.AnonymizedCorrelationHashes;
   private actionOptions: ConfidentActionOptions;
+  private strictMode: boolean;
+  private client: Got;
+  private exceptionAttachments: Map<string, PathLike>;
   private archOs: string;
+  private executionPhase: ExecutionPhase;
   private nixSystem: string;
   private architectureFetchSuffix: string;
-  private executionPhase: ExecutionPhase;
   private sourceParameters: SourceDef;
   private facts: Record<string, string | boolean>;
-  private exceptionAttachments: Map<string, PathLike>;
   private events: DiagnosticEvent[];
-  private client: Got;
+  private identity: correlation.AnonymizedCorrelationHashes;
 
-  private hookMain?: () => Promise<void>;
-  private hookPost?: () => Promise<void>;
+  private determineExecutionPhase(): ExecutionPhase {
+    const currentPhase = actionsCore.getState(STATE_KEY_EXECUTION_PHASE);
+    if (currentPhase === "") {
+      actionsCore.saveState(STATE_KEY_EXECUTION_PHASE, "post");
+      return "main";
+    } else {
+      return "post";
+    }
+  }
 
   constructor(actionOptions: ActionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
-    this.hookMain = undefined;
-    this.hookPost = undefined;
     this.exceptionAttachments = new Map();
     this.nixStoreTrust = "unknown";
+    this.strictMode = getBool("ci-mode");
 
     this.events = [];
     this.client = got.extend({
@@ -201,28 +219,22 @@ export class IdsToolbox {
         // eslint-disable-next-line github/no-then
         .then((details) => {
           if (details.name !== "unknown") {
-            this.addFact("$os", details.name);
+            this.addFact(FACT_OS, details.name);
           }
           if (details.version !== "unknown") {
-            this.addFact("$os_version", details.version);
+            this.addFact(FACT_OS_VERSION, details.version);
           }
         })
         // eslint-disable-next-line github/no-then
-        .catch((e) => {
-          actionsCore.debug(`Failure getting platform details: ${e}`);
+        .catch((e: unknown) => {
+          actionsCore.debug(
+            `Failure getting platform details: ${stringifyError(e)}`,
+          );
         });
     }
 
-    {
-      const phase = actionsCore.getState("idstoolbox_execution_phase");
-      if (phase === "") {
-        actionsCore.saveState("idstoolbox_execution_phase", "post");
-        this.executionPhase = "main";
-      } else {
-        this.executionPhase = "post";
-      }
-      this.facts.execution_phase = this.executionPhase;
-    }
+    this.executionPhase = this.determineExecutionPhase();
+    this.facts.execution_phase = this.executionPhase;
 
     if (this.actionOptions.fetchStyle === "gh-env-style") {
       this.architectureFetchSuffix = this.archOs;
@@ -255,14 +267,30 @@ export class IdsToolbox {
     this.exceptionAttachments.set(name, location);
   }
 
-  onMain(callback: () => Promise<void>): void {
-    this.hookMain = callback;
+  private setExecutionPhase(): void {
+    const phase = actionsCore.getState(STATE_KEY_EXECUTION_PHASE);
+    if (phase === "") {
+      actionsCore.saveState(STATE_KEY_EXECUTION_PHASE, "post");
+      this.executionPhase = "main";
+    } else {
+      this.executionPhase = "post";
+    }
+    this.facts.execution_phase = this.executionPhase;
   }
 
-  onPost(callback: () => Promise<void>): void {
-    this.hookPost = callback;
-  }
+  /**
+   * The main execution phase.
+   */
+  abstract main(): Promise<void>;
 
+  /**
+   * The post execution phase.
+   */
+  abstract post(): Promise<void>;
+
+  /**
+   * Execute the Action as defined.
+   */
   execute(): void {
     // eslint-disable-next-line github/no-then
     this.executeAsync().catch((error: Error) => {
@@ -272,10 +300,13 @@ export class IdsToolbox {
     });
   }
 
-  private stringifyError(error: unknown): string {
-    return error instanceof Error || typeof error == "string"
-      ? error.toString()
-      : JSON.stringify(error);
+  // Whether the
+  private get isMain(): boolean {
+    return this.executionPhase === "main";
+  }
+
+  private get isPost(): boolean {
+    return this.executionPhase === "post";
   }
 
   private async executeAsync(): Promise<void> {
@@ -285,47 +316,47 @@ export class IdsToolbox {
       );
 
       if (!(await this.preflightRequireNix())) {
-        this.recordEvent("preflight-require-nix-denied");
+        this.recordEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
         return;
       } else {
         await this.preflightNixStoreInfo();
         this.addFact(FACT_NIX_STORE_TRUST, this.nixStoreTrust);
       }
 
-      if (this.executionPhase === "main" && this.hookMain) {
-        await this.hookMain();
-      } else if (this.executionPhase === "post" && this.hookPost) {
-        await this.hookPost();
+      if (this.isMain) {
+        await this.main();
+      } else if (this.isPost) {
+        await this.post();
       }
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
-    } catch (error) {
+    } catch (e: unknown) {
       this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
 
-      const reportable = this.stringifyError(error);
+      const reportable = stringifyError(e);
 
       this.addFact(FACT_FINAL_EXCEPTION, reportable);
 
-      if (this.executionPhase === "post") {
+      if (this.isPost) {
         actionsCore.warning(reportable);
       } else {
         actionsCore.setFailed(reportable);
       }
 
-      const do_gzip = promisify(gzip);
+      const doGzip = promisify(gzip);
 
       const exceptionContext: Map<string, string> = new Map();
       for (const [attachmentLabel, filePath] of this.exceptionAttachments) {
         try {
           const logText = readFileSync(filePath);
-          const buf = await do_gzip(logText);
+          const buf = await doGzip(logText);
           exceptionContext.set(
             `staple_value_${attachmentLabel}`,
             buf.toString("base64"),
           );
-        } catch (e: unknown) {
+        } catch (innerError: unknown) {
           exceptionContext.set(
             `staple_failure_${attachmentLabel}`,
-            this.stringifyError(e),
+            stringifyError(innerError),
           );
         }
       }
@@ -367,7 +398,25 @@ export class IdsToolbox {
     });
   }
 
-  async fetch(): Promise<string> {
+  /**
+   * Fetches a file in `.xz` format, imports its contents into the Nix store,
+   * and returns the path of the executable at `/nix/store/STORE_PATH/bin/${bin}`.
+   */
+  async unpackClosure(bin: string): Promise<string> {
+    const artifact = this.fetchArtifact();
+    const { stdout } = await promisify(exec)(
+      `cat "${artifact}" | xz -d | nix-store --import`,
+    );
+    const paths = stdout.split(os.EOL);
+    const lastPath = paths.at(-2);
+    return `${lastPath}/bin/${bin}`;
+  }
+
+  /**
+   * Fetch an artifact, such as a tarball, from the URL determined by the `source-*`
+   * inputs and other factors.
+   */
+  private async fetchArtifact(): Promise<string> {
     actionsCore.startGroup(
       `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`,
     );
@@ -420,8 +469,8 @@ export class IdsToolbox {
 
         try {
           await this.saveCachedVersion(v, destFile);
-        } catch (e) {
-          actionsCore.debug(`Error caching the artifact: ${e}`);
+        } catch (e: unknown) {
+          actionsCore.debug(`Error caching the artifact: ${stringifyError(e)}`);
         }
       }
 
@@ -431,10 +480,24 @@ export class IdsToolbox {
     }
   }
 
+  /**
+   * Fetches the executable at the URL determined by the `source-*` inputs and
+   * other facts, `chmod`s it, and returns the path to the executable on disk.
+   */
   async fetchExecutable(): Promise<string> {
-    const binaryPath = await this.fetch();
+    const binaryPath = await this.fetchArtifact();
     await chmod(binaryPath, fs.constants.S_IXUSR | fs.constants.S_IXGRP);
     return binaryPath;
+  }
+
+  /**
+   * A helper function for failing on error only if strict mode is enabled.
+   * This is intended only for CI environments testing Actions themselves.
+   */
+  failOnError(msg: string): void {
+    if (this.strictMode) {
+      actionsCore.setFailed(`strict mode failure: ${msg}`);
+    }
   }
 
   private async complete(): Promise<void> {
@@ -557,16 +620,14 @@ export class IdsToolbox {
         actionsCore.debug(`Nix not at ${candidateNix}`);
       }
     }
-    this.addFact("nix_location", nixLocation || "");
+    this.addFact(FACT_NIX_LOCATION, nixLocation || "");
 
     if (this.actionOptions.requireNix === "ignore") {
       return true;
     }
 
-    const currentNotFoundState = actionsCore.getState(
-      "idstoolbox_nix_not_found",
-    );
-    if (currentNotFoundState === "not-found") {
+    const currentNotFoundState = actionsCore.getState(STATE_KEY_NIX_NOT_FOUND);
+    if (currentNotFoundState === STATE_NOT_FOUND) {
       // It was previously not found, so don't run subsequent actions
       return false;
     }
@@ -574,19 +635,23 @@ export class IdsToolbox {
     if (nixLocation !== undefined) {
       return true;
     }
-    actionsCore.saveState("idstoolbox_nix_not_found", "not-found");
+    actionsCore.saveState(STATE_KEY_NIX_NOT_FOUND, STATE_NOT_FOUND);
 
     switch (this.actionOptions.requireNix) {
       case "fail":
         actionsCore.setFailed(
-          "This action can only be used when Nix is installed." +
-            " Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.",
+          [
+            "This action can only be used when Nix is installed.",
+            "Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.",
+          ].join(" "),
         );
         break;
       case "warn":
         actionsCore.warning(
-          "This action is in no-op mode because Nix is not installed." +
-            " Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.",
+          [
+            "This action is in no-op mode because Nix is not installed.",
+            "Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow.",
+          ].join(" "),
         );
         break;
     }
@@ -636,12 +701,12 @@ export class IdsToolbox {
 
       this.addFact(FACT_NIX_STORE_VERSION, JSON.stringify(parsed.version));
     } catch (e: unknown) {
-      this.addFact(FACT_NIX_STORE_CHECK_ERROR, this.stringifyError(e));
+      this.addFact(FACT_NIX_STORE_CHECK_ERROR, stringifyError(e));
     }
   }
 
   private async submitEvents(): Promise<void> {
-    if (!this.actionOptions.diagnosticsUrl) {
+    if (this.actionOptions.diagnosticsUrl === undefined) {
       actionsCore.debug(
         "Diagnostics are disabled. Not sending the following events:",
       );
@@ -659,8 +724,10 @@ export class IdsToolbox {
       await this.client.post(this.actionOptions.diagnosticsUrl, {
         json: batch,
       });
-    } catch (error) {
-      actionsCore.debug(`Error submitting diagnostics event: ${error}`);
+    } catch (e: unknown) {
+      actionsCore.debug(
+        `Error submitting diagnostics event: ${stringifyError(e)}`,
+      );
     }
     this.events = [];
   }
@@ -669,6 +736,12 @@ export class IdsToolbox {
     const _tmpdir = process.env["RUNNER_TEMP"] || tmpdir();
     return path.join(_tmpdir, `${this.actionOptions.name}-${randomUUID()}`);
   }
+}
+
+function stringifyError(error: unknown): string {
+  return error instanceof Error || typeof error == "string"
+    ? error.toString()
+    : JSON.stringify(error);
 }
 
 function makeOptionsConfident(
@@ -723,9 +796,9 @@ function determineDiagnosticsUrl(
     if (providedDiagnosticEndpoint !== undefined) {
       try {
         return mungeDiagnosticEndpoint(new URL(providedDiagnosticEndpoint));
-      } catch (e) {
+      } catch (e: unknown) {
         actionsCore.info(
-          `User-provided diagnostic endpoint ignored: not a valid URL: ${e}`,
+          `User-provided diagnostic endpoint ignored: not a valid URL: ${stringifyError(e)}`,
         );
       }
     }
@@ -736,9 +809,9 @@ function determineDiagnosticsUrl(
     diagnosticUrl.pathname += idsProjectName;
     diagnosticUrl.pathname += "/diagnostics";
     return diagnosticUrl;
-  } catch (e) {
+  } catch (e: unknown) {
     actionsCore.info(
-      `Generated diagnostic endpoint ignored: not a valid URL: ${e}`,
+      `Generated diagnostic endpoint ignored: not a valid URL: ${stringifyError(e)}`,
     );
   }
 
@@ -764,8 +837,10 @@ function mungeDiagnosticEndpoint(inputUrl: URL): URL {
     inputUrl.password = currentIdsHost.password;
 
     return inputUrl;
-  } catch (e) {
-    actionsCore.info(`Default or overridden IDS host isn't a valid URL: ${e}`);
+  } catch (e: unknown) {
+    actionsCore.info(
+      `Default or overridden IDS host isn't a valid URL: ${stringifyError(e)}`,
+    );
   }
 
   return inputUrl;

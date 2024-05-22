@@ -301,20 +301,84 @@ function hashEnvironmentVariables(prefix, variables) {
   return `${prefix}-${hash.digest("hex")}`;
 }
 
+// src/inputs.ts
+var inputs_exports = {};
+__export(inputs_exports, {
+  getArrayOfStrings: () => getArrayOfStrings,
+  getBool: () => getBool,
+  getMultilineStringOrNull: () => getMultilineStringOrNull,
+  getNumberOrNull: () => getNumberOrNull,
+  getString: () => getString,
+  getStringOrNull: () => getStringOrNull,
+  getStringOrUndefined: () => getStringOrUndefined,
+  handleString: () => handleString
+});
+import * as actionsCore3 from "@actions/core";
+var getBool = (name) => {
+  return actionsCore3.getBooleanInput(name);
+};
+var getArrayOfStrings = (name, separator) => {
+  const original = getString(name);
+  return handleString(original, separator);
+};
+var handleString = (input, separator) => {
+  const sepChar = separator === "comma" ? "," : /\s+/;
+  const trimmed = input.trim();
+  if (trimmed === "") {
+    return [];
+  }
+  return trimmed.split(sepChar).map((s) => s.trim());
+};
+var getMultilineStringOrNull = (name) => {
+  const value = actionsCore3.getMultilineInput(name);
+  if (value.length === 0) {
+    return null;
+  } else {
+    return value;
+  }
+};
+var getNumberOrNull = (name) => {
+  const value = actionsCore3.getInput(name);
+  if (value === "") {
+    return null;
+  } else {
+    return Number(value);
+  }
+};
+var getString = (name) => {
+  return actionsCore3.getInput(name);
+};
+var getStringOrNull = (name) => {
+  const value = actionsCore3.getInput(name);
+  if (value === "") {
+    return null;
+  } else {
+    return value;
+  }
+};
+var getStringOrUndefined = (name) => {
+  const value = actionsCore3.getInput(name);
+  if (value === "") {
+    return void 0;
+  } else {
+    return value;
+  }
+};
+
 // src/platform.ts
 var platform_exports = {};
 __export(platform_exports, {
   getArchOs: () => getArchOs,
   getNixPlatform: () => getNixPlatform
 });
-import * as actionsCore3 from "@actions/core";
+import * as actionsCore4 from "@actions/core";
 function getArchOs() {
   const envArch = process.env.RUNNER_ARCH;
   const envOs = process.env.RUNNER_OS;
   if (envArch && envOs) {
     return `${envArch}-${envOs}`;
   } else {
-    actionsCore3.error(
+    actionsCore4.error(
       `Can't identify the platform: RUNNER_ARCH or RUNNER_OS undefined (${envArch}-${envOs})`
     );
     throw new Error("RUNNER_ARCH and/or RUNNER_OS is not defined");
@@ -331,7 +395,7 @@ function getNixPlatform(archOs) {
   if (mappedTo) {
     return mappedTo;
   } else {
-    actionsCore3.error(
+    actionsCore4.error(
       `ArchOs (${archOs}) doesn't map to a supported Nix platform.`
     );
     throw new Error(
@@ -339,70 +403,6 @@ function getNixPlatform(archOs) {
     );
   }
 }
-
-// src/inputs.ts
-var inputs_exports = {};
-__export(inputs_exports, {
-  getArrayOfStrings: () => getArrayOfStrings,
-  getBool: () => getBool,
-  getMultilineStringOrNull: () => getMultilineStringOrNull,
-  getNumberOrNull: () => getNumberOrNull,
-  getString: () => getString,
-  getStringOrNull: () => getStringOrNull,
-  getStringOrUndefined: () => getStringOrUndefined,
-  handleString: () => handleString
-});
-import * as actionsCore4 from "@actions/core";
-var getBool = (name) => {
-  return actionsCore4.getBooleanInput(name);
-};
-var getArrayOfStrings = (name, separator) => {
-  const original = getString(name);
-  return handleString(original, separator);
-};
-var handleString = (input, separator) => {
-  const sepChar = separator === "comma" ? "," : /\s+/;
-  const trimmed = input.trim();
-  if (trimmed === "") {
-    return [];
-  }
-  return trimmed.split(sepChar).map((s) => s.trim());
-};
-var getMultilineStringOrNull = (name) => {
-  const value = actionsCore4.getMultilineInput(name);
-  if (value.length === 0) {
-    return null;
-  } else {
-    return value;
-  }
-};
-var getNumberOrNull = (name) => {
-  const value = actionsCore4.getInput(name);
-  if (value === "") {
-    return null;
-  } else {
-    return Number(value);
-  }
-};
-var getString = (name) => {
-  return actionsCore4.getInput(name);
-};
-var getStringOrNull = (name) => {
-  const value = actionsCore4.getInput(name);
-  if (value === "") {
-    return null;
-  } else {
-    return value;
-  }
-};
-var getStringOrUndefined = (name) => {
-  const value = actionsCore4.getInput(name);
-  if (value === "") {
-    return void 0;
-  } else {
-    return value;
-  }
-};
 
 // src/sourcedef.ts
 import * as actionsCore5 from "@actions/core";
@@ -442,9 +442,11 @@ import * as actionsCache from "@actions/cache";
 import * as actionsCore6 from "@actions/core";
 import * as actionsExec from "@actions/exec";
 import got from "got";
+import { exec as exec3 } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createWriteStream, readFileSync as readFileSync2 } from "node:fs";
 import fs2, { chmod, copyFile, mkdir } from "node:fs/promises";
+import * as os3 from "node:os";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -456,21 +458,36 @@ var EVENT_EXCEPTION = "exception";
 var EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
 var EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
 var EVENT_ARTIFACT_CACHE_PERSIST = "artifact_cache_persist";
+var EVENT_PREFLIGHT_REQUIRE_NIX_DENIED = "preflight-require-nix-denied";
 var FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
 var FACT_FINAL_EXCEPTION = "final_exception";
+var FACT_OS = "$os";
+var FACT_OS_VERSION = "$os_version";
 var FACT_SOURCE_URL = "source_url";
 var FACT_SOURCE_URL_ETAG = "source_url_etag";
+var FACT_NIX_LOCATION = "nix_location";
 var FACT_NIX_STORE_TRUST = "nix_store_trusted";
 var FACT_NIX_STORE_VERSION = "nix_store_version";
 var FACT_NIX_STORE_CHECK_METHOD = "nix_store_check_method";
 var FACT_NIX_STORE_CHECK_ERROR = "nix_store_check_error";
-var IdsToolbox = class {
+var STATE_KEY_EXECUTION_PHASE = "detsys_action_execution_phase";
+var STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
+var STATE_NOT_FOUND = "not-found";
+var DetSysAction = class {
+  determineExecutionPhase() {
+    const currentPhase = actionsCore6.getState(STATE_KEY_EXECUTION_PHASE);
+    if (currentPhase === "") {
+      actionsCore6.saveState(STATE_KEY_EXECUTION_PHASE, "post");
+      return "main";
+    } else {
+      return "post";
+    }
+  }
   constructor(actionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
-    this.hookMain = void 0;
-    this.hookPost = void 0;
     this.exceptionAttachments = /* @__PURE__ */ new Map();
     this.nixStoreTrust = "unknown";
+    this.strictMode = getBool("ci-mode");
     this.events = [];
     this.client = got.extend({
       retry: {
@@ -514,25 +531,19 @@ var IdsToolbox = class {
     {
       getDetails().then((details) => {
         if (details.name !== "unknown") {
-          this.addFact("$os", details.name);
+          this.addFact(FACT_OS, details.name);
         }
         if (details.version !== "unknown") {
-          this.addFact("$os_version", details.version);
+          this.addFact(FACT_OS_VERSION, details.version);
         }
       }).catch((e) => {
-        actionsCore6.debug(`Failure getting platform details: ${e}`);
+        actionsCore6.debug(
+          `Failure getting platform details: ${stringifyError(e)}`
+        );
       });
     }
-    {
-      const phase = actionsCore6.getState("idstoolbox_execution_phase");
-      if (phase === "") {
-        actionsCore6.saveState("idstoolbox_execution_phase", "post");
-        this.executionPhase = "main";
-      } else {
-        this.executionPhase = "post";
-      }
-      this.facts.execution_phase = this.executionPhase;
-    }
+    this.executionPhase = this.determineExecutionPhase();
+    this.facts.execution_phase = this.executionPhase;
     if (this.actionOptions.fetchStyle === "gh-env-style") {
       this.architectureFetchSuffix = this.archOs;
     } else if (this.actionOptions.fetchStyle === "nix-style") {
@@ -560,20 +571,31 @@ var IdsToolbox = class {
   stapleFile(name, location) {
     this.exceptionAttachments.set(name, location);
   }
-  onMain(callback) {
-    this.hookMain = callback;
+  setExecutionPhase() {
+    const phase = actionsCore6.getState(STATE_KEY_EXECUTION_PHASE);
+    if (phase === "") {
+      actionsCore6.saveState(STATE_KEY_EXECUTION_PHASE, "post");
+      this.executionPhase = "main";
+    } else {
+      this.executionPhase = "post";
+    }
+    this.facts.execution_phase = this.executionPhase;
   }
-  onPost(callback) {
-    this.hookPost = callback;
-  }
+  /**
+   * Execute the Action as defined.
+   */
   execute() {
     this.executeAsync().catch((error2) => {
       console.log(error2);
       process.exitCode = 1;
     });
   }
-  stringifyError(error2) {
-    return error2 instanceof Error || typeof error2 == "string" ? error2.toString() : JSON.stringify(error2);
+  // Whether the
+  get isMain() {
+    return this.executionPhase === "main";
+  }
+  get isPost() {
+    return this.executionPhase === "post";
   }
   async executeAsync() {
     try {
@@ -581,41 +603,41 @@ var IdsToolbox = class {
         this.getCorrelationHashes()
       );
       if (!await this.preflightRequireNix()) {
-        this.recordEvent("preflight-require-nix-denied");
+        this.recordEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
         return;
       } else {
         await this.preflightNixStoreInfo();
         this.addFact(FACT_NIX_STORE_TRUST, this.nixStoreTrust);
       }
-      if (this.executionPhase === "main" && this.hookMain) {
-        await this.hookMain();
-      } else if (this.executionPhase === "post" && this.hookPost) {
-        await this.hookPost();
+      if (this.isMain) {
+        await this.main();
+      } else if (this.isPost) {
+        await this.post();
       }
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
-    } catch (error2) {
+    } catch (e) {
       this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
-      const reportable = this.stringifyError(error2);
+      const reportable = stringifyError(e);
       this.addFact(FACT_FINAL_EXCEPTION, reportable);
-      if (this.executionPhase === "post") {
+      if (this.isPost) {
         actionsCore6.warning(reportable);
       } else {
         actionsCore6.setFailed(reportable);
       }
-      const do_gzip = promisify2(gzip);
+      const doGzip = promisify2(gzip);
       const exceptionContext = /* @__PURE__ */ new Map();
       for (const [attachmentLabel, filePath] of this.exceptionAttachments) {
         try {
           const logText = readFileSync2(filePath);
-          const buf = await do_gzip(logText);
+          const buf = await doGzip(logText);
           exceptionContext.set(
             `staple_value_${attachmentLabel}`,
             buf.toString("base64")
           );
-        } catch (e) {
+        } catch (innerError) {
           exceptionContext.set(
             `staple_failure_${attachmentLabel}`,
-            this.stringifyError(e)
+            stringifyError(innerError)
           );
         }
       }
@@ -646,7 +668,24 @@ var IdsToolbox = class {
       uuid: randomUUID()
     });
   }
-  async fetch() {
+  /**
+   * Fetches a file in `.xz` format, imports its contents into the Nix store,
+   * and returns the path of the executable at `/nix/store/STORE_PATH/bin/${bin}`.
+   */
+  async unpackClosure(bin) {
+    const artifact = this.fetchArtifact();
+    const { stdout } = await promisify2(exec3)(
+      `cat "${artifact}" | xz -d | nix-store --import`
+    );
+    const paths = stdout.split(os3.EOL);
+    const lastPath = paths.at(-2);
+    return `${lastPath}/bin/${bin}`;
+  }
+  /**
+   * Fetch an artifact, such as a tarball, from the URL determined by the `source-*`
+   * inputs and other factors.
+   */
+  async fetchArtifact() {
     actionsCore6.startGroup(
       `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`
     );
@@ -690,7 +729,7 @@ var IdsToolbox = class {
         try {
           await this.saveCachedVersion(v, destFile);
         } catch (e) {
-          actionsCore6.debug(`Error caching the artifact: ${e}`);
+          actionsCore6.debug(`Error caching the artifact: ${stringifyError(e)}`);
         }
       }
       return destFile;
@@ -698,10 +737,23 @@ var IdsToolbox = class {
       actionsCore6.endGroup();
     }
   }
+  /**
+   * Fetches the executable at the URL determined by the `source-*` inputs and
+   * other facts, `chmod`s it, and returns the path to the executable on disk.
+   */
   async fetchExecutable() {
-    const binaryPath = await this.fetch();
+    const binaryPath = await this.fetchArtifact();
     await chmod(binaryPath, fs2.constants.S_IXUSR | fs2.constants.S_IXGRP);
     return binaryPath;
+  }
+  /**
+   * A helper function for failing on error only if strict mode is enabled.
+   * This is intended only for CI environments testing Actions themselves.
+   */
+  failOnError(msg) {
+    if (this.strictMode) {
+      actionsCore6.setFailed(`strict mode failure: ${msg}`);
+    }
   }
   async complete() {
     this.recordEvent(`complete_${this.executionPhase}`);
@@ -796,29 +848,33 @@ var IdsToolbox = class {
         actionsCore6.debug(`Nix not at ${candidateNix}`);
       }
     }
-    this.addFact("nix_location", nixLocation || "");
+    this.addFact(FACT_NIX_LOCATION, nixLocation || "");
     if (this.actionOptions.requireNix === "ignore") {
       return true;
     }
-    const currentNotFoundState = actionsCore6.getState(
-      "idstoolbox_nix_not_found"
-    );
-    if (currentNotFoundState === "not-found") {
+    const currentNotFoundState = actionsCore6.getState(STATE_KEY_NIX_NOT_FOUND);
+    if (currentNotFoundState === STATE_NOT_FOUND) {
       return false;
     }
     if (nixLocation !== void 0) {
       return true;
     }
-    actionsCore6.saveState("idstoolbox_nix_not_found", "not-found");
+    actionsCore6.saveState(STATE_KEY_NIX_NOT_FOUND, STATE_NOT_FOUND);
     switch (this.actionOptions.requireNix) {
       case "fail":
         actionsCore6.setFailed(
-          "This action can only be used when Nix is installed. Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
+          [
+            "This action can only be used when Nix is installed.",
+            "Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
+          ].join(" ")
         );
         break;
       case "warn":
         actionsCore6.warning(
-          "This action is in no-op mode because Nix is not installed. Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
+          [
+            "This action is in no-op mode because Nix is not installed.",
+            "Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
+          ].join(" ")
         );
         break;
     }
@@ -861,11 +917,11 @@ var IdsToolbox = class {
       }
       this.addFact(FACT_NIX_STORE_VERSION, JSON.stringify(parsed.version));
     } catch (e) {
-      this.addFact(FACT_NIX_STORE_CHECK_ERROR, this.stringifyError(e));
+      this.addFact(FACT_NIX_STORE_CHECK_ERROR, stringifyError(e));
     }
   }
   async submitEvents() {
-    if (!this.actionOptions.diagnosticsUrl) {
+    if (this.actionOptions.diagnosticsUrl === void 0) {
       actionsCore6.debug(
         "Diagnostics are disabled. Not sending the following events:"
       );
@@ -881,8 +937,10 @@ var IdsToolbox = class {
       await this.client.post(this.actionOptions.diagnosticsUrl, {
         json: batch
       });
-    } catch (error2) {
-      actionsCore6.debug(`Error submitting diagnostics event: ${error2}`);
+    } catch (e) {
+      actionsCore6.debug(
+        `Error submitting diagnostics event: ${stringifyError(e)}`
+      );
     }
     this.events = [];
   }
@@ -891,6 +949,9 @@ var IdsToolbox = class {
     return path.join(_tmpdir, `${this.actionOptions.name}-${randomUUID()}`);
   }
 };
+function stringifyError(error2) {
+  return error2 instanceof Error || typeof error2 == "string" ? error2.toString() : JSON.stringify(error2);
+}
 function makeOptionsConfident(actionOptions) {
   const idsProjectName = actionOptions.idsProjectName ?? actionOptions.name;
   const finalOpts = {
@@ -926,7 +987,7 @@ function determineDiagnosticsUrl(idsProjectName, urlOption) {
         return mungeDiagnosticEndpoint(new URL(providedDiagnosticEndpoint));
       } catch (e) {
         actionsCore6.info(
-          `User-provided diagnostic endpoint ignored: not a valid URL: ${e}`
+          `User-provided diagnostic endpoint ignored: not a valid URL: ${stringifyError(e)}`
         );
       }
     }
@@ -938,7 +999,7 @@ function determineDiagnosticsUrl(idsProjectName, urlOption) {
     return diagnosticUrl;
   } catch (e) {
     actionsCore6.info(
-      `Generated diagnostic endpoint ignored: not a valid URL: ${e}`
+      `Generated diagnostic endpoint ignored: not a valid URL: ${stringifyError(e)}`
     );
   }
   return void 0;
@@ -959,12 +1020,14 @@ function mungeDiagnosticEndpoint(inputUrl) {
     inputUrl.password = currentIdsHost.password;
     return inputUrl;
   } catch (e) {
-    actionsCore6.info(`Default or overridden IDS host isn't a valid URL: ${e}`);
+    actionsCore6.info(
+      `Default or overridden IDS host isn't a valid URL: ${stringifyError(e)}`
+    );
   }
   return inputUrl;
 }
 export {
-  IdsToolbox,
+  DetSysAction,
   inputs_exports as inputs,
   platform_exports as platform
 };
