@@ -669,8 +669,10 @@ var DetSysAction = class {
     });
   }
   /**
-   * Fetches a file in `.xz` format, imports its contents into the Nix store,
-   * and returns the path of the executable at `/nix/store/STORE_PATH/bin/${bin}`.
+   * Fetches a file in `.xz` format from the URL determined by the `source-*`
+   * parameters (or `source-binary` if set). It then imports that file's
+   * contents into the Nix store and returns the path of the executable at
+   * `/nix/store/STORE_PATH/bin/${bin}`.
    */
   async unpackClosure(bin) {
     const artifact = await this.fetchArtifact();
