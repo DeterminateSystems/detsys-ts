@@ -692,7 +692,7 @@ var DetSysAction = class {
    */
   async fetchArtifact() {
     const sourceBinary = getStringOrNull("source-binary");
-    if (sourceBinary !== null) {
+    if (sourceBinary !== null && sourceBinary !== "") {
       actionsCore6.debug(`Using the provided source binary at ${sourceBinary}`);
       return sourceBinary;
     }

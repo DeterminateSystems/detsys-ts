@@ -426,7 +426,7 @@ export abstract class DetSysAction {
     const sourceBinary = getStringOrNull("source-binary");
 
     // If source-binary is set, use that. Otherwise fall back to the source-* parameters.
-    if (sourceBinary !== null) {
+    if (sourceBinary !== null && sourceBinary !== "") {
       actionsCore.debug(`Using the provided source binary at ${sourceBinary}`);
       return sourceBinary;
     }
