@@ -162,7 +162,8 @@ declare abstract class DetSysAction {
     unpackClosure(bin: string): Promise<string>;
     /**
      * Fetch an artifact, such as a tarball, from the URL determined by the `source-*`
-     * inputs and other factors.
+     * inputs or use a provided binary specified by the `source-binary`
+     * input.
      */
     private fetchArtifact;
     /**
@@ -176,7 +177,7 @@ declare abstract class DetSysAction {
      */
     failOnError(msg: string): void;
     private complete;
-    private getUrl;
+    private getSourceUrl;
     private cacheKey;
     private getCachedVersion;
     private saveCachedVersion;

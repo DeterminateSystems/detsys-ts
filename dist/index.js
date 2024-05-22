@@ -673,7 +673,7 @@ var DetSysAction = class {
    * and returns the path of the executable at `/nix/store/STORE_PATH/bin/${bin}`.
    */
   async unpackClosure(bin) {
-    const artifact = this.fetchArtifact();
+    const artifact = await this.fetchArtifact();
     const { stdout } = await promisify2(exec3)(
       `cat "${artifact}" | xz -d | nix-store --import`
     );
@@ -683,15 +683,21 @@ var DetSysAction = class {
   }
   /**
    * Fetch an artifact, such as a tarball, from the URL determined by the `source-*`
-   * inputs and other factors.
+   * inputs or use a provided binary specified by the `source-binary`
+   * input.
    */
   async fetchArtifact() {
+    const sourceBinary = getStringOrNull("source-binary");
+    if (sourceBinary !== null) {
+      actionsCore6.debug(`Using the provided source binary at ${sourceBinary}`);
+      return sourceBinary;
+    }
     actionsCore6.startGroup(
       `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`
     );
     try {
-      actionsCore6.info(`Fetching from ${this.getUrl()}`);
-      const correlatedUrl = this.getUrl();
+      actionsCore6.info(`Fetching from ${this.getSourceUrl()}`);
+      const correlatedUrl = this.getSourceUrl();
       correlatedUrl.searchParams.set("ci", "github");
       correlatedUrl.searchParams.set(
         "correlation",
@@ -702,7 +708,7 @@ var DetSysAction = class {
         const v = versionCheckup.headers.etag;
         this.addFact(FACT_SOURCE_URL_ETAG, v);
         actionsCore6.debug(
-          `Checking the tool cache for ${this.getUrl()} at ${v}`
+          `Checking the tool cache for ${this.getSourceUrl()} at ${v}`
         );
         const cached = await this.getCachedVersion(v);
         if (cached) {
@@ -759,7 +765,7 @@ var DetSysAction = class {
     this.recordEvent(`complete_${this.executionPhase}`);
     await this.submitEvents();
   }
-  getUrl() {
+  getSourceUrl() {
     const p = this.sourceParameters;
     if (p.url) {
       this.addFact(FACT_SOURCE_URL, p.url);

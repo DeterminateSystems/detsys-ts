@@ -5,7 +5,7 @@
 import { version as pkgVersion } from "../package.json";
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import * as correlation from "./correlation.js";
-import { getBool } from "./inputs.js";
+import { getBool, getStringOrNull } from "./inputs.js";
 import * as platform from "./platform.js";
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
@@ -403,7 +403,7 @@ export abstract class DetSysAction {
    * and returns the path of the executable at `/nix/store/STORE_PATH/bin/${bin}`.
    */
   async unpackClosure(bin: string): Promise<string> {
-    const artifact = this.fetchArtifact();
+    const artifact = await this.fetchArtifact();
     const { stdout } = await promisify(exec)(
       `cat "${artifact}" | xz -d | nix-store --import`,
     );
@@ -414,17 +414,26 @@ export abstract class DetSysAction {
 
   /**
    * Fetch an artifact, such as a tarball, from the URL determined by the `source-*`
-   * inputs and other factors.
+   * inputs or use a provided binary specified by the `source-binary`
+   * input.
    */
   private async fetchArtifact(): Promise<string> {
+    const sourceBinary = getStringOrNull("source-binary");
+
+    // If source-binary is set, use that. Otherwise fall back to the source-* parameters.
+    if (sourceBinary !== null) {
+      actionsCore.debug(`Using the provided source binary at ${sourceBinary}`);
+      return sourceBinary;
+    }
+
     actionsCore.startGroup(
       `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`,
     );
 
     try {
-      actionsCore.info(`Fetching from ${this.getUrl()}`);
+      actionsCore.info(`Fetching from ${this.getSourceUrl()}`);
 
-      const correlatedUrl = this.getUrl();
+      const correlatedUrl = this.getSourceUrl();
       correlatedUrl.searchParams.set("ci", "github");
       correlatedUrl.searchParams.set(
         "correlation",
@@ -437,7 +446,7 @@ export abstract class DetSysAction {
         this.addFact(FACT_SOURCE_URL_ETAG, v);
 
         actionsCore.debug(
-          `Checking the tool cache for ${this.getUrl()} at ${v}`,
+          `Checking the tool cache for ${this.getSourceUrl()} at ${v}`,
         );
         const cached = await this.getCachedVersion(v);
         if (cached) {
@@ -505,7 +514,7 @@ export abstract class DetSysAction {
     await this.submitEvents();
   }
 
-  private getUrl(): URL {
+  private getSourceUrl(): URL {
     const p = this.sourceParameters;
 
     if (p.url) {
