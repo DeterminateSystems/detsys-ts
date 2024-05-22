@@ -134,7 +134,6 @@ declare abstract class DetSysAction {
      * If the file is readable, the file's contents will be stored in a context value at `staple_value_{name}`.
      */
     stapleFile(name: string, location: string): void;
-    private setExecutionPhase;
     /**
      * The main execution phase.
      */
@@ -147,43 +146,44 @@ declare abstract class DetSysAction {
      * Execute the Action as defined.
      */
     execute(): void;
-    private get isMain();
-    private get isPost();
-    private executeAsync;
+    getTemporaryName(): string;
     addFact(key: string, value: string | boolean): void;
     getDiagnosticsUrl(): URL | undefined;
     getUniqueId(): string;
     getCorrelationHashes(): AnonymizedCorrelationHashes;
     recordEvent(eventName: string, context?: Record<string, unknown>): void;
     /**
-     * Fetches a file in `.xz` format, imports its contents into the Nix store,
-     * and returns the path of the executable at `/nix/store/STORE_PATH/bin/${bin}`.
+     * Unpacks the closure returned by `fetchArtifact()`, imports the
+     * contents into the Nix store, and returns the path of the executable at
+     * `/nix/store/STORE_PATH/bin/${bin}`.
      */
     unpackClosure(bin: string): Promise<string>;
-    /**
-     * Fetch an artifact, such as a tarball, from the URL determined by the `source-*`
-     * inputs and other factors.
-     */
-    private fetchArtifact;
     /**
      * Fetches the executable at the URL determined by the `source-*` inputs and
      * other facts, `chmod`s it, and returns the path to the executable on disk.
      */
     fetchExecutable(): Promise<string>;
+    private get isMain();
+    private get isPost();
+    private executeAsync;
+    /**
+     * Fetch an artifact, such as a tarball, from the URL determined by the
+     * `source-*` inputs.
+     */
+    private fetchArtifact;
     /**
      * A helper function for failing on error only if strict mode is enabled.
      * This is intended only for CI environments testing Actions themselves.
      */
     failOnError(msg: string): void;
     private complete;
-    private getUrl;
+    private getSourceUrl;
     private cacheKey;
     private getCachedVersion;
     private saveCachedVersion;
     private preflightRequireNix;
     private preflightNixStoreInfo;
     private submitEvents;
-    getTemporaryName(): string;
 }
 
 export { type ActionOptions, DetSysAction, type ExecutionPhase, type FetchSuffixStyle, type NixRequirementHandling, type NixStoreTrust, inputs, platform };

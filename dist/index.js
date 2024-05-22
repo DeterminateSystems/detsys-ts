@@ -571,16 +571,6 @@ var DetSysAction = class {
   stapleFile(name, location) {
     this.exceptionAttachments.set(name, location);
   }
-  setExecutionPhase() {
-    const phase = actionsCore6.getState(STATE_KEY_EXECUTION_PHASE);
-    if (phase === "") {
-      actionsCore6.saveState(STATE_KEY_EXECUTION_PHASE, "post");
-      this.executionPhase = "main";
-    } else {
-      this.executionPhase = "post";
-    }
-    this.facts.execution_phase = this.executionPhase;
-  }
   /**
    * Execute the Action as defined.
    */
@@ -590,7 +580,55 @@ var DetSysAction = class {
       process.exitCode = 1;
     });
   }
-  // Whether the
+  getTemporaryName() {
+    const tmpDir = process.env["RUNNER_TEMP"] || tmpdir();
+    return path.join(tmpDir, `${this.actionOptions.name}-${randomUUID()}`);
+  }
+  addFact(key, value) {
+    this.facts[key] = value;
+  }
+  getDiagnosticsUrl() {
+    return this.actionOptions.diagnosticsUrl;
+  }
+  getUniqueId() {
+    return this.identity.run_differentiator || process.env.RUNNER_TRACKING_ID || randomUUID();
+  }
+  getCorrelationHashes() {
+    return this.identity;
+  }
+  recordEvent(eventName, context = {}) {
+    this.events.push({
+      event_name: `${this.actionOptions.eventPrefix}${eventName}`,
+      context,
+      correlation: this.identity,
+      facts: this.facts,
+      timestamp: /* @__PURE__ */ new Date(),
+      uuid: randomUUID()
+    });
+  }
+  /**
+   * Unpacks the closure returned by `fetchArtifact()`, imports the
+   * contents into the Nix store, and returns the path of the executable at
+   * `/nix/store/STORE_PATH/bin/${bin}`.
+   */
+  async unpackClosure(bin) {
+    const artifact = await this.fetchArtifact();
+    const { stdout } = await promisify2(exec3)(
+      `cat "${artifact}" | xz -d | nix-store --import`
+    );
+    const paths = stdout.split(os3.EOL);
+    const lastPath = paths.at(-2);
+    return `${lastPath}/bin/${bin}`;
+  }
+  /**
+   * Fetches the executable at the URL determined by the `source-*` inputs and
+   * other facts, `chmod`s it, and returns the path to the executable on disk.
+   */
+  async fetchExecutable() {
+    const binaryPath = await this.fetchArtifact();
+    await chmod(binaryPath, fs2.constants.S_IXUSR | fs2.constants.S_IXGRP);
+    return binaryPath;
+  }
   get isMain() {
     return this.executionPhase === "main";
   }
@@ -646,52 +684,22 @@ var DetSysAction = class {
       await this.complete();
     }
   }
-  addFact(key, value) {
-    this.facts[key] = value;
-  }
-  getDiagnosticsUrl() {
-    return this.actionOptions.diagnosticsUrl;
-  }
-  getUniqueId() {
-    return this.identity.run_differentiator || process.env.RUNNER_TRACKING_ID || randomUUID();
-  }
-  getCorrelationHashes() {
-    return this.identity;
-  }
-  recordEvent(eventName, context = {}) {
-    this.events.push({
-      event_name: `${this.actionOptions.eventPrefix}${eventName}`,
-      context,
-      correlation: this.identity,
-      facts: this.facts,
-      timestamp: /* @__PURE__ */ new Date(),
-      uuid: randomUUID()
-    });
-  }
   /**
-   * Fetches a file in `.xz` format, imports its contents into the Nix store,
-   * and returns the path of the executable at `/nix/store/STORE_PATH/bin/${bin}`.
-   */
-  async unpackClosure(bin) {
-    const artifact = this.fetchArtifact();
-    const { stdout } = await promisify2(exec3)(
-      `cat "${artifact}" | xz -d | nix-store --import`
-    );
-    const paths = stdout.split(os3.EOL);
-    const lastPath = paths.at(-2);
-    return `${lastPath}/bin/${bin}`;
-  }
-  /**
-   * Fetch an artifact, such as a tarball, from the URL determined by the `source-*`
-   * inputs and other factors.
+   * Fetch an artifact, such as a tarball, from the URL determined by the
+   * `source-*` inputs.
    */
   async fetchArtifact() {
+    const sourceBinary = getStringOrNull("source-binary");
+    if (sourceBinary !== null && sourceBinary !== "") {
+      actionsCore6.debug(`Using the provided source binary at ${sourceBinary}`);
+      return sourceBinary;
+    }
     actionsCore6.startGroup(
       `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`
     );
     try {
-      actionsCore6.info(`Fetching from ${this.getUrl()}`);
-      const correlatedUrl = this.getUrl();
+      actionsCore6.info(`Fetching from ${this.getSourceUrl()}`);
+      const correlatedUrl = this.getSourceUrl();
       correlatedUrl.searchParams.set("ci", "github");
       correlatedUrl.searchParams.set(
         "correlation",
@@ -702,7 +710,7 @@ var DetSysAction = class {
         const v = versionCheckup.headers.etag;
         this.addFact(FACT_SOURCE_URL_ETAG, v);
         actionsCore6.debug(
-          `Checking the tool cache for ${this.getUrl()} at ${v}`
+          `Checking the tool cache for ${this.getSourceUrl()} at ${v}`
         );
         const cached = await this.getCachedVersion(v);
         if (cached) {
@@ -738,15 +746,6 @@ var DetSysAction = class {
     }
   }
   /**
-   * Fetches the executable at the URL determined by the `source-*` inputs and
-   * other facts, `chmod`s it, and returns the path to the executable on disk.
-   */
-  async fetchExecutable() {
-    const binaryPath = await this.fetchArtifact();
-    await chmod(binaryPath, fs2.constants.S_IXUSR | fs2.constants.S_IXGRP);
-    return binaryPath;
-  }
-  /**
    * A helper function for failing on error only if strict mode is enabled.
    * This is intended only for CI environments testing Actions themselves.
    */
@@ -759,7 +758,7 @@ var DetSysAction = class {
     this.recordEvent(`complete_${this.executionPhase}`);
     await this.submitEvents();
   }
-  getUrl() {
+  getSourceUrl() {
     const p = this.sourceParameters;
     if (p.url) {
       this.addFact(FACT_SOURCE_URL, p.url);
@@ -943,10 +942,6 @@ var DetSysAction = class {
       );
     }
     this.events = [];
-  }
-  getTemporaryName() {
-    const _tmpdir = process.env["RUNNER_TEMP"] || tmpdir();
-    return path.join(_tmpdir, `${this.actionOptions.name}-${randomUUID()}`);
   }
 };
 function stringifyError(error2) {

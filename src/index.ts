@@ -5,7 +5,7 @@
 import { version as pkgVersion } from "../package.json";
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import * as correlation from "./correlation.js";
-import { getBool } from "./inputs.js";
+import { getBool, getStringOrNull } from "./inputs.js";
 import * as platform from "./platform.js";
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
@@ -267,17 +267,6 @@ export abstract class DetSysAction {
     this.exceptionAttachments.set(name, location);
   }
 
-  private setExecutionPhase(): void {
-    const phase = actionsCore.getState(STATE_KEY_EXECUTION_PHASE);
-    if (phase === "") {
-      actionsCore.saveState(STATE_KEY_EXECUTION_PHASE, "post");
-      this.executionPhase = "main";
-    } else {
-      this.executionPhase = "post";
-    }
-    this.facts.execution_phase = this.executionPhase;
-  }
-
   /**
    * The main execution phase.
    */
@@ -300,7 +289,67 @@ export abstract class DetSysAction {
     });
   }
 
-  // Whether the
+  getTemporaryName(): string {
+    const tmpDir = process.env["RUNNER_TEMP"] || tmpdir();
+    return path.join(tmpDir, `${this.actionOptions.name}-${randomUUID()}`);
+  }
+
+  addFact(key: string, value: string | boolean): void {
+    this.facts[key] = value;
+  }
+
+  getDiagnosticsUrl(): URL | undefined {
+    return this.actionOptions.diagnosticsUrl;
+  }
+
+  getUniqueId(): string {
+    return (
+      this.identity.run_differentiator ||
+      process.env.RUNNER_TRACKING_ID ||
+      randomUUID()
+    );
+  }
+
+  getCorrelationHashes(): correlation.AnonymizedCorrelationHashes {
+    return this.identity;
+  }
+
+  recordEvent(eventName: string, context: Record<string, unknown> = {}): void {
+    this.events.push({
+      event_name: `${this.actionOptions.eventPrefix}${eventName}`,
+      context,
+      correlation: this.identity,
+      facts: this.facts,
+      timestamp: new Date(),
+      uuid: randomUUID(),
+    });
+  }
+
+  /**
+   * Unpacks the closure returned by `fetchArtifact()`, imports the
+   * contents into the Nix store, and returns the path of the executable at
+   * `/nix/store/STORE_PATH/bin/${bin}`.
+   */
+  async unpackClosure(bin: string): Promise<string> {
+    const artifact = await this.fetchArtifact();
+    const { stdout } = await promisify(exec)(
+      `cat "${artifact}" | xz -d | nix-store --import`,
+    );
+    const paths = stdout.split(os.EOL);
+    const lastPath = paths.at(-2);
+    return `${lastPath}/bin/${bin}`;
+  }
+
+  /**
+   * Fetches the executable at the URL determined by the `source-*` inputs and
+   * other facts, `chmod`s it, and returns the path to the executable on disk.
+   */
+  async fetchExecutable(): Promise<string> {
+    const binaryPath = await this.fetchArtifact();
+    await chmod(binaryPath, fs.constants.S_IXUSR | fs.constants.S_IXGRP);
+    return binaryPath;
+  }
+
   private get isMain(): boolean {
     return this.executionPhase === "main";
   }
@@ -367,64 +416,27 @@ export abstract class DetSysAction {
     }
   }
 
-  addFact(key: string, value: string | boolean): void {
-    this.facts[key] = value;
-  }
-
-  getDiagnosticsUrl(): URL | undefined {
-    return this.actionOptions.diagnosticsUrl;
-  }
-
-  getUniqueId(): string {
-    return (
-      this.identity.run_differentiator ||
-      process.env.RUNNER_TRACKING_ID ||
-      randomUUID()
-    );
-  }
-
-  getCorrelationHashes(): correlation.AnonymizedCorrelationHashes {
-    return this.identity;
-  }
-
-  recordEvent(eventName: string, context: Record<string, unknown> = {}): void {
-    this.events.push({
-      event_name: `${this.actionOptions.eventPrefix}${eventName}`,
-      context,
-      correlation: this.identity,
-      facts: this.facts,
-      timestamp: new Date(),
-      uuid: randomUUID(),
-    });
-  }
-
   /**
-   * Fetches a file in `.xz` format, imports its contents into the Nix store,
-   * and returns the path of the executable at `/nix/store/STORE_PATH/bin/${bin}`.
-   */
-  async unpackClosure(bin: string): Promise<string> {
-    const artifact = this.fetchArtifact();
-    const { stdout } = await promisify(exec)(
-      `cat "${artifact}" | xz -d | nix-store --import`,
-    );
-    const paths = stdout.split(os.EOL);
-    const lastPath = paths.at(-2);
-    return `${lastPath}/bin/${bin}`;
-  }
-
-  /**
-   * Fetch an artifact, such as a tarball, from the URL determined by the `source-*`
-   * inputs and other factors.
+   * Fetch an artifact, such as a tarball, from the URL determined by the
+   * `source-*` inputs.
    */
   private async fetchArtifact(): Promise<string> {
+    const sourceBinary = getStringOrNull("source-binary");
+
+    // If source-binary is set, use that. Otherwise fall back to the source-* parameters.
+    if (sourceBinary !== null && sourceBinary !== "") {
+      actionsCore.debug(`Using the provided source binary at ${sourceBinary}`);
+      return sourceBinary;
+    }
+
     actionsCore.startGroup(
       `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`,
     );
 
     try {
-      actionsCore.info(`Fetching from ${this.getUrl()}`);
+      actionsCore.info(`Fetching from ${this.getSourceUrl()}`);
 
-      const correlatedUrl = this.getUrl();
+      const correlatedUrl = this.getSourceUrl();
       correlatedUrl.searchParams.set("ci", "github");
       correlatedUrl.searchParams.set(
         "correlation",
@@ -437,7 +449,7 @@ export abstract class DetSysAction {
         this.addFact(FACT_SOURCE_URL_ETAG, v);
 
         actionsCore.debug(
-          `Checking the tool cache for ${this.getUrl()} at ${v}`,
+          `Checking the tool cache for ${this.getSourceUrl()} at ${v}`,
         );
         const cached = await this.getCachedVersion(v);
         if (cached) {
@@ -481,16 +493,6 @@ export abstract class DetSysAction {
   }
 
   /**
-   * Fetches the executable at the URL determined by the `source-*` inputs and
-   * other facts, `chmod`s it, and returns the path to the executable on disk.
-   */
-  async fetchExecutable(): Promise<string> {
-    const binaryPath = await this.fetchArtifact();
-    await chmod(binaryPath, fs.constants.S_IXUSR | fs.constants.S_IXGRP);
-    return binaryPath;
-  }
-
-  /**
    * A helper function for failing on error only if strict mode is enabled.
    * This is intended only for CI environments testing Actions themselves.
    */
@@ -505,7 +507,7 @@ export abstract class DetSysAction {
     await this.submitEvents();
   }
 
-  private getUrl(): URL {
+  private getSourceUrl(): URL {
     const p = this.sourceParameters;
 
     if (p.url) {
@@ -730,11 +732,6 @@ export abstract class DetSysAction {
       );
     }
     this.events = [];
-  }
-
-  getTemporaryName(): string {
-    const _tmpdir = process.env["RUNNER_TEMP"] || tmpdir();
-    return path.join(_tmpdir, `${this.actionOptions.name}-${randomUUID()}`);
   }
 }
 
