@@ -164,7 +164,7 @@ export abstract class DetSysAction {
     this.actionOptions = makeOptionsConfident(actionOptions);
     this.exceptionAttachments = new Map();
     this.nixStoreTrust = "unknown";
-    this.strictMode = getBool("ci-mode");
+    this.strictMode = getBool("_internal-strict-mode");
 
     this.events = [];
     this.client = got.extend({
