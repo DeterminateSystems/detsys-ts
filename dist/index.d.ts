@@ -153,9 +153,8 @@ declare abstract class DetSysAction {
     getCorrelationHashes(): AnonymizedCorrelationHashes;
     recordEvent(eventName: string, context?: Record<string, unknown>): void;
     /**
-     * Fetches a file in `.xz` format from the URL determined by the `source-*`
-     * parameters (or `source-binary` if set). It then imports that file's
-     * contents into the Nix store and returns the path of the executable at
+     * Unpacks the closure returned by `fetchArtifact()`, imports the
+     * contents into the Nix store, and returns the path of the executable at
      * `/nix/store/STORE_PATH/bin/${bin}`.
      */
     unpackClosure(bin: string): Promise<string>;
@@ -168,9 +167,8 @@ declare abstract class DetSysAction {
     private get isPost();
     private executeAsync;
     /**
-     * Fetch an artifact, such as a tarball, from the URL determined by the `source-*`
-     * inputs or use a provided binary specified by the `source-binary`
-     * input.
+     * Fetch an artifact, such as a tarball, from the URL determined by the
+     * `source-*` inputs.
      */
     private fetchArtifact;
     /**
