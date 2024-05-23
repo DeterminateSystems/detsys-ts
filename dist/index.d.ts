@@ -21,8 +21,7 @@ type Separator = "space" | "comma";
  */
 declare const getArrayOfStrings: (name: string, separator: Separator) => string[];
 /**
- * Convert a comma-separated string input into an array of strings or `null` if
- * no value is set.
+ * Convert a string input into an array of strings or `null` if no value is set.
  */
 declare const getArrayOfStringsOrNull: (name: string, separator: Separator) => string[] | null;
 declare const handleString: (input: string, separator: Separator) => string[];
