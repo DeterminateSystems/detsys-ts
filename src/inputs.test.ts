@@ -75,7 +75,7 @@ test("converting strings into arrays", () => {
     },
   ];
 
-  testCases.forEach(({ input, separator, expected }) => {
-    expect(handleString(input, separator)).toStrictEqual(expected);
-  });
+  testCases.forEach(({ input, separator, expected }) =>
+    expect(handleString(input, separator)).toStrictEqual(expected),
+  );
 });
