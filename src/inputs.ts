@@ -25,6 +25,22 @@ const getArrayOfStrings = (name: string, separator: Separator): string[] => {
   return handleString(original, separator);
 };
 
+/**
+ * Convert a comma-separated string input into an array of strings or `null` if
+ * no value is set.
+ */
+const getArrayOfStringsOrNull = (
+  name: string,
+  separator: Separator,
+): string[] | null => {
+  const original = getStringOrNull(name);
+  if (original === null) {
+    return null;
+  } else {
+    return handleString(original, separator);
+  }
+};
+
 // Split out this function for use in testing
 export const handleString = (input: string, separator: Separator): string[] => {
   const sepChar = separator === "comma" ? "," : /\s+/;
@@ -94,6 +110,7 @@ const getStringOrUndefined = (name: string): string | undefined => {
 export {
   getBool,
   getArrayOfStrings,
+  getArrayOfStringsOrNull,
   getMultilineStringOrNull,
   getNumberOrNull,
   getString,

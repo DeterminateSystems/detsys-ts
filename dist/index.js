@@ -305,6 +305,7 @@ function hashEnvironmentVariables(prefix, variables) {
 var inputs_exports = {};
 __export(inputs_exports, {
   getArrayOfStrings: () => getArrayOfStrings,
+  getArrayOfStringsOrNull: () => getArrayOfStringsOrNull,
   getBool: () => getBool,
   getMultilineStringOrNull: () => getMultilineStringOrNull,
   getNumberOrNull: () => getNumberOrNull,
@@ -320,6 +321,14 @@ var getBool = (name) => {
 var getArrayOfStrings = (name, separator) => {
   const original = getString(name);
   return handleString(original, separator);
+};
+var getArrayOfStringsOrNull = (name, separator) => {
+  const original = getStringOrNull(name);
+  if (original === null) {
+    return null;
+  } else {
+    return handleString(original, separator);
+  }
 };
 var handleString = (input, separator) => {
   const sepChar = separator === "comma" ? "," : /\s+/;
