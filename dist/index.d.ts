@@ -8,6 +8,11 @@ type AnonymizedCorrelationHashes = {
 };
 
 /**
+ * Coerce a value of type `unknown` into a string.
+ */
+declare function stringifyError(e: unknown): string;
+
+/**
  * Get a Boolean input from the Action's configuration by name.
  */
 declare const getBool: (name: string) => boolean;
@@ -194,4 +199,4 @@ declare abstract class DetSysAction {
     private submitEvents;
 }
 
-export { type ActionOptions, DetSysAction, type ExecutionPhase, type FetchSuffixStyle, type NixRequirementHandling, type NixStoreTrust, inputs, platform };
+export { type ActionOptions, DetSysAction, type ExecutionPhase, type FetchSuffixStyle, type NixRequirementHandling, type NixStoreTrust, inputs, platform, stringifyError };
