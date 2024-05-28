@@ -469,7 +469,7 @@ function stringifyError(e) {
   } else if (typeof e === "string") {
     return e;
   } else {
-    return `unknown error: ${e}`;
+    return JSON.stringify(e);
   }
 }
 
