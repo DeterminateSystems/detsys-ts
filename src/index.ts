@@ -848,5 +848,6 @@ function mungeDiagnosticEndpoint(inputUrl: URL): URL {
 }
 
 // Public exports from other files
+export { stringifyError } from "./errors.js";
 export * as inputs from "./inputs.js";
 export * as platform from "./platform.js";

@@ -461,6 +461,19 @@ import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { promisify as promisify2 } from "node:util";
 import { gzip } from "node:zlib";
+
+// src/errors.ts
+function stringifyError(e) {
+  if (e instanceof Error) {
+    return e.message;
+  } else if (typeof e === "string") {
+    return e;
+  } else {
+    return `unknown error: ${e}`;
+  }
+}
+
+// src/index.ts
 var DEFAULT_IDS_HOST = "https://install.determinate.systems";
 var IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 var EVENT_EXCEPTION = "exception";
@@ -548,7 +561,7 @@ var DetSysAction = class {
         }
       }).catch((e) => {
         actionsCore6.debug(
-          `Failure getting platform details: ${stringifyError(e)}`
+          `Failure getting platform details: ${stringifyError2(e)}`
         );
       });
     }
@@ -665,7 +678,7 @@ var DetSysAction = class {
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
     } catch (e) {
       this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
-      const reportable = stringifyError(e);
+      const reportable = stringifyError2(e);
       this.addFact(FACT_FINAL_EXCEPTION, reportable);
       if (this.isPost) {
         actionsCore6.warning(reportable);
@@ -685,7 +698,7 @@ var DetSysAction = class {
         } catch (innerError) {
           exceptionContext.set(
             `staple_failure_${attachmentLabel}`,
-            stringifyError(innerError)
+            stringifyError2(innerError)
           );
         }
       }
@@ -750,7 +763,7 @@ var DetSysAction = class {
         try {
           await this.saveCachedVersion(v, destFile);
         } catch (e) {
-          actionsCore6.debug(`Error caching the artifact: ${stringifyError(e)}`);
+          actionsCore6.debug(`Error caching the artifact: ${stringifyError2(e)}`);
         }
       }
       return destFile;
@@ -929,7 +942,7 @@ var DetSysAction = class {
       }
       this.addFact(FACT_NIX_STORE_VERSION, JSON.stringify(parsed.version));
     } catch (e) {
-      this.addFact(FACT_NIX_STORE_CHECK_ERROR, stringifyError(e));
+      this.addFact(FACT_NIX_STORE_CHECK_ERROR, stringifyError2(e));
     }
   }
   async submitEvents() {
@@ -951,13 +964,13 @@ var DetSysAction = class {
       });
     } catch (e) {
       actionsCore6.debug(
-        `Error submitting diagnostics event: ${stringifyError(e)}`
+        `Error submitting diagnostics event: ${stringifyError2(e)}`
       );
     }
     this.events = [];
   }
 };
-function stringifyError(error2) {
+function stringifyError2(error2) {
   return error2 instanceof Error || typeof error2 == "string" ? error2.toString() : JSON.stringify(error2);
 }
 function makeOptionsConfident(actionOptions) {
@@ -995,7 +1008,7 @@ function determineDiagnosticsUrl(idsProjectName, urlOption) {
         return mungeDiagnosticEndpoint(new URL(providedDiagnosticEndpoint));
       } catch (e) {
         actionsCore6.info(
-          `User-provided diagnostic endpoint ignored: not a valid URL: ${stringifyError(e)}`
+          `User-provided diagnostic endpoint ignored: not a valid URL: ${stringifyError2(e)}`
         );
       }
     }
@@ -1007,7 +1020,7 @@ function determineDiagnosticsUrl(idsProjectName, urlOption) {
     return diagnosticUrl;
   } catch (e) {
     actionsCore6.info(
-      `Generated diagnostic endpoint ignored: not a valid URL: ${stringifyError(e)}`
+      `Generated diagnostic endpoint ignored: not a valid URL: ${stringifyError2(e)}`
     );
   }
   return void 0;
@@ -1029,7 +1042,7 @@ function mungeDiagnosticEndpoint(inputUrl) {
     return inputUrl;
   } catch (e) {
     actionsCore6.info(
-      `Default or overridden IDS host isn't a valid URL: ${stringifyError(e)}`
+      `Default or overridden IDS host isn't a valid URL: ${stringifyError2(e)}`
     );
   }
   return inputUrl;
@@ -1037,7 +1050,8 @@ function mungeDiagnosticEndpoint(inputUrl) {
 export {
   DetSysAction,
   inputs_exports as inputs,
-  platform_exports as platform
+  platform_exports as platform,
+  stringifyError
 };
 /*!
  * linux-release-info
