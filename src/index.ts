@@ -50,7 +50,7 @@ const STATE_KEY_EXECUTION_PHASE = "detsys_action_execution_phase";
 const STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
 const STATE_NOT_FOUND = "not-found";
 
-const THIRTY_SECONDS_IN_MS = 30_000;
+const DIAGNOSTIC_ENDPOINT_TIMEOUT = 30_000; // 30 seconds in milliseconds
 
 /**
  * An enum for describing different "fetch suffixes" for i.d.s.
@@ -732,7 +732,7 @@ export abstract class DetSysAction {
       await this.client.post(this.actionOptions.diagnosticsUrl, {
         json: batch,
         timeout: {
-          request: THIRTY_SECONDS_IN_MS,
+          request: DIAGNOSTIC_ENDPOINT_TIMEOUT,
         },
       });
     } catch (e: unknown) {
