@@ -496,7 +496,7 @@ var FACT_NIX_STORE_CHECK_ERROR = "nix_store_check_error";
 var STATE_KEY_EXECUTION_PHASE = "detsys_action_execution_phase";
 var STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
 var STATE_NOT_FOUND = "not-found";
-var DIAGNOSTIC_ENDPOINT_TIMEOUT = 3e4;
+var DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 3e4;
 var DetSysAction = class {
   determineExecutionPhase() {
     const currentPhase = actionsCore6.getState(STATE_KEY_EXECUTION_PHASE);
@@ -963,7 +963,7 @@ var DetSysAction = class {
       await this.client.post(this.actionOptions.diagnosticsUrl, {
         json: batch,
         timeout: {
-          request: DIAGNOSTIC_ENDPOINT_TIMEOUT
+          request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS
         }
       });
     } catch (e) {
