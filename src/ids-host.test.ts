@@ -1,7 +1,6 @@
 import {
   IdsHost,
   discoverServicesStub,
-  mungeDiagnosticEndpoint,
   orderRecordsByPriorityWeight,
   recordToUrl,
   weightedRandom,
@@ -141,60 +140,6 @@ describe("getDiagnosticsUrl", () => {
       expect(diagUrl).toStrictEqual(
         expectedUrl ? new URL(expectedUrl) : undefined,
       );
-    });
-  }
-});
-
-describe("mungeDiagnosticEndpoint", () => {
-  type TestCase = {
-    description: string;
-    inputUrl: string;
-    defaultHost: string;
-    effectiveHost: string;
-    expectedUrl: string;
-  };
-
-  const testCases: TestCase[] = [
-    {
-      description:
-        "The input URL is taken as the literal value if the IDS host isn't overridden",
-      inputUrl: "https://foo.com/bar",
-      defaultHost: "https://default",
-      effectiveHost: "https://default",
-      expectedUrl: "https://foo.com/bar",
-    },
-    {
-      description:
-        "The input URL is taken as the literal value if the input URL's origin is pointed elsewhere",
-      inputUrl: "https://foo.com/bar",
-      defaultHost: "https://default",
-      effectiveHost: "https://someOtherHost",
-      expectedUrl: "https://foo.com/bar",
-    },
-    {
-      description:
-        "The overridden IDS host is used as the base of the diagnostic endpoint, with the inputUrl smushed on top of it",
-      inputUrl: "https://default/bar",
-      defaultHost: "https://default",
-      effectiveHost: "ftp://user:password@someOtherHost:1234",
-      expectedUrl: "ftp://user:password@someOtherHost:1234/bar",
-    },
-  ];
-
-  for (const {
-    description,
-    inputUrl,
-    defaultHost,
-    effectiveHost,
-    expectedUrl,
-  } of testCases) {
-    test(description, async () => {
-      const ret = await mungeDiagnosticEndpoint(
-        new URL(inputUrl),
-        new URL(defaultHost),
-        new URL(effectiveHost),
-      );
-      expect(ret).toStrictEqual(new URL(expectedUrl));
     });
   }
 });

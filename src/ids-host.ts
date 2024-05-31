@@ -127,27 +127,6 @@ export class IdsHost {
   }
 }
 
-export function mungeDiagnosticEndpoint(
-  inputUrl: URL,
-  defaultIdsHost: URL,
-  selectedIdsHost: URL,
-): URL {
-  if (defaultIdsHost === selectedIdsHost) {
-    return inputUrl;
-  }
-
-  if (inputUrl.origin !== defaultIdsHost.origin) {
-    return inputUrl;
-  }
-
-  inputUrl.protocol = selectedIdsHost.protocol;
-  inputUrl.host = selectedIdsHost.host;
-  inputUrl.username = selectedIdsHost.username;
-  inputUrl.password = selectedIdsHost.password;
-
-  return inputUrl;
-}
-
 export function recordToUrl(record: SrvRecord): URL | undefined {
   const urlStr = `https://${record.name}:${record.port}`;
   try {
