@@ -177,15 +177,19 @@ export async function discoverServicesStub(
       }
     }
 
-    actionsCore.debug(`Unacceptable domain due to an invalid suffix: ${record.name}`)
+    actionsCore.debug(
+      `Unacceptable domain due to an invalid suffix: ${record.name}`,
+    );
 
     return false;
-  })
+  });
 
   if (acceptableRecords.length === 0) {
     actionsCore.debug(`No records found for ${LOOKUP}`);
   } else {
-    actionsCore.debug(`Resolved ${LOOKUP} to ${JSON.stringify(acceptableRecords)}`);
+    actionsCore.debug(
+      `Resolved ${LOOKUP} to ${JSON.stringify(acceptableRecords)}`,
+    );
   }
 
   return acceptableRecords;

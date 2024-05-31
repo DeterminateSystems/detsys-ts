@@ -9,7 +9,11 @@ import {
 import { SrvRecord } from "node:dns";
 import { assert, describe, expect, test } from "vitest";
 
-function mkRecord(weight: number, priority = 0, suffix = 'install.determinate.systems'): SrvRecord {
+function mkRecord(
+  weight: number,
+  priority = 0,
+  suffix = "install.determinate.systems",
+): SrvRecord {
   return {
     weight,
     priority,
@@ -188,43 +192,53 @@ describe("discoverServicesStub", async () => {
   const testCases: TestCase[] = [
     {
       description: "lookup has an exception",
-      lookup: async () => { throw new Error("oops"); },
+      lookup: async () => {
+        throw new Error("oops");
+      },
       expected: [],
       timeout: 0,
     },
 
     {
       description: "basic in / out",
-      lookup: () => { return mkPromise(() => {
-        return [mkRecord(1)];
-      }) },
+      lookup: async () => {
+        return mkPromise(() => {
+          return [mkRecord(1)];
+        });
+      },
       expected: [mkRecord(1)],
     },
 
     {
       description: "Records with invalid suffixes are omitted",
-      lookup: () => { return mkPromise(() => {
-        return [
-          mkRecord(1, 1, 'mallory.com'),
-          mkRecord(1, 1, 'install.detsys.dev'),
-          mkRecord(1, 1, 'install.determinate.systems'),
-        ];
-      }) },
+      lookup: async () => {
+        return mkPromise(() => {
+          return [
+            mkRecord(1, 1, "mallory.com"),
+            mkRecord(1, 1, "install.detsys.dev"),
+            mkRecord(1, 1, "install.determinate.systems"),
+          ];
+        });
+      },
       expected: [
-        mkRecord(1, 1, 'install.detsys.dev'),
-        mkRecord(1, 1, 'install.determinate.systems'),
+        mkRecord(1, 1, "install.detsys.dev"),
+        mkRecord(1, 1, "install.determinate.systems"),
       ],
     },
 
     {
       description: "lookup loses the race",
-      lookup: () => { return new Promise((r) => setTimeout(r, 1000, [mkRecord(123)])); },
+      lookup: async () => {
+        return new Promise((r) => setTimeout(r, 1000, [mkRecord(123)]));
+      },
       expected: [],
       timeout: 100,
     },
     {
       description: "lookup wins the race",
-      lookup: () => { return new Promise((r) => setTimeout(r, 100, [mkRecord(456)])) },
+      lookup: async () => {
+        return new Promise((r) => setTimeout(r, 100, [mkRecord(456)]));
+      },
       expected: [mkRecord(456)],
       timeout: 1000,
     },

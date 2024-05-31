@@ -316,6 +316,10 @@ function stringifyError(e) {
 import * as actionsCore3 from "@actions/core";
 import { resolveSrv } from "node:dns/promises";
 var DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
+var ALLOWED_SUFFIXES = [
+  ".install.determinate.systems",
+  ".install.detsys.dev"
+];
 var DEFAULT_IDS_HOST = "https://install.determinate.systems";
 var LOOKUP = process.env["IDS_LOOKUP"] ?? DEFAULT_LOOKUP;
 var IdsHost = class {
@@ -401,11 +405,7 @@ async function discoverServiceRecords() {
 async function discoverServicesStub(lookup, timeout) {
   const defaultFallback = new Promise(
     (resolve, _reject) => {
-      if (timeout === 0) {
-        resolve([]);
-      } else {
-        setTimeout(resolve, timeout, []);
-      }
+      setTimeout(resolve, timeout, []);
     }
   );
   let records;
@@ -415,12 +415,25 @@ async function discoverServicesStub(lookup, timeout) {
     actionsCore3.debug(`Error resolving SRV records: ${stringifyError(reason)}`);
     records = [];
   }
-  if (records.length === 0) {
+  const acceptableRecords = records.filter((record) => {
+    for (const suffix of ALLOWED_SUFFIXES) {
+      if (record.name.endsWith(suffix)) {
+        return true;
+      }
+    }
+    actionsCore3.debug(
+      `Unacceptable domain due to an invalid suffix: ${record.name}`
+    );
+    return false;
+  });
+  if (acceptableRecords.length === 0) {
     actionsCore3.debug(`No records found for ${LOOKUP}`);
   } else {
-    actionsCore3.debug(`Resolved ${LOOKUP} to ${JSON.stringify(records)}`);
+    actionsCore3.debug(
+      `Resolved ${LOOKUP} to ${JSON.stringify(acceptableRecords)}`
+    );
   }
-  return records;
+  return acceptableRecords;
 }
 function orderRecordsByPriorityWeight(records) {
   const byPriorityWeight = /* @__PURE__ */ new Map();
