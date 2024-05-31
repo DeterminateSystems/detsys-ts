@@ -444,7 +444,7 @@ export abstract class DetSysAction {
     );
 
     try {
-      actionsCore.info(`Fetching from ${this.getSourceUrl()}`);
+      actionsCore.info(`Fetching from ${await this.getSourceUrl()}`);
 
       const correlatedUrl = await this.getSourceUrl();
       correlatedUrl.searchParams.set("ci", "github");
@@ -459,7 +459,7 @@ export abstract class DetSysAction {
         this.addFact(FACT_SOURCE_URL_ETAG, v);
 
         actionsCore.debug(
-          `Checking the tool cache for ${this.getSourceUrl()} at ${v}`,
+          `Checking the tool cache for ${await this.getSourceUrl()} at ${v}`,
         );
         const cached = await this.getCachedVersion(v);
         if (cached) {

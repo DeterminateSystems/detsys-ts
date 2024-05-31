@@ -895,7 +895,7 @@ var DetSysAction = class {
       `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`
     );
     try {
-      actionsCore7.info(`Fetching from ${this.getSourceUrl()}`);
+      actionsCore7.info(`Fetching from ${await this.getSourceUrl()}`);
       const correlatedUrl = await this.getSourceUrl();
       correlatedUrl.searchParams.set("ci", "github");
       correlatedUrl.searchParams.set(
@@ -907,7 +907,7 @@ var DetSysAction = class {
         const v = versionCheckup.headers.etag;
         this.addFact(FACT_SOURCE_URL_ETAG, v);
         actionsCore7.debug(
-          `Checking the tool cache for ${this.getSourceUrl()} at ${v}`
+          `Checking the tool cache for ${await this.getSourceUrl()} at ${v}`
         );
         const cached = await this.getCachedVersion(v);
         if (cached) {

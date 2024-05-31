@@ -13,6 +13,7 @@
     }
   },
   "rules": {
+    "@typescript-eslint/no-base-to-string": "error",
     "camelcase": "error",
     "i18n-text/no-en": "off",
     "@typescript-eslint/no-shadow": "error",
