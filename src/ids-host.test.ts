@@ -1,0 +1,331 @@
+import {
+  IdsHost,
+  discoverServicesStub,
+  mungeDiagnosticEndpoint,
+  orderRecordsByPriorityWeight,
+  recordToUrl,
+  weightedRandom,
+} from "./ids-host";
+import { SrvRecord } from "node:dns";
+import {
+  afterEach,
+  assert,
+  beforeEach,
+  describe,
+  expect,
+  test,
+  vi,
+} from "vitest";
+
+function mkRecord(weight: number, priority: number = 0): SrvRecord {
+  return {
+    priority: priority,
+    port: priority * 100 + weight,
+    weight: weight,
+    name: `${priority}.${weight}`,
+  };
+}
+
+async function mkPromise<T>(lookup: () => T): Promise<T> {
+  return lookup();
+}
+
+describe("getDiagnosticsUrl", () => {
+  type TestCase = {
+    description: string;
+    idsProjectName: string;
+    suffix?: string;
+    runtimeDiagnosticsUrl?: string;
+    expectedUrl?: string;
+  };
+
+  const testCases: TestCase[] = [
+    {
+      description: "User-provided diagnostic URL is preferred",
+      idsProjectName: "project-name",
+      suffix: "telemetry",
+      runtimeDiagnosticsUrl: "https://example.com/bar",
+      expectedUrl: "https://example.com/bar",
+    },
+
+    {
+      description: "Empty diagnostic URL means turn it off",
+      idsProjectName: "project-name",
+      suffix: "telemetry",
+      runtimeDiagnosticsUrl: "",
+      expectedUrl: undefined,
+    },
+
+    {
+      description:
+        "No diagnostics URL provided means generate one (custom suffix)",
+      idsProjectName: "project-name",
+      suffix: "telemetry",
+      runtimeDiagnosticsUrl: undefined,
+      expectedUrl: "https://install.determinate.systems/project-name/telemetry",
+    },
+
+    {
+      description:
+        "No diagnostics URL provided means generate one (default suffix)",
+      idsProjectName: "project-name",
+      suffix: undefined,
+      runtimeDiagnosticsUrl: undefined,
+      expectedUrl:
+        "https://install.determinate.systems/project-name/diagnostics",
+    },
+
+    {
+      description:
+        "Invalid user-provided diagnostic URL might be a whitespace-only string or otherwise, so use the default",
+      idsProjectName: "project-name",
+      runtimeDiagnosticsUrl: "http://hi:999999999999",
+      expectedUrl:
+        "https://install.determinate.systems/project-name/diagnostics",
+    },
+  ];
+
+  for (const {
+    description,
+    idsProjectName,
+    suffix,
+    runtimeDiagnosticsUrl,
+    expectedUrl,
+  } of testCases) {
+    test(description, async () => {
+      try {
+        const preEnv = process.env["IDS_HOST"];
+
+        const host = new IdsHost(idsProjectName, suffix, runtimeDiagnosticsUrl);
+        const diagUrl = await host.getDiagnosticsUrl();
+        process.env["IDS_HOST"] = preEnv;
+
+        expect(diagUrl).toStrictEqual(
+          expectedUrl ? new URL(expectedUrl) : undefined,
+        );
+      } catch (err: unknown) {
+        console.log(err);
+        expect(true).toStrictEqual(false);
+      }
+    });
+  }
+});
+
+describe("mungeDiagnosticEndpoint", () => {
+  type TestCase = {
+    description: string;
+    inputUrl: string;
+    defaultHost: string;
+    effectiveHost: string;
+    expectedUrl: string;
+  };
+
+  const testCases: TestCase[] = [
+    {
+      description:
+        "The input URL is taken as the literal value if the IDS host isn't overridden",
+      inputUrl: "https://foo.com/bar",
+      defaultHost: "https://default",
+      effectiveHost: "https://default",
+      expectedUrl: "https://foo.com/bar",
+    },
+    {
+      description:
+        "The input URL is taken as the literal value if the input URL's origin is pointed elsewhere",
+      inputUrl: "https://foo.com/bar",
+      defaultHost: "https://default",
+      effectiveHost: "https://someOtherHost",
+      expectedUrl: "https://foo.com/bar",
+    },
+    {
+      description:
+        "The overridden IDS host is used as the base of the diagnostic endpoint, with the inputUrl smushed on top of it",
+      inputUrl: "https://default/bar",
+      defaultHost: "https://default",
+      effectiveHost: "ftp://user:password@someOtherHost:1234",
+      expectedUrl: "ftp://user:password@someOtherHost:1234/bar",
+    },
+  ];
+
+  for (const {
+    description,
+    inputUrl,
+    defaultHost,
+    effectiveHost,
+    expectedUrl,
+  } of testCases) {
+    test(description, async () => {
+      try {
+        const ret = await mungeDiagnosticEndpoint(
+          new URL(inputUrl),
+          new URL(defaultHost),
+          new URL(effectiveHost),
+        );
+        expect(ret).toStrictEqual(new URL(expectedUrl));
+      } catch (err: unknown) {
+        console.log(err);
+        expect(true).toStrictEqual(false);
+      }
+    });
+  }
+});
+
+describe("recordToUrl", () => {
+  test("a valid record", () => {
+    try {
+      expect(
+        recordToUrl({
+          name: "hi",
+          port: 123,
+          priority: 1,
+          weight: 1,
+        }),
+      ).toStrictEqual(new URL("https://hi:123"));
+    } catch (err: unknown) {
+      console.log(err);
+      expect(true).toStrictEqual(false);
+    }
+  });
+
+  test("an invalid record", () => {
+    try {
+      expect(
+        recordToUrl({
+          name: "!",
+          port: 99999999999,
+          priority: 1,
+          weight: 1,
+        }),
+      ).toStrictEqual(undefined);
+    } catch (err: unknown) {
+      console.log(err);
+      expect(true).toStrictEqual(false);
+    }
+  });
+});
+
+describe("discoverServicesStub", async () => {
+  type TestCase = {
+    description: string;
+    lookup: Promise<SrvRecord[]>;
+    timeout?: number;
+    expected: SrvRecord[];
+  };
+
+  const testCases: TestCase[] = [
+    {
+      description: "lookup has an exception",
+      lookup: new Promise((_resolve, reject) => reject(new Error("oops"))),
+      expected: [],
+      timeout: 50,
+    },
+
+    {
+      description: "basic in / out",
+      lookup: mkPromise(() => {
+        return [mkRecord(1)];
+      }),
+      expected: [mkRecord(1)],
+    },
+    {
+      description: "lookup loses the race",
+      lookup: new Promise((r) => setTimeout(r, 1000, [mkRecord(123)])),
+      expected: [],
+      timeout: 100,
+    },
+    {
+      description: "lookup wins the race",
+      lookup: new Promise((r) => setTimeout(r, 100, [mkRecord(456)])),
+      expected: [mkRecord(456)],
+      timeout: 200,
+    },
+  ];
+
+  for (const { description, lookup, timeout, expected } of testCases) {
+    test(description, async () => {
+      try {
+        const ret = await discoverServicesStub(lookup, timeout || 0);
+        expect(ret).toStrictEqual(expected);
+      } catch (err: unknown) {
+        console.log(err);
+        expect(true).toStrictEqual(false);
+      }
+    });
+  }
+});
+
+test("orderRecordsByPriorityWeight does that", () => {
+  expect(
+    orderRecordsByPriorityWeight([
+      mkRecord(3, 3),
+      mkRecord(1000, 1),
+      mkRecord(2, 2),
+      mkRecord(1, 1),
+    ]),
+  ).toStrictEqual([
+    mkRecord(1000, 1),
+    mkRecord(1, 1),
+    mkRecord(2, 2),
+    mkRecord(3, 3),
+  ]);
+});
+
+test("weightedRandom handles empty and single-element records", () => {
+  try {
+    expect(weightedRandom([]), "one element passes through").toStrictEqual([]);
+
+    expect(
+      weightedRandom([mkRecord(1)]),
+      "empty lists aren't crashing",
+    ).toStrictEqual([mkRecord(1)]);
+  } catch (err: unknown) {
+    console.log(err);
+    expect(true).toStrictEqual(false);
+  }
+});
+
+test("weightedRandom orders records acceptably predictably", () => {
+  try {
+    const records: SrvRecord[] = [mkRecord(1), mkRecord(2), mkRecord(3)];
+
+    const counts: Map<number, number> = new Map();
+    counts.set(1, 0);
+    counts.set(2, 0);
+    counts.set(3, 0);
+
+    const iterations = 1_000;
+
+    for (let i = 0; i < iterations; i++) {
+      const weighted = weightedRandom(records);
+      counts.set(weighted[0].weight, counts.get(weighted[0].weight)! + 1);
+    }
+
+    const firstPlaceSum1 = counts.get(1)!;
+    const firstPlaceSum2 = counts.get(2)!;
+    const firstPlaceSum3 = counts.get(3)!;
+
+    assert.equal(firstPlaceSum1 + firstPlaceSum2 + firstPlaceSum3, iterations);
+
+    assert.closeTo(
+      firstPlaceSum3 / iterations,
+      3 / 6,
+      1 / 6,
+      "3 should be first approximately 3/6 of the time",
+    );
+    assert.closeTo(
+      firstPlaceSum2 / iterations,
+      2 / 6,
+      1 / 6,
+      "2 should be first approximately 2/6 of the time",
+    );
+    assert.closeTo(
+      firstPlaceSum1 / iterations,
+      1 / 6,
+      1 / 6,
+      "1 should be first approximately 1/6 of the time",
+    );
+  } catch (err: unknown) {
+    console.log(err);
+    expect(true).toStrictEqual(false);
+  }
+});

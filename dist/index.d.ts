@@ -117,7 +117,7 @@ type ActionOptions = {
     fetchStyle: FetchSuffixStyle;
     legacySourcePrefix?: string;
     requireNix: NixRequirementHandling;
-    diagnosticsUrl?: URL | null;
+    diagnosticsSuffix?: string;
 };
 declare abstract class DetSysAction {
     nixStoreTrust: NixStoreTrust;
@@ -133,6 +133,7 @@ declare abstract class DetSysAction {
     private facts;
     private events;
     private identity;
+    private idsHost;
     private determineExecutionPhase;
     constructor(actionOptions: ActionOptions);
     /**
@@ -158,7 +159,7 @@ declare abstract class DetSysAction {
     execute(): void;
     getTemporaryName(): string;
     addFact(key: string, value: string | boolean): void;
-    getDiagnosticsUrl(): URL | undefined;
+    getDiagnosticsUrl(): Promise<URL | undefined>;
     getUniqueId(): string;
     getCorrelationHashes(): AnonymizedCorrelationHashes;
     recordEvent(eventName: string, context?: Record<string, unknown>): void;
