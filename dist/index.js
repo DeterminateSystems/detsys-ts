@@ -401,7 +401,11 @@ async function discoverServiceRecords() {
 async function discoverServicesStub(lookup, timeout) {
   const defaultFallback = new Promise(
     (resolve, _reject) => {
-      setTimeout(resolve, timeout, []);
+      if (timeout === 0) {
+        resolve([]);
+      } else {
+        setTimeout(resolve, timeout, []);
+      }
     }
   );
   let records;
