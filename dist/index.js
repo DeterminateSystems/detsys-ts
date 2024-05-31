@@ -83,9 +83,9 @@ async function readAsyncOsReleaseFile(fileList, options) {
 ${fileData}`);
       }
       break;
-    } catch (error2) {
+    } catch (error3) {
       if (options.debug) {
-        console.error(error2);
+        console.error(error3);
       }
     }
   }
@@ -107,9 +107,9 @@ function readSyncOsreleaseFile(releaseFileList, options) {
 ${fileData}`);
       }
       break;
-    } catch (error2) {
+    } catch (error3) {
       if (options.debug) {
-        console.error(error2);
+        console.error(error3);
       }
     }
   }
@@ -301,6 +301,192 @@ function hashEnvironmentVariables(prefix, variables) {
   return `${prefix}-${hash.digest("hex")}`;
 }
 
+// src/errors.ts
+function stringifyError(e) {
+  if (e instanceof Error) {
+    return e.message;
+  } else if (typeof e === "string") {
+    return e;
+  } else {
+    return JSON.stringify(e);
+  }
+}
+
+// src/ids-host.ts
+import * as actionsCore3 from "@actions/core";
+import { resolveSrv } from "node:dns/promises";
+var DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
+var ALLOWED_SUFFIXES = [
+  ".install.determinate.systems",
+  ".install.detsys.dev"
+];
+var DEFAULT_IDS_HOST = "https://install.determinate.systems";
+var LOOKUP = process.env["IDS_LOOKUP"] ?? DEFAULT_LOOKUP;
+var IdsHost = class {
+  constructor(idsProjectName, diagnosticsSuffix, runtimeDiagnosticsUrl) {
+    this.idsProjectName = idsProjectName;
+    this.diagnosticsSuffix = diagnosticsSuffix;
+    this.runtimeDiagnosticsUrl = runtimeDiagnosticsUrl;
+  }
+  markCurrentHostBroken() {
+    this.prioritizedURLs?.shift();
+  }
+  setPrioritizedUrls(urls) {
+    this.prioritizedURLs = urls;
+  }
+  async getRootUrl() {
+    const idsHost = process.env["IDS_HOST"];
+    if (idsHost !== void 0) {
+      try {
+        return new URL(idsHost);
+      } catch (err) {
+        actionsCore3.error(
+          `IDS_HOST environment variable is not a valid URL. Ignoring. ${stringifyError(err)}`
+        );
+      }
+    }
+    let url = void 0;
+    try {
+      const urls = await this.getUrlsByPreference();
+      url = urls[0];
+    } catch (err) {
+      actionsCore3.error(
+        `Error collecting IDS URLs by preference: ${stringifyError(err)}`
+      );
+    }
+    if (url === void 0) {
+      url = new URL(DEFAULT_IDS_HOST);
+    }
+    return new URL(url);
+  }
+  async getDiagnosticsUrl() {
+    if (this.runtimeDiagnosticsUrl === "") {
+      return void 0;
+    }
+    if (this.runtimeDiagnosticsUrl !== "-" && this.runtimeDiagnosticsUrl !== void 0) {
+      try {
+        return new URL(this.runtimeDiagnosticsUrl);
+      } catch (err) {
+        actionsCore3.info(
+          `User-provided diagnostic endpoint ignored: not a valid URL: ${stringifyError(err)}`
+        );
+      }
+    }
+    try {
+      const diagnosticUrl = await this.getRootUrl();
+      diagnosticUrl.pathname += this.idsProjectName;
+      diagnosticUrl.pathname += "/";
+      diagnosticUrl.pathname += this.diagnosticsSuffix || "diagnostics";
+      return diagnosticUrl;
+    } catch (err) {
+      actionsCore3.info(
+        `Generated diagnostic endpoint ignored, and diagnostics are disabled: not a valid URL: ${stringifyError(err)}`
+      );
+      return void 0;
+    }
+  }
+  async getUrlsByPreference() {
+    if (this.prioritizedURLs === void 0) {
+      this.prioritizedURLs = orderRecordsByPriorityWeight(
+        await discoverServiceRecords()
+      ).flatMap((record) => recordToUrl(record) || []);
+    }
+    return this.prioritizedURLs;
+  }
+};
+function recordToUrl(record) {
+  const urlStr = `https://${record.name}:${record.port}`;
+  try {
+    return new URL(urlStr);
+  } catch (err) {
+    actionsCore3.debug(
+      `Record ${JSON.stringify(record)} produced an invalid URL: ${urlStr} (${err})`
+    );
+    return void 0;
+  }
+}
+async function discoverServiceRecords() {
+  return await discoverServicesStub(resolveSrv(LOOKUP), 1e3);
+}
+async function discoverServicesStub(lookup, timeout) {
+  const defaultFallback = new Promise(
+    (resolve, _reject) => {
+      setTimeout(resolve, timeout, []);
+    }
+  );
+  let records;
+  try {
+    records = await Promise.race([lookup, defaultFallback]);
+  } catch (reason) {
+    actionsCore3.debug(`Error resolving SRV records: ${stringifyError(reason)}`);
+    records = [];
+  }
+  const acceptableRecords = records.filter((record) => {
+    for (const suffix of ALLOWED_SUFFIXES) {
+      if (record.name.endsWith(suffix)) {
+        return true;
+      }
+    }
+    actionsCore3.debug(
+      `Unacceptable domain due to an invalid suffix: ${record.name}`
+    );
+    return false;
+  });
+  if (acceptableRecords.length === 0) {
+    actionsCore3.debug(`No records found for ${LOOKUP}`);
+  } else {
+    actionsCore3.debug(
+      `Resolved ${LOOKUP} to ${JSON.stringify(acceptableRecords)}`
+    );
+  }
+  return acceptableRecords;
+}
+function orderRecordsByPriorityWeight(records) {
+  const byPriorityWeight = /* @__PURE__ */ new Map();
+  for (const record of records) {
+    const existing = byPriorityWeight.get(record.priority);
+    if (existing) {
+      existing.push(record);
+    } else {
+      byPriorityWeight.set(record.priority, [record]);
+    }
+  }
+  const prioritizedRecords = [];
+  const keys = Array.from(byPriorityWeight.keys()).sort(
+    (a, b) => a - b
+  );
+  for (const priority of keys) {
+    const recordsByPrio = byPriorityWeight.get(priority);
+    if (recordsByPrio === void 0) {
+      continue;
+    }
+    prioritizedRecords.push(...weightedRandom(recordsByPrio));
+  }
+  return prioritizedRecords;
+}
+function weightedRandom(records) {
+  const scratchRecords = records.slice();
+  const result = [];
+  while (scratchRecords.length > 0) {
+    const weights = [];
+    {
+      for (let i = 0; i < scratchRecords.length; i++) {
+        weights.push(
+          scratchRecords[i].weight + (i > 0 ? scratchRecords[i - 1].weight : 0)
+        );
+      }
+    }
+    const point = Math.random() * weights[weights.length - 1];
+    for (let selectedIndex = 0; selectedIndex < weights.length; selectedIndex++) {
+      if (weights[selectedIndex] > point) {
+        result.push(scratchRecords.splice(selectedIndex, 1)[0]);
+        break;
+      }
+    }
+  }
+  return result;
+}
+
 // src/inputs.ts
 var inputs_exports = {};
 __export(inputs_exports, {
@@ -314,9 +500,9 @@ __export(inputs_exports, {
   getStringOrUndefined: () => getStringOrUndefined,
   handleString: () => handleString
 });
-import * as actionsCore3 from "@actions/core";
+import * as actionsCore4 from "@actions/core";
 var getBool = (name) => {
-  return actionsCore3.getBooleanInput(name);
+  return actionsCore4.getBooleanInput(name);
 };
 var getArrayOfStrings = (name, separator) => {
   const original = getString(name);
@@ -339,7 +525,7 @@ var handleString = (input, separator) => {
   return trimmed.split(sepChar).map((s) => s.trim());
 };
 var getMultilineStringOrNull = (name) => {
-  const value = actionsCore3.getMultilineInput(name);
+  const value = actionsCore4.getMultilineInput(name);
   if (value.length === 0) {
     return null;
   } else {
@@ -347,7 +533,7 @@ var getMultilineStringOrNull = (name) => {
   }
 };
 var getNumberOrNull = (name) => {
-  const value = actionsCore3.getInput(name);
+  const value = actionsCore4.getInput(name);
   if (value === "") {
     return null;
   } else {
@@ -355,10 +541,10 @@ var getNumberOrNull = (name) => {
   }
 };
 var getString = (name) => {
-  return actionsCore3.getInput(name);
+  return actionsCore4.getInput(name);
 };
 var getStringOrNull = (name) => {
-  const value = actionsCore3.getInput(name);
+  const value = actionsCore4.getInput(name);
   if (value === "") {
     return null;
   } else {
@@ -366,7 +552,7 @@ var getStringOrNull = (name) => {
   }
 };
 var getStringOrUndefined = (name) => {
-  const value = actionsCore3.getInput(name);
+  const value = actionsCore4.getInput(name);
   if (value === "") {
     return void 0;
   } else {
@@ -380,14 +566,14 @@ __export(platform_exports, {
   getArchOs: () => getArchOs,
   getNixPlatform: () => getNixPlatform
 });
-import * as actionsCore4 from "@actions/core";
+import * as actionsCore5 from "@actions/core";
 function getArchOs() {
   const envArch = process.env.RUNNER_ARCH;
   const envOs = process.env.RUNNER_OS;
   if (envArch && envOs) {
     return `${envArch}-${envOs}`;
   } else {
-    actionsCore4.error(
+    actionsCore5.error(
       `Can't identify the platform: RUNNER_ARCH or RUNNER_OS undefined (${envArch}-${envOs})`
     );
     throw new Error("RUNNER_ARCH and/or RUNNER_OS is not defined");
@@ -404,7 +590,7 @@ function getNixPlatform(archOs) {
   if (mappedTo) {
     return mappedTo;
   } else {
-    actionsCore4.error(
+    actionsCore5.error(
       `ArchOs (${archOs}) doesn't map to a supported Nix platform.`
     );
     throw new Error(
@@ -414,7 +600,7 @@ function getNixPlatform(archOs) {
 }
 
 // src/sourcedef.ts
-import * as actionsCore5 from "@actions/core";
+import * as actionsCore6 from "@actions/core";
 function constructSourceParameters(legacyPrefix) {
   return {
     path: noisilyGetInput("path", legacyPrefix),
@@ -432,12 +618,12 @@ function noisilyGetInput(suffix, legacyPrefix) {
   }
   const legacyInput = getStringOrUndefined(`${legacyPrefix}-${suffix}`);
   if (preferredInput && legacyInput) {
-    actionsCore5.warning(
+    actionsCore6.warning(
       `The supported option source-${suffix} and the legacy option ${legacyPrefix}-${suffix} are both set. Preferring source-${suffix}. Please stop setting ${legacyPrefix}-${suffix}.`
     );
     return preferredInput;
   } else if (legacyInput) {
-    actionsCore5.warning(
+    actionsCore6.warning(
       `The legacy option ${legacyPrefix}-${suffix} is set. Please migrate to source-${suffix}.`
     );
     return legacyInput;
@@ -448,7 +634,7 @@ function noisilyGetInput(suffix, legacyPrefix) {
 
 // src/index.ts
 import * as actionsCache from "@actions/cache";
-import * as actionsCore6 from "@actions/core";
+import * as actionsCore7 from "@actions/core";
 import * as actionsExec from "@actions/exec";
 import got from "got";
 import { exec as exec3 } from "node:child_process";
@@ -461,21 +647,6 @@ import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { promisify as promisify2 } from "node:util";
 import { gzip } from "node:zlib";
-
-// src/errors.ts
-function stringifyError(e) {
-  if (e instanceof Error) {
-    return e.message;
-  } else if (typeof e === "string") {
-    return e;
-  } else {
-    return JSON.stringify(e);
-  }
-}
-
-// src/index.ts
-var DEFAULT_IDS_HOST = "https://install.determinate.systems";
-var IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 var EVENT_EXCEPTION = "exception";
 var EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
 var EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
@@ -499,9 +670,9 @@ var STATE_NOT_FOUND = "not-found";
 var DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 3e4;
 var DetSysAction = class {
   determineExecutionPhase() {
-    const currentPhase = actionsCore6.getState(STATE_KEY_EXECUTION_PHASE);
+    const currentPhase = actionsCore7.getState(STATE_KEY_EXECUTION_PHASE);
     if (currentPhase === "") {
-      actionsCore6.saveState(STATE_KEY_EXECUTION_PHASE, "post");
+      actionsCore7.saveState(STATE_KEY_EXECUTION_PHASE, "post");
       return "main";
     } else {
       return "post";
@@ -509,6 +680,13 @@ var DetSysAction = class {
   }
   constructor(actionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
+    this.idsHost = new IdsHost(
+      this.actionOptions.idsProjectName,
+      actionOptions.diagnosticsSuffix,
+      // Note: we don't use actionsCore.getInput('diagnostic-endpoint') on purpose:
+      // getInput silently converts absent data to an empty string.
+      process.env["INPUT_DIAGNOSTIC-ENDPOINT"]
+    );
     this.exceptionAttachments = /* @__PURE__ */ new Map();
     this.nixStoreTrust = "unknown";
     this.strictMode = getBool("_internal-strict-mode");
@@ -520,9 +698,9 @@ var DetSysAction = class {
       },
       hooks: {
         beforeRetry: [
-          (error2, retryCount) => {
-            actionsCore6.info(
-              `Retrying after error ${error2.code}, retry #: ${retryCount}`
+          (error3, retryCount) => {
+            actionsCore7.info(
+              `Retrying after error ${error3.code}, retry #: ${retryCount}`
             );
           }
         ]
@@ -561,7 +739,7 @@ var DetSysAction = class {
           this.addFact(FACT_OS_VERSION, details.version);
         }
       }).catch((e) => {
-        actionsCore6.debug(
+        actionsCore7.debug(
           `Failure getting platform details: ${stringifyError2(e)}`
         );
       });
@@ -599,8 +777,8 @@ var DetSysAction = class {
    * Execute the Action as defined.
    */
   execute() {
-    this.executeAsync().catch((error2) => {
-      console.log(error2);
+    this.executeAsync().catch((error3) => {
+      console.log(error3);
       process.exitCode = 1;
     });
   }
@@ -611,8 +789,8 @@ var DetSysAction = class {
   addFact(key, value) {
     this.facts[key] = value;
   }
-  getDiagnosticsUrl() {
-    return this.actionOptions.diagnosticsUrl;
+  async getDiagnosticsUrl() {
+    return await this.idsHost.getDiagnosticsUrl();
   }
   getUniqueId() {
     return this.identity.run_differentiator || process.env.RUNNER_TRACKING_ID || randomUUID();
@@ -682,9 +860,9 @@ var DetSysAction = class {
       const reportable = stringifyError2(e);
       this.addFact(FACT_FINAL_EXCEPTION, reportable);
       if (this.isPost) {
-        actionsCore6.warning(reportable);
+        actionsCore7.warning(reportable);
       } else {
-        actionsCore6.setFailed(reportable);
+        actionsCore7.setFailed(reportable);
       }
       const doGzip = promisify2(gzip);
       const exceptionContext = /* @__PURE__ */ new Map();
@@ -718,15 +896,15 @@ var DetSysAction = class {
   async fetchArtifact() {
     const sourceBinary = getStringOrNull("source-binary");
     if (sourceBinary !== null && sourceBinary !== "") {
-      actionsCore6.debug(`Using the provided source binary at ${sourceBinary}`);
+      actionsCore7.debug(`Using the provided source binary at ${sourceBinary}`);
       return sourceBinary;
     }
-    actionsCore6.startGroup(
+    actionsCore7.startGroup(
       `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`
     );
     try {
-      actionsCore6.info(`Fetching from ${this.getSourceUrl()}`);
-      const correlatedUrl = this.getSourceUrl();
+      actionsCore7.info(`Fetching from ${await this.getSourceUrl()}`);
+      const correlatedUrl = await this.getSourceUrl();
       correlatedUrl.searchParams.set("ci", "github");
       correlatedUrl.searchParams.set(
         "correlation",
@@ -736,18 +914,18 @@ var DetSysAction = class {
       if (versionCheckup.headers.etag) {
         const v = versionCheckup.headers.etag;
         this.addFact(FACT_SOURCE_URL_ETAG, v);
-        actionsCore6.debug(
-          `Checking the tool cache for ${this.getSourceUrl()} at ${v}`
+        actionsCore7.debug(
+          `Checking the tool cache for ${await this.getSourceUrl()} at ${v}`
         );
         const cached = await this.getCachedVersion(v);
         if (cached) {
           this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = true;
-          actionsCore6.debug(`Tool cache hit.`);
+          actionsCore7.debug(`Tool cache hit.`);
           return cached;
         }
       }
       this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = false;
-      actionsCore6.debug(
+      actionsCore7.debug(
         `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`
       );
       const destFile = this.getTemporaryName();
@@ -764,12 +942,12 @@ var DetSysAction = class {
         try {
           await this.saveCachedVersion(v, destFile);
         } catch (e) {
-          actionsCore6.debug(`Error caching the artifact: ${stringifyError2(e)}`);
+          actionsCore7.debug(`Error caching the artifact: ${stringifyError2(e)}`);
         }
       }
       return destFile;
     } finally {
-      actionsCore6.endGroup();
+      actionsCore7.endGroup();
     }
   }
   /**
@@ -778,20 +956,20 @@ var DetSysAction = class {
    */
   failOnError(msg) {
     if (this.strictMode) {
-      actionsCore6.setFailed(`strict mode failure: ${msg}`);
+      actionsCore7.setFailed(`strict mode failure: ${msg}`);
     }
   }
   async complete() {
     this.recordEvent(`complete_${this.executionPhase}`);
     await this.submitEvents();
   }
-  getSourceUrl() {
+  async getSourceUrl() {
     const p = this.sourceParameters;
     if (p.url) {
       this.addFact(FACT_SOURCE_URL, p.url);
       return new URL(p.url);
     }
-    const fetchUrl = new URL(IDS_HOST);
+    const fetchUrl = await this.idsHost.getRootUrl();
     fetchUrl.pathname += this.actionOptions.idsProjectName;
     if (p.tag) {
       fetchUrl.pathname += `/tag/${p.tag}`;
@@ -867,28 +1045,28 @@ var DetSysAction = class {
       const candidateNix = path.join(location, "nix");
       try {
         await fs2.access(candidateNix, fs2.constants.X_OK);
-        actionsCore6.debug(`Found Nix at ${candidateNix}`);
+        actionsCore7.debug(`Found Nix at ${candidateNix}`);
         nixLocation = candidateNix;
         break;
       } catch {
-        actionsCore6.debug(`Nix not at ${candidateNix}`);
+        actionsCore7.debug(`Nix not at ${candidateNix}`);
       }
     }
     this.addFact(FACT_NIX_LOCATION, nixLocation || "");
     if (this.actionOptions.requireNix === "ignore") {
       return true;
     }
-    const currentNotFoundState = actionsCore6.getState(STATE_KEY_NIX_NOT_FOUND);
+    const currentNotFoundState = actionsCore7.getState(STATE_KEY_NIX_NOT_FOUND);
     if (currentNotFoundState === STATE_NOT_FOUND) {
       return false;
     }
     if (nixLocation !== void 0) {
       return true;
     }
-    actionsCore6.saveState(STATE_KEY_NIX_NOT_FOUND, STATE_NOT_FOUND);
+    actionsCore7.saveState(STATE_KEY_NIX_NOT_FOUND, STATE_NOT_FOUND);
     switch (this.actionOptions.requireNix) {
       case "fail":
-        actionsCore6.setFailed(
+        actionsCore7.setFailed(
           [
             "This action can only be used when Nix is installed.",
             "Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
@@ -896,7 +1074,7 @@ var DetSysAction = class {
         );
         break;
       case "warn":
-        actionsCore6.warning(
+        actionsCore7.warning(
           [
             "This action is in no-op mode because Nix is not installed.",
             "Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
@@ -947,11 +1125,12 @@ var DetSysAction = class {
     }
   }
   async submitEvents() {
-    if (this.actionOptions.diagnosticsUrl === void 0) {
-      actionsCore6.debug(
+    const diagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
+    if (diagnosticsUrl === void 0) {
+      actionsCore7.debug(
         "Diagnostics are disabled. Not sending the following events:"
       );
-      actionsCore6.debug(JSON.stringify(this.events, void 0, 2));
+      actionsCore7.debug(JSON.stringify(this.events, void 0, 2));
       return;
     }
     const batch = {
@@ -960,22 +1139,38 @@ var DetSysAction = class {
       events: this.events
     };
     try {
-      await this.client.post(this.actionOptions.diagnosticsUrl, {
+      await this.client.post(diagnosticsUrl, {
         json: batch,
         timeout: {
           request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS
         }
       });
     } catch (e) {
-      actionsCore6.debug(
+      actionsCore7.debug(
         `Error submitting diagnostics event: ${stringifyError2(e)}`
       );
+      this.idsHost.markCurrentHostBroken();
+      const secondaryDiagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
+      if (secondaryDiagnosticsUrl !== void 0) {
+        try {
+          await this.client.post(secondaryDiagnosticsUrl, {
+            json: batch,
+            timeout: {
+              request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS
+            }
+          });
+        } catch (err) {
+          actionsCore7.debug(
+            `Error submitting diagnostics event to secondary host (${secondaryDiagnosticsUrl}): ${stringifyError2(err)}`
+          );
+        }
+      }
     }
     this.events = [];
   }
 };
-function stringifyError2(error2) {
-  return error2 instanceof Error || typeof error2 == "string" ? error2.toString() : JSON.stringify(error2);
+function stringifyError2(error3) {
+  return error3 instanceof Error || typeof error3 == "string" ? error3.toString() : JSON.stringify(error3);
 }
 function makeOptionsConfident(actionOptions) {
   const idsProjectName = actionOptions.idsProjectName ?? actionOptions.name;
@@ -985,71 +1180,11 @@ function makeOptionsConfident(actionOptions) {
     eventPrefix: actionOptions.eventPrefix || "action:",
     fetchStyle: actionOptions.fetchStyle,
     legacySourcePrefix: actionOptions.legacySourcePrefix,
-    requireNix: actionOptions.requireNix,
-    diagnosticsUrl: determineDiagnosticsUrl(
-      idsProjectName,
-      actionOptions.diagnosticsUrl
-    )
+    requireNix: actionOptions.requireNix
   };
-  actionsCore6.debug("idslib options:");
-  actionsCore6.debug(JSON.stringify(finalOpts, void 0, 2));
+  actionsCore7.debug("idslib options:");
+  actionsCore7.debug(JSON.stringify(finalOpts, void 0, 2));
   return finalOpts;
-}
-function determineDiagnosticsUrl(idsProjectName, urlOption) {
-  if (urlOption === null) {
-    return void 0;
-  }
-  if (urlOption !== void 0) {
-    return urlOption;
-  }
-  {
-    const providedDiagnosticEndpoint = process.env["INPUT_DIAGNOSTIC-ENDPOINT"];
-    if (providedDiagnosticEndpoint === "") {
-      return void 0;
-    }
-    if (providedDiagnosticEndpoint !== void 0) {
-      try {
-        return mungeDiagnosticEndpoint(new URL(providedDiagnosticEndpoint));
-      } catch (e) {
-        actionsCore6.info(
-          `User-provided diagnostic endpoint ignored: not a valid URL: ${stringifyError2(e)}`
-        );
-      }
-    }
-  }
-  try {
-    const diagnosticUrl = new URL(IDS_HOST);
-    diagnosticUrl.pathname += idsProjectName;
-    diagnosticUrl.pathname += "/diagnostics";
-    return diagnosticUrl;
-  } catch (e) {
-    actionsCore6.info(
-      `Generated diagnostic endpoint ignored: not a valid URL: ${stringifyError2(e)}`
-    );
-  }
-  return void 0;
-}
-function mungeDiagnosticEndpoint(inputUrl) {
-  if (DEFAULT_IDS_HOST === IDS_HOST) {
-    return inputUrl;
-  }
-  try {
-    const defaultIdsHost = new URL(DEFAULT_IDS_HOST);
-    const currentIdsHost = new URL(IDS_HOST);
-    if (inputUrl.origin !== defaultIdsHost.origin) {
-      return inputUrl;
-    }
-    inputUrl.protocol = currentIdsHost.protocol;
-    inputUrl.host = currentIdsHost.host;
-    inputUrl.username = currentIdsHost.username;
-    inputUrl.password = currentIdsHost.password;
-    return inputUrl;
-  } catch (e) {
-    actionsCore6.info(
-      `Default or overridden IDS host isn't a valid URL: ${stringifyError2(e)}`
-    );
-  }
-  return inputUrl;
 }
 export {
   DetSysAction,

@@ -5,6 +5,7 @@
 import { version as pkgVersion } from "../package.json";
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import * as correlation from "./correlation.js";
+import { IdsHost } from "./ids-host.js";
 import { getBool, getStringOrNull } from "./inputs.js";
 import * as platform from "./platform.js";
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
@@ -22,9 +23,6 @@ import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
-
-const DEFAULT_IDS_HOST = "https://install.determinate.systems";
-const IDS_HOST = process.env["IDS_HOST"] ?? DEFAULT_IDS_HOST;
 
 const EVENT_EXCEPTION = "exception";
 const EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
@@ -109,12 +107,12 @@ export type ActionOptions = {
   // The action will emit a user-visible warning instructing them to install Nix.
   requireNix: NixRequirementHandling;
 
-  // The URL to send diagnostics events to.
-  // Specifically:
-  //  * `undefined` -> Attempt to read the `diagnostic-enpdoint` action input, and calculate the default diagnostics URL for IDS from there.
-  //  * `null` -> Disable sending diagnostics altogether.
-  //  * URL(...) -> Send diagnostics to this other URL instead
-  diagnosticsUrl?: URL | null;
+  // The URL suffix to send diagnostics events to.
+  //
+  // The final URL is constructed via IDS_HOST/idsProjectName/diagnosticsSuffix.
+  //
+  // Default: `diagnostics`.
+  diagnosticsSuffix?: string;
 };
 
 // A confident version of Options, where defaults have been resolved into final values
@@ -125,7 +123,7 @@ type ConfidentActionOptions = {
   fetchStyle: FetchSuffixStyle;
   legacySourcePrefix?: string;
   requireNix: NixRequirementHandling;
-  diagnosticsUrl?: URL;
+  providedDiagnosticsUrl?: URL;
 };
 
 type DiagnosticEvent = {
@@ -152,6 +150,7 @@ export abstract class DetSysAction {
   private facts: Record<string, string | boolean>;
   private events: DiagnosticEvent[];
   private identity: correlation.AnonymizedCorrelationHashes;
+  private idsHost: IdsHost;
 
   private determineExecutionPhase(): ExecutionPhase {
     const currentPhase = actionsCore.getState(STATE_KEY_EXECUTION_PHASE);
@@ -165,6 +164,13 @@ export abstract class DetSysAction {
 
   constructor(actionOptions: ActionOptions) {
     this.actionOptions = makeOptionsConfident(actionOptions);
+    this.idsHost = new IdsHost(
+      this.actionOptions.idsProjectName,
+      actionOptions.diagnosticsSuffix,
+      // Note: we don't use actionsCore.getInput('diagnostic-endpoint') on purpose:
+      // getInput silently converts absent data to an empty string.
+      process.env["INPUT_DIAGNOSTIC-ENDPOINT"],
+    );
     this.exceptionAttachments = new Map();
     this.nixStoreTrust = "unknown";
     this.strictMode = getBool("_internal-strict-mode");
@@ -301,8 +307,8 @@ export abstract class DetSysAction {
     this.facts[key] = value;
   }
 
-  getDiagnosticsUrl(): URL | undefined {
-    return this.actionOptions.diagnosticsUrl;
+  async getDiagnosticsUrl(): Promise<URL | undefined> {
+    return await this.idsHost.getDiagnosticsUrl();
   }
 
   getUniqueId(): string {
@@ -440,9 +446,9 @@ export abstract class DetSysAction {
     );
 
     try {
-      actionsCore.info(`Fetching from ${this.getSourceUrl()}`);
+      actionsCore.info(`Fetching from ${await this.getSourceUrl()}`);
 
-      const correlatedUrl = this.getSourceUrl();
+      const correlatedUrl = await this.getSourceUrl();
       correlatedUrl.searchParams.set("ci", "github");
       correlatedUrl.searchParams.set(
         "correlation",
@@ -455,7 +461,7 @@ export abstract class DetSysAction {
         this.addFact(FACT_SOURCE_URL_ETAG, v);
 
         actionsCore.debug(
-          `Checking the tool cache for ${this.getSourceUrl()} at ${v}`,
+          `Checking the tool cache for ${await this.getSourceUrl()} at ${v}`,
         );
         const cached = await this.getCachedVersion(v);
         if (cached) {
@@ -513,7 +519,7 @@ export abstract class DetSysAction {
     await this.submitEvents();
   }
 
-  private getSourceUrl(): URL {
+  private async getSourceUrl(): Promise<URL> {
     const p = this.sourceParameters;
 
     if (p.url) {
@@ -521,7 +527,7 @@ export abstract class DetSysAction {
       return new URL(p.url);
     }
 
-    const fetchUrl = new URL(IDS_HOST);
+    const fetchUrl = await this.idsHost.getRootUrl();
     fetchUrl.pathname += this.actionOptions.idsProjectName;
 
     if (p.tag) {
@@ -714,7 +720,8 @@ export abstract class DetSysAction {
   }
 
   private async submitEvents(): Promise<void> {
-    if (this.actionOptions.diagnosticsUrl === undefined) {
+    const diagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
+    if (diagnosticsUrl === undefined) {
       actionsCore.debug(
         "Diagnostics are disabled. Not sending the following events:",
       );
@@ -729,7 +736,7 @@ export abstract class DetSysAction {
     };
 
     try {
-      await this.client.post(this.actionOptions.diagnosticsUrl, {
+      await this.client.post(diagnosticsUrl, {
         json: batch,
         timeout: {
           request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS,
@@ -739,6 +746,23 @@ export abstract class DetSysAction {
       actionsCore.debug(
         `Error submitting diagnostics event: ${stringifyError(e)}`,
       );
+      this.idsHost.markCurrentHostBroken();
+
+      const secondaryDiagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
+      if (secondaryDiagnosticsUrl !== undefined) {
+        try {
+          await this.client.post(secondaryDiagnosticsUrl, {
+            json: batch,
+            timeout: {
+              request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS,
+            },
+          });
+        } catch (err: unknown) {
+          actionsCore.debug(
+            `Error submitting diagnostics event to secondary host (${secondaryDiagnosticsUrl}): ${stringifyError(err)}`,
+          );
+        }
+      }
     }
     this.events = [];
   }
@@ -762,94 +786,12 @@ function makeOptionsConfident(
     fetchStyle: actionOptions.fetchStyle,
     legacySourcePrefix: actionOptions.legacySourcePrefix,
     requireNix: actionOptions.requireNix,
-    diagnosticsUrl: determineDiagnosticsUrl(
-      idsProjectName,
-      actionOptions.diagnosticsUrl,
-    ),
   };
 
   actionsCore.debug("idslib options:");
   actionsCore.debug(JSON.stringify(finalOpts, undefined, 2));
 
   return finalOpts;
-}
-
-function determineDiagnosticsUrl(
-  idsProjectName: string,
-  urlOption?: URL | null,
-): undefined | URL {
-  if (urlOption === null) {
-    // Disable diagnostict events
-    return undefined;
-  }
-
-  if (urlOption !== undefined) {
-    // Caller specified a specific diagnostics URL
-    return urlOption;
-  }
-
-  {
-    // Attempt to use the action input's diagnostic-endpoint option.
-
-    // Note: we don't use actionsCore.getInput('diagnostic-endpoint') on purpose:
-    // getInput silently converts absent data to an empty string.
-    const providedDiagnosticEndpoint = process.env["INPUT_DIAGNOSTIC-ENDPOINT"];
-    if (providedDiagnosticEndpoint === "") {
-      // User probably explicitly turned it off
-      return undefined;
-    }
-
-    if (providedDiagnosticEndpoint !== undefined) {
-      try {
-        return mungeDiagnosticEndpoint(new URL(providedDiagnosticEndpoint));
-      } catch (e: unknown) {
-        actionsCore.info(
-          `User-provided diagnostic endpoint ignored: not a valid URL: ${stringifyError(e)}`,
-        );
-      }
-    }
-  }
-
-  try {
-    const diagnosticUrl = new URL(IDS_HOST);
-    diagnosticUrl.pathname += idsProjectName;
-    diagnosticUrl.pathname += "/diagnostics";
-    return diagnosticUrl;
-  } catch (e: unknown) {
-    actionsCore.info(
-      `Generated diagnostic endpoint ignored: not a valid URL: ${stringifyError(e)}`,
-    );
-  }
-
-  return undefined;
-}
-
-function mungeDiagnosticEndpoint(inputUrl: URL): URL {
-  if (DEFAULT_IDS_HOST === IDS_HOST) {
-    return inputUrl;
-  }
-
-  try {
-    const defaultIdsHost = new URL(DEFAULT_IDS_HOST);
-    const currentIdsHost = new URL(IDS_HOST);
-
-    if (inputUrl.origin !== defaultIdsHost.origin) {
-      return inputUrl;
-    }
-
-    inputUrl.protocol = currentIdsHost.protocol;
-    inputUrl.host = currentIdsHost.host;
-    inputUrl.username = currentIdsHost.username;
-    inputUrl.password = currentIdsHost.password;
-
-    return inputUrl;
-  } catch (e: unknown) {
-    actionsCore.info(
-      `Default or overridden IDS host isn't a valid URL: ${stringifyError(e)}`,
-    );
-  }
-
-  return inputUrl;
 }
 
 // Public exports from other files

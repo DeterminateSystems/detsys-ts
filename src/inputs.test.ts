@@ -1,7 +1,7 @@
 import { Separator, handleString } from "./inputs";
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 
-test("converting strings into arrays", () => {
+describe("converting strings into arrays", () => {
   type TestCase = {
     input: string;
     separator: Separator;
@@ -75,7 +75,9 @@ test("converting strings into arrays", () => {
     },
   ];
 
-  testCases.forEach(({ input, separator, expected }) =>
-    expect(handleString(input, separator)).toStrictEqual(expected),
-  );
+  for (const { input, separator, expected } of testCases) {
+    test(`Splitting ${JSON.stringify(input)} on ${JSON.stringify(separator)}`, () => {
+      expect(handleString(input, separator)).toStrictEqual(expected);
+    });
+  }
 });
