@@ -746,6 +746,23 @@ export abstract class DetSysAction {
       actionsCore.debug(
         `Error submitting diagnostics event: ${stringifyError(e)}`,
       );
+      this.idsHost.markCurrentHostBroken();
+
+      const secondaryDiagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
+      if (secondaryDiagnosticsUrl !== undefined) {
+        try {
+          await this.client.post(secondaryDiagnosticsUrl, {
+            json: batch,
+            timeout: {
+              request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS,
+            },
+          });
+        } catch (err: unknown) {
+          actionsCore.debug(
+            `Error submitting diagnostics event to secondary host (${secondaryDiagnosticsUrl}): ${stringifyError(err)}`,
+          );
+        }
+      }
     }
     this.events = [];
   }

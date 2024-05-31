@@ -33,6 +33,14 @@ export class IdsHost {
     this.runtimeDiagnosticsUrl = runtimeDiagnosticsUrl;
   }
 
+  markCurrentHostBroken(): void {
+    this.prioritizedURLs?.shift();
+  }
+
+  setPrioritizedUrls(urls: URL[]): void {
+    this.prioritizedURLs = urls;
+  }
+
   async getRootUrl(): Promise<URL> {
     const idsHost = process.env["IDS_HOST"];
     if (idsHost !== undefined) {

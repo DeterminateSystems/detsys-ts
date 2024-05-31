@@ -26,6 +26,39 @@ async function mkPromise<T>(lookup: () => T): Promise<T> {
   return lookup();
 }
 
+describe("getRootUrl", () => {
+  test("handles no URLs", async () => {
+    const host = new IdsHost("foo", "bar", "-");
+    host.setPrioritizedUrls([]);
+    expect(await host.getRootUrl()).toStrictEqual(
+      new URL("https://install.determinate.systems"),
+    );
+  });
+
+  test("handles multiple URLs", async () => {
+    const host = new IdsHost("foo", "bar", "-");
+    host.setPrioritizedUrls(["https://foo/", "https://bar/"]);
+    expect(await host.getRootUrl()).toStrictEqual(new URL("https://foo"));
+  });
+
+  test("falls back on downed URL", async () => {
+    const host = new IdsHost("foo", "bar", "-");
+    host.setPrioritizedUrls(["https://foo/", "https://bar/"]);
+    expect(await host.getRootUrl()).toStrictEqual(new URL("https://foo"));
+    host.markCurrentHostBroken();
+    expect(await host.getRootUrl()).toStrictEqual(new URL("https://bar"));
+    host.markCurrentHostBroken();
+    expect(await host.getRootUrl()).toStrictEqual(
+      new URL("https://install.determinate.systems"),
+    );
+    host.markCurrentHostBroken();
+    host.markCurrentHostBroken();
+    expect(await host.getRootUrl()).toStrictEqual(
+      new URL("https://install.determinate.systems"),
+    );
+  });
+});
+
 describe("getDiagnosticsUrl", () => {
   type TestCase = {
     description: string;

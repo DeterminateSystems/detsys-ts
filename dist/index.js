@@ -328,6 +328,12 @@ var IdsHost = class {
     this.diagnosticsSuffix = diagnosticsSuffix;
     this.runtimeDiagnosticsUrl = runtimeDiagnosticsUrl;
   }
+  markCurrentHostBroken() {
+    this.prioritizedURLs?.shift();
+  }
+  setPrioritizedUrls(urls) {
+    this.prioritizedURLs = urls;
+  }
   async getRootUrl() {
     const idsHost = process.env["IDS_HOST"];
     if (idsHost !== void 0) {
@@ -1143,6 +1149,22 @@ var DetSysAction = class {
       actionsCore7.debug(
         `Error submitting diagnostics event: ${stringifyError2(e)}`
       );
+      this.idsHost.markCurrentHostBroken();
+      const secondaryDiagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
+      if (secondaryDiagnosticsUrl !== void 0) {
+        try {
+          await this.client.post(secondaryDiagnosticsUrl, {
+            json: batch,
+            timeout: {
+              request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS
+            }
+          });
+        } catch (err) {
+          actionsCore7.debug(
+            `Error submitting diagnostics event to secondary host (${secondaryDiagnosticsUrl}): ${stringifyError2(err)}`
+          );
+        }
+      }
     }
     this.events = [];
   }
