@@ -59,7 +59,9 @@ export class IdsHost {
       url = new URL(DEFAULT_IDS_HOST);
     }
 
-    return url;
+    // This is a load-bearing `new URL(url)` so that callers can't mutate
+    // getRootUrl's return value.
+    return new URL(url);
   }
 
   async getDiagnosticsUrl(): Promise<URL | undefined> {

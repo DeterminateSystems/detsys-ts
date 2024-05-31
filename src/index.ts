@@ -167,6 +167,8 @@ export abstract class DetSysAction {
     this.idsHost = new IdsHost(
       this.actionOptions.idsProjectName,
       actionOptions.diagnosticsSuffix,
+      // Note: we don't use actionsCore.getInput('diagnostic-endpoint') on purpose:
+      // getInput silently converts absent data to an empty string.
       process.env["INPUT_DIAGNOSTIC-ENDPOINT"],
     );
     this.exceptionAttachments = new Map();

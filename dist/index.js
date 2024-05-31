@@ -351,7 +351,7 @@ var IdsHost = class {
     if (url === void 0) {
       url = new URL(DEFAULT_IDS_HOST);
     }
-    return url;
+    return new URL(url);
   }
   async getDiagnosticsUrl() {
     if (this.runtimeDiagnosticsUrl === "") {
@@ -677,6 +677,8 @@ var DetSysAction = class {
     this.idsHost = new IdsHost(
       this.actionOptions.idsProjectName,
       actionOptions.diagnosticsSuffix,
+      // Note: we don't use actionsCore.getInput('diagnostic-endpoint') on purpose:
+      // getInput silently converts absent data to an empty string.
       process.env["INPUT_DIAGNOSTIC-ENDPOINT"]
     );
     this.exceptionAttachments = /* @__PURE__ */ new Map();
