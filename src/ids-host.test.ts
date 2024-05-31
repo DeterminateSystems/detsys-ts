@@ -7,22 +7,14 @@ import {
   weightedRandom,
 } from "./ids-host";
 import { SrvRecord } from "node:dns";
-import {
-  afterEach,
-  assert,
-  beforeEach,
-  describe,
-  expect,
-  test,
-  vi,
-} from "vitest";
+import { assert, describe, expect, test } from "vitest";
 
-function mkRecord(weight: number, priority: number = 0): SrvRecord {
+function mkRecord(weight: number, priority = 0, suffix = 'install.determinate.systems'): SrvRecord {
   return {
-    priority: priority,
+    weight,
+    priority,
     port: priority * 100 + weight,
-    weight: weight,
-    name: `${priority}.${weight}`,
+    name: `${priority}.${weight}.${suffix}`,
   };
 }
 
@@ -93,20 +85,16 @@ describe("getDiagnosticsUrl", () => {
     expectedUrl,
   } of testCases) {
     test(description, async () => {
-      try {
-        const preEnv = process.env["IDS_HOST"];
+      const preEnv = process.env["IDS_HOST"];
+      process.env["IDS_HOST"] = "https://install.determinate.systems";
 
-        const host = new IdsHost(idsProjectName, suffix, runtimeDiagnosticsUrl);
-        const diagUrl = await host.getDiagnosticsUrl();
-        process.env["IDS_HOST"] = preEnv;
+      const host = new IdsHost(idsProjectName, suffix, runtimeDiagnosticsUrl);
+      const diagUrl = await host.getDiagnosticsUrl();
+      process.env["IDS_HOST"] = preEnv;
 
-        expect(diagUrl).toStrictEqual(
-          expectedUrl ? new URL(expectedUrl) : undefined,
-        );
-      } catch (err: unknown) {
-        console.log(err);
-        expect(true).toStrictEqual(false);
-      }
+      expect(diagUrl).toStrictEqual(
+        expectedUrl ? new URL(expectedUrl) : undefined,
+      );
     });
   }
 });
@@ -155,59 +143,44 @@ describe("mungeDiagnosticEndpoint", () => {
     expectedUrl,
   } of testCases) {
     test(description, async () => {
-      try {
-        const ret = await mungeDiagnosticEndpoint(
-          new URL(inputUrl),
-          new URL(defaultHost),
-          new URL(effectiveHost),
-        );
-        expect(ret).toStrictEqual(new URL(expectedUrl));
-      } catch (err: unknown) {
-        console.log(err);
-        expect(true).toStrictEqual(false);
-      }
+      const ret = await mungeDiagnosticEndpoint(
+        new URL(inputUrl),
+        new URL(defaultHost),
+        new URL(effectiveHost),
+      );
+      expect(ret).toStrictEqual(new URL(expectedUrl));
     });
   }
 });
 
 describe("recordToUrl", () => {
   test("a valid record", () => {
-    try {
-      expect(
-        recordToUrl({
-          name: "hi",
-          port: 123,
-          priority: 1,
-          weight: 1,
-        }),
-      ).toStrictEqual(new URL("https://hi:123"));
-    } catch (err: unknown) {
-      console.log(err);
-      expect(true).toStrictEqual(false);
-    }
+    expect(
+      recordToUrl({
+        name: "hi",
+        port: 123,
+        priority: 1,
+        weight: 1,
+      }),
+    ).toStrictEqual(new URL("https://hi:123"));
   });
 
   test("an invalid record", () => {
-    try {
-      expect(
-        recordToUrl({
-          name: "!",
-          port: 99999999999,
-          priority: 1,
-          weight: 1,
-        }),
-      ).toStrictEqual(undefined);
-    } catch (err: unknown) {
-      console.log(err);
-      expect(true).toStrictEqual(false);
-    }
+    expect(
+      recordToUrl({
+        name: "!",
+        port: 99999999999,
+        priority: 1,
+        weight: 1,
+      }),
+    ).toStrictEqual(undefined);
   });
 });
 
 describe("discoverServicesStub", async () => {
   type TestCase = {
     description: string;
-    lookup: Promise<SrvRecord[]>;
+    lookup: () => Promise<SrvRecord[]>;
     timeout?: number;
     expected: SrvRecord[];
   };
@@ -215,41 +188,52 @@ describe("discoverServicesStub", async () => {
   const testCases: TestCase[] = [
     {
       description: "lookup has an exception",
-      lookup: new Promise((_resolve, reject) => reject(new Error("oops"))),
+      lookup: async () => { throw new Error("oops"); },
       expected: [],
-      timeout: 50,
+      timeout: 0,
     },
 
     {
       description: "basic in / out",
-      lookup: mkPromise(() => {
+      lookup: () => { return mkPromise(() => {
         return [mkRecord(1)];
-      }),
+      }) },
       expected: [mkRecord(1)],
     },
+
+    {
+      description: "Records with invalid suffixes are omitted",
+      lookup: () => { return mkPromise(() => {
+        return [
+          mkRecord(1, 1, 'mallory.com'),
+          mkRecord(1, 1, 'install.detsys.dev'),
+          mkRecord(1, 1, 'install.determinate.systems'),
+        ];
+      }) },
+      expected: [
+        mkRecord(1, 1, 'install.detsys.dev'),
+        mkRecord(1, 1, 'install.determinate.systems'),
+      ],
+    },
+
     {
       description: "lookup loses the race",
-      lookup: new Promise((r) => setTimeout(r, 1000, [mkRecord(123)])),
+      lookup: () => { return new Promise((r) => setTimeout(r, 1000, [mkRecord(123)])); },
       expected: [],
       timeout: 100,
     },
     {
       description: "lookup wins the race",
-      lookup: new Promise((r) => setTimeout(r, 100, [mkRecord(456)])),
+      lookup: () => { return new Promise((r) => setTimeout(r, 100, [mkRecord(456)])) },
       expected: [mkRecord(456)],
-      timeout: 200,
+      timeout: 1000,
     },
   ];
 
   for (const { description, lookup, timeout, expected } of testCases) {
     test(description, async () => {
-      try {
-        const ret = await discoverServicesStub(lookup, timeout || 0);
-        expect(ret).toStrictEqual(expected);
-      } catch (err: unknown) {
-        console.log(err);
-        expect(true).toStrictEqual(false);
-      }
+      const ret = await discoverServicesStub(lookup(), timeout || 0);
+      expect(ret).toStrictEqual(expected);
     });
   }
 });
@@ -271,61 +255,58 @@ test("orderRecordsByPriorityWeight does that", () => {
 });
 
 test("weightedRandom handles empty and single-element records", () => {
-  try {
-    expect(weightedRandom([]), "one element passes through").toStrictEqual([]);
+  expect(weightedRandom([]), "one element passes through").toStrictEqual([]);
 
-    expect(
-      weightedRandom([mkRecord(1)]),
-      "empty lists aren't crashing",
-    ).toStrictEqual([mkRecord(1)]);
-  } catch (err: unknown) {
-    console.log(err);
-    expect(true).toStrictEqual(false);
-  }
+  expect(
+    weightedRandom([mkRecord(1)]),
+    "empty lists aren't crashing",
+  ).toStrictEqual([mkRecord(1)]);
 });
 
 test("weightedRandom orders records acceptably predictably", () => {
-  try {
-    const records: SrvRecord[] = [mkRecord(1), mkRecord(2), mkRecord(3)];
+  const records: SrvRecord[] = [mkRecord(1), mkRecord(2), mkRecord(3)];
 
-    const counts: Map<number, number> = new Map();
-    counts.set(1, 0);
-    counts.set(2, 0);
-    counts.set(3, 0);
+  const counts: Map<number, number> = new Map();
+  counts.set(1, 0);
+  counts.set(2, 0);
+  counts.set(3, 0);
 
-    const iterations = 1_000;
+  const iterations = 1_000;
 
-    for (let i = 0; i < iterations; i++) {
-      const weighted = weightedRandom(records);
-      counts.set(weighted[0].weight, counts.get(weighted[0].weight)! + 1);
-    }
-
-    const firstPlaceSum1 = counts.get(1)!;
-    const firstPlaceSum2 = counts.get(2)!;
-    const firstPlaceSum3 = counts.get(3)!;
-
-    assert.equal(firstPlaceSum1 + firstPlaceSum2 + firstPlaceSum3, iterations);
-
-    assert.closeTo(
-      firstPlaceSum3 / iterations,
-      3 / 6,
-      1 / 6,
-      "3 should be first approximately 3/6 of the time",
+  for (let i = 0; i < iterations; i++) {
+    const weighted = weightedRandom(records);
+    counts.set(
+      weighted[0].weight,
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      counts.get(weighted[0].weight)! + 1,
     );
-    assert.closeTo(
-      firstPlaceSum2 / iterations,
-      2 / 6,
-      1 / 6,
-      "2 should be first approximately 2/6 of the time",
-    );
-    assert.closeTo(
-      firstPlaceSum1 / iterations,
-      1 / 6,
-      1 / 6,
-      "1 should be first approximately 1/6 of the time",
-    );
-  } catch (err: unknown) {
-    console.log(err);
-    expect(true).toStrictEqual(false);
   }
+
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  const firstPlaceSum1 = counts.get(1)!;
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  const firstPlaceSum2 = counts.get(2)!;
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  const firstPlaceSum3 = counts.get(3)!;
+
+  assert.equal(firstPlaceSum1 + firstPlaceSum2 + firstPlaceSum3, iterations);
+
+  assert.closeTo(
+    firstPlaceSum3 / iterations,
+    3 / 6,
+    1 / 6,
+    "3 should be first approximately 3/6 of the time",
+  );
+  assert.closeTo(
+    firstPlaceSum2 / iterations,
+    2 / 6,
+    1 / 6,
+    "2 should be first approximately 2/6 of the time",
+  );
+  assert.closeTo(
+    firstPlaceSum1 / iterations,
+    1 / 6,
+    1 / 6,
+    "1 should be first approximately 1/6 of the time",
+  );
 });

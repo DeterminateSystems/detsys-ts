@@ -8,6 +8,10 @@ import { SrvRecord } from "node:dns";
 import { resolveSrv } from "node:dns/promises";
 
 const DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
+const ALLOWED_SUFFIXES = [
+  ".install.determinate.systems",
+  ".install.detsys.dev",
+];
 
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const LOOKUP = process.env["IDS_LOOKUP"] ?? DEFAULT_LOOKUP;
@@ -166,13 +170,25 @@ export async function discoverServicesStub(
     records = [];
   }
 
-  if (records.length === 0) {
+  const acceptableRecords = records.filter((record: SrvRecord): boolean => {
+    for (const suffix of ALLOWED_SUFFIXES) {
+      if (record.name.endsWith(suffix)) {
+        return true;
+      }
+    }
+
+    actionsCore.debug(`Unacceptable domain due to an invalid suffix: ${record.name}`)
+
+    return false;
+  })
+
+  if (acceptableRecords.length === 0) {
     actionsCore.debug(`No records found for ${LOOKUP}`);
   } else {
-    actionsCore.debug(`Resolved ${LOOKUP} to ${JSON.stringify(records)}`);
+    actionsCore.debug(`Resolved ${LOOKUP} to ${JSON.stringify(acceptableRecords)}`);
   }
 
-  return records;
+  return acceptableRecords;
 }
 
 export function orderRecordsByPriorityWeight(
