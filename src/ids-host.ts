@@ -71,7 +71,10 @@ export class IdsHost {
       return undefined;
     }
 
-    if (this.runtimeDiagnosticsUrl !== undefined) {
+    if (
+      this.runtimeDiagnosticsUrl !== "-" &&
+      this.runtimeDiagnosticsUrl !== undefined
+    ) {
       try {
         // Caller specified a specific diagnostics URL
         return new URL(this.runtimeDiagnosticsUrl);

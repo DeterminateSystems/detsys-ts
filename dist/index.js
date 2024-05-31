@@ -357,7 +357,7 @@ var IdsHost = class {
     if (this.runtimeDiagnosticsUrl === "") {
       return void 0;
     }
-    if (this.runtimeDiagnosticsUrl !== void 0) {
+    if (this.runtimeDiagnosticsUrl !== "-" && this.runtimeDiagnosticsUrl !== void 0) {
       try {
         return new URL(this.runtimeDiagnosticsUrl);
       } catch (err) {

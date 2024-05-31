@@ -63,6 +63,15 @@ describe("getDiagnosticsUrl", () => {
 
     {
       description:
+        "'-' as the diagnostics URL means generate one (custom suffix)",
+      idsProjectName: "project-name",
+      suffix: "telemetry",
+      runtimeDiagnosticsUrl: "-",
+      expectedUrl: "https://install.determinate.systems/project-name/telemetry",
+    },
+
+    {
+      description:
         "No diagnostics URL provided means generate one (default suffix)",
       idsProjectName: "project-name",
       suffix: undefined,
