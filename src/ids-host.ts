@@ -1,6 +1,6 @@
 /**
  * @packageDocumentation
- * Determinate Systems' TypeScript library for creating GitHub Actions logic.
+ * Identifies and discovers backend servers for install.determinate.systems
  */
 import { stringifyError } from "./errors.js";
 import * as actionsCore from "@actions/core";
@@ -105,15 +105,6 @@ export class IdsHost {
       );
       return undefined;
     }
-    /*
-    try {
-
-    } catch (e: unknown) {
-      actionsCore.info(
-        `Generated diagnostic endpoint ignored: not a valid URL: ${stringifyError(e)}`,
-      );
-    }
-    */
   }
 
   private async getUrlsByPreference(): Promise<URL[]> {
