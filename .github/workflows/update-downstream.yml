@@ -1,0 +1,72 @@
+name: Update downstream
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  update-downstream-repos:
+    name: Pull request detsys-ts update to ${{ github.repository_owner }}/${{ matrix.repo }}
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        repo:
+          - flake-checker-action
+          - flakehub-push
+          - flakehub-mirror
+          - magic-nix-cache-action
+          - nix-installer-action
+          - update-flake-lock
+    env:
+      REF: ${{ github.sha }}
+      GIT_USER: ${{ github.actor }}
+      GIT_EMAIL: ${{ github.actor }}@users.noreply.github.com
+      REPO: ${{ github.repository_owner }}/${{ matrix.repo }}
+      SOURCE_REPO: ${{ github.repository }}
+      SOURCE_PR: ${{ github.repository_owner }}/${{ matrix.repo }}#${{ github.event.pull_request.number }}
+      SOURCE_PR_URL: https://github.com/${{ github.repository_owner }}/${{ matrix.repo }}/${{ github.event.pull_request.number }}
+    steps:
+      - name: Check out ${{ env.REPO }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.REPO }}
+          token: ${{ github.token }}
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Set up Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Configure Git for ${{ env.GIT_USER }}
+        run: |
+          git config user.name "${{ env.GIT_USER }}"
+          git config user.email "${{ env.GIT_EMAIL }}"
+
+      - name: Update detsys-ts dependency for ${{ env.REPO }} to ref ${{ env.REF }}
+        run: |
+          nix develop --command pnpm update detsys-ts
+          nix develop --command pnpm all
+
+      - name: Commit changes
+        run: |
+          git add .
+
+          if [[ $(git status -s) ]]; then
+            git commit \
+              --message "update(deps): update detsys-ts dependency to ${{ env.REF }} and rebuild dist directory" \
+              --no-verify
+
+            echo "updated detsys-ts dependency to ${{ env.REF }} and rebuilt dist directory"
+          else
+            echo "error: pnpm dependencies do not seem to have changed"
+            exit 1
+          fi
+
+      - name: Create pull request against ${{ env.REPO }}
+        run: |
+          gh pr create \
+            --repo ${{ env.REPO }} \
+            --title "Update detsys-ts dependency and dist directory (trigged by ${{ env.SOURCE_REPO }})" \
+            --body "Bump detsys-ts to ${{ env.REF }} and regenerate application bundle. See [${{ env.SOURCE_PR }}](${{ env.SOURCE_PR_URL }}) for the triggering pull request."
