@@ -464,7 +464,7 @@ export abstract class DetSysAction {
         );
       }
 
-      for (const maintenance of checkin.status.scheduled_maintenance) {
+      for (const maintenance of checkin.status.scheduled_maintenances) {
         summaries.push(
           `${impactSymbol.get(maintenance.impact) || defaultImpactSymbol} ${maintenance.status.replace("_", " ")}: ${maintenance.name} (${maintenance.shortlink})`,
         );

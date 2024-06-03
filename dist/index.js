@@ -923,7 +923,7 @@ var DetSysAction = class {
           `${impactSymbol.get(incident.impact) || defaultImpactSymbol} ${incident.status.replace("_", " ")}: ${incident.name} (${incident.shortlink})`
         );
       }
-      for (const maintenance of checkin.status.scheduled_maintenance) {
+      for (const maintenance of checkin.status.scheduled_maintenances) {
         summaries.push(
           `${impactSymbol.get(maintenance.impact) || defaultImpactSymbol} ${maintenance.status.replace("_", " ")}: ${maintenance.name} (${maintenance.shortlink})`
         );

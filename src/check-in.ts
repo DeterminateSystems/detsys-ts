@@ -6,7 +6,7 @@ export type CheckIn = {
 export type StatusSummary = {
   page: Page;
   incidents: Incident[];
-  scheduled_maintenance: Maintenance[];
+  scheduled_maintenances: Maintenance[];
 };
 
 export type Page = {
