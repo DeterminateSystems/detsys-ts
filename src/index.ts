@@ -331,8 +331,12 @@ export abstract class DetSysAction {
   }
 
   recordEvent(eventName: string, context: Record<string, unknown> = {}): void {
+    const prefixedName =
+      eventName === "$feature_flag_called"
+        ? eventName
+        : `${this.actionOptions.eventPrefix}${eventName}`;
     this.events.push({
-      event_name: `${this.actionOptions.eventPrefix}${eventName}`,
+      event_name: prefixedName,
       context,
       correlation: this.identity,
       facts: this.facts,
@@ -473,7 +477,7 @@ export abstract class DetSysAction {
       if (summaries.length > 0) {
         actionsCore.info(
           // Bright red, Bold, Underline
-          `${"\u001b[38;2;255;0;0m"}${"\u001b[1m"}${"\u001b[4m"}${checkin.status.page.name} Status`,
+          `${"\u001b[0;31m"}${"\u001b[1m"}${"\u001b[4m"}${checkin.status.page.name} Status`,
         );
         for (const notice of summaries) {
           actionsCore.info(notice);

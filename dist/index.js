@@ -810,8 +810,9 @@ var DetSysAction = class {
     return this.identity;
   }
   recordEvent(eventName, context = {}) {
+    const prefixedName = eventName === "$feature_flag_called" ? eventName : `${this.actionOptions.eventPrefix}${eventName}`;
     this.events.push({
-      event_name: `${this.actionOptions.eventPrefix}${eventName}`,
+      event_name: prefixedName,
       context,
       correlation: this.identity,
       facts: this.facts,
@@ -931,7 +932,7 @@ var DetSysAction = class {
       if (summaries.length > 0) {
         actionsCore7.info(
           // Bright red, Bold, Underline
-          `${"\x1B[38;2;255;0;0m"}${"\x1B[1m"}${"\x1B[4m"}${checkin.status.page.name} Status`
+          `${"\x1B[0;31m"}${"\x1B[1m"}${"\x1B[4m"}${checkin.status.page.name} Status`
         );
         for (const notice of summaries) {
           actionsCore7.info(notice);
