@@ -30,7 +30,7 @@ jobs:
       GIT_HEAD: ${{ github.actor }}:detsys-ts-update-${{ github.sha }}
       TARGET_REPO: ${{ github.repository_owner }}/${{ matrix.repo }}
       SOURCE_REPO: ${{ github.repository }}
-      GITHUB_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Check out ${{ env.TARGET_REPO }}
         uses: actions/checkout@v4
@@ -73,6 +73,8 @@ jobs:
 
       - name: Create pull request against ${{ env.TARGET_REPO }}
         run: |
+          echo "${{ env.GITHUB_TOKEN }}" | gh auth login --with-token
+
           gh pr create \
             --base ${{ env.GIT_BASE }} \
             --head ${{ env.GIT_HEAD }} \
