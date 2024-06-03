@@ -442,7 +442,7 @@ export abstract class DetSysAction {
     }
 
     this.features = checkin.options;
-    for (const [key, feature] of this.features) {
+    for (const [key, feature] of this.features.entries()) {
       this.featureEventMetadata.set(key, feature.variant);
     }
 
