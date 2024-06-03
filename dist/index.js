@@ -960,7 +960,11 @@ var DetSysAction = class {
    * 3. Get feature flag data so we can gently roll out new features.
    */
   async requestCheckIn() {
-    for (const checkInUrl = await this.getCheckInUrl(); checkInUrl !== void 0; this.idsHost.markCurrentHostBroken()) {
+    for (let attemptsRemaining = 5; attemptsRemaining > 0; attemptsRemaining--) {
+      const checkInUrl = await this.getCheckInUrl();
+      if (checkInUrl === void 0) {
+        return void 0;
+      }
       try {
         actionsCore7.debug(`Preflighting via ${checkInUrl}`);
         checkInUrl.searchParams.set("ci", "github");
@@ -975,6 +979,7 @@ var DetSysAction = class {
         }).json();
       } catch (e) {
         actionsCore7.debug(`Error checking in: ${stringifyError2(e)}`);
+        this.idsHost.markCurrentHostBroken();
       }
     }
     return void 0;

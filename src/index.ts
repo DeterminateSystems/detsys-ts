@@ -507,10 +507,15 @@ export abstract class DetSysAction {
    */
   private async requestCheckIn(): Promise<CheckIn | undefined> {
     for (
-      const checkInUrl = await this.getCheckInUrl();
-      checkInUrl !== undefined;
-      this.idsHost.markCurrentHostBroken()
+      let attemptsRemaining = 5;
+      attemptsRemaining > 0;
+      attemptsRemaining--
     ) {
+      const checkInUrl = await this.getCheckInUrl();
+      if (checkInUrl === undefined) {
+        return undefined;
+      }
+
       try {
         actionsCore.debug(`Preflighting via ${checkInUrl}`);
 
@@ -529,6 +534,7 @@ export abstract class DetSysAction {
           .json();
       } catch (e: unknown) {
         actionsCore.debug(`Error checking in: ${stringifyError(e)}`);
+        this.idsHost.markCurrentHostBroken();
       }
     }
 
