@@ -22,6 +22,9 @@ jobs:
       REF_URL: https://github.com/${{ github.repository }}/tree/${{ github.sha }}
       GIT_USER: ${{ github.actor }}
       GIT_EMAIL: ${{ github.actor }}@users.noreply.github.com
+      GIT_BRANCH: detsys-ts-update-${{ github.sha }}
+      GIT_BASE: main
+      GIT_HEAD: ${{ github.actor }}:detsys-ts-update-${{ github.sha }}
       TARGET_REPO: ${{ github.repository_owner }}/${{ matrix.repo }}
       SOURCE_REPO: ${{ github.repository }}
       GITHUB_TOKEN: ${{ github.token }}
@@ -50,6 +53,8 @@ jobs:
 
       - name: Commit changes to package.json, pnpm-lock.yaml, and dist/
         run: |
+          git checkout -b ${{ env.GIT_BRANCH }}
+
           git add .
 
           if [[ $(git status -s) ]]; then
@@ -66,6 +71,8 @@ jobs:
       - name: Create pull request against ${{ env.TARGET_REPO }}
         run: |
           gh pr create \
+            --base ${{ env.GIT_BASE }} \
+            --head ${{ env.GIT_HEAD }} \
             --repo ${{ env.TARGET_REPO }} \
             --title "Update detsys-ts dependency and dist directory (trigged by ${{ env.SOURCE_REPO }})" \
             --body "Bump detsys-ts to [${{ env.REF }}](${{ env.REF_URL }}) and regenerate application bundle."
