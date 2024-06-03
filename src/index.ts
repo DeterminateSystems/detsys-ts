@@ -4,6 +4,7 @@
  */
 import { version as pkgVersion } from "../package.json";
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
+import { CheckIn, Feature } from "./check-in.js";
 import * as correlation from "./correlation.js";
 import { IdsHost } from "./ids-host.js";
 import { getBool, getStringOrNull } from "./inputs.js";
@@ -49,6 +50,7 @@ const STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
 const STATE_NOT_FOUND = "not-found";
 
 const DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 30_000; // 30 seconds in milliseconds
+const CHECK_IN_ENDPOINT_TIMEOUT_MS = 5_000; // 5 seconds in milliseconds
 
 /**
  * An enum for describing different "fetch suffixes" for i.d.s.
@@ -128,9 +130,10 @@ type ConfidentActionOptions = {
 
 type DiagnosticEvent = {
   event_name: string;
+  context: Record<string, unknown>;
   correlation: correlation.AnonymizedCorrelationHashes;
   facts: Record<string, string | boolean>;
-  context: Record<string, unknown>;
+  features: Map<string, string | boolean>;
   timestamp: Date;
   uuid: UUID;
 };
@@ -151,6 +154,8 @@ export abstract class DetSysAction {
   private events: DiagnosticEvent[];
   private identity: correlation.AnonymizedCorrelationHashes;
   private idsHost: IdsHost;
+  private features: Map<string, Feature>;
+  private featureEventMetadata: Map<string, string | boolean>;
 
   private determineExecutionPhase(): ExecutionPhase {
     const currentPhase = actionsCore.getState(STATE_KEY_EXECUTION_PHASE);
@@ -175,6 +180,8 @@ export abstract class DetSysAction {
     this.nixStoreTrust = "unknown";
     this.strictMode = getBool("_internal-strict-mode");
 
+    this.features = new Map();
+    this.featureEventMetadata = new Map();
     this.events = [];
     this.client = got.extend({
       retry: {
@@ -329,6 +336,7 @@ export abstract class DetSysAction {
       context,
       correlation: this.identity,
       facts: this.facts,
+      features: this.featureEventMetadata,
       timestamp: new Date(),
       uuid: randomUUID(),
     });
@@ -369,6 +377,8 @@ export abstract class DetSysAction {
 
   private async executeAsync(): Promise<void> {
     try {
+      await this.checkIn();
+
       process.env.DETSYS_CORRELATION = JSON.stringify(
         this.getCorrelationHashes(),
       );
@@ -423,6 +433,106 @@ export abstract class DetSysAction {
     } finally {
       await this.complete();
     }
+  }
+
+  private async checkIn(): Promise<void> {
+    const checkin = await this.requestCheckIn();
+    if (checkin === undefined) {
+      return;
+    }
+
+    this.features = checkin.options;
+    for (const [key, feature] of this.features) {
+      this.featureEventMetadata.set(key, feature.variant);
+    }
+
+    const impactSymbol: Map<string, string> = new Map([
+      ["none", "⚪"],
+      ["maintenance", "🛠️"],
+      ["minor", "🟡"],
+      ["major", "🟠"],
+      ["critical", "🔴"],
+    ]);
+    const defaultImpactSymbol = "🔵";
+
+    if (checkin.status !== null) {
+      const summaries: string[] = [];
+
+      for (const incident of checkin.status.incidents) {
+        summaries.push(
+          `${impactSymbol.get(incident.impact) || defaultImpactSymbol} ${incident.status.replace("_", " ")}: ${incident.name} (${incident.shortlink})`,
+        );
+      }
+
+      for (const maintenance of checkin.status.scheduled_maintenance) {
+        summaries.push(
+          `${impactSymbol.get(maintenance.impact) || defaultImpactSymbol} ${maintenance.status.replace("_", " ")}: ${maintenance.name} (${maintenance.shortlink})`,
+        );
+      }
+
+      if (summaries.length > 0) {
+        actionsCore.info(
+          // Bright red, Bold, Underline
+          `${"\u001b[38;2;255;0;0m"}${"\u001b[1m"}${"\u001b[4m"}${checkin.status.page.name} Status`,
+        );
+        for (const notice of summaries) {
+          actionsCore.info(notice);
+        }
+        actionsCore.info(`See: ${checkin.status.page.url}`);
+        actionsCore.info(``);
+      }
+    }
+  }
+
+  getFeature(name: string): Feature | undefined {
+    const result = this.features.get(name);
+    if (result === undefined) {
+      return undefined;
+    }
+
+    this.recordEvent("$feature_flag_called", {
+      $feature_flag: name,
+      $feature_flag_response: result.variant,
+    });
+
+    return result;
+  }
+
+  /**
+   * Check in to install.determinate.systems, to accomplish three things:
+   *
+   * 1. Preflight the server selected from IdsHost, to increase the chances of success.
+   * 2. Fetch any incidents and maintenance events to let users know in case things are weird.
+   * 3. Get feature flag data so we can gently roll out new features.
+   */
+  private async requestCheckIn(): Promise<CheckIn | undefined> {
+    for (
+      const checkInUrl = await this.getCheckInUrl();
+      checkInUrl !== undefined;
+      this.idsHost.markCurrentHostBroken()
+    ) {
+      try {
+        actionsCore.debug(`Preflighting via ${checkInUrl}`);
+
+        checkInUrl.searchParams.set("ci", "github");
+        checkInUrl.searchParams.set(
+          "correlation",
+          JSON.stringify(this.identity),
+        );
+
+        return await this.client
+          .get(checkInUrl, {
+            timeout: {
+              request: CHECK_IN_ENDPOINT_TIMEOUT_MS,
+            },
+          })
+          .json();
+      } catch (e: unknown) {
+        actionsCore.debug(`Error checking in: ${stringifyError(e)}`);
+      }
+    }
+
+    return undefined;
   }
 
   /**
@@ -517,6 +627,17 @@ export abstract class DetSysAction {
   private async complete(): Promise<void> {
     this.recordEvent(`complete_${this.executionPhase}`);
     await this.submitEvents();
+  }
+
+  private async getCheckInUrl(): Promise<URL | undefined> {
+    const checkInUrl = await this.idsHost.getDynamicRootUrl();
+
+    if (checkInUrl === undefined) {
+      return undefined;
+    }
+
+    checkInUrl.pathname += "check-in";
+    return checkInUrl;
   }
 
   private async getSourceUrl(): Promise<URL> {

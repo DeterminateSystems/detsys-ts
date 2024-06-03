@@ -334,7 +334,7 @@ var IdsHost = class {
   setPrioritizedUrls(urls) {
     this.prioritizedURLs = urls;
   }
-  async getRootUrl() {
+  async getDynamicRootUrl() {
     const idsHost = process.env["IDS_HOST"];
     if (idsHost !== void 0) {
       try {
@@ -355,9 +355,17 @@ var IdsHost = class {
       );
     }
     if (url === void 0) {
-      url = new URL(DEFAULT_IDS_HOST);
+      return void 0;
+    } else {
+      return new URL(url);
     }
-    return new URL(url);
+  }
+  async getRootUrl() {
+    const url = await this.getDynamicRootUrl();
+    if (url === void 0) {
+      return new URL(DEFAULT_IDS_HOST);
+    }
+    return url;
   }
   async getDiagnosticsUrl() {
     if (this.runtimeDiagnosticsUrl === "") {
@@ -668,6 +676,7 @@ var STATE_KEY_EXECUTION_PHASE = "detsys_action_execution_phase";
 var STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
 var STATE_NOT_FOUND = "not-found";
 var DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 3e4;
+var CHECK_IN_ENDPOINT_TIMEOUT_MS = 5e3;
 var DetSysAction = class {
   determineExecutionPhase() {
     const currentPhase = actionsCore7.getState(STATE_KEY_EXECUTION_PHASE);
@@ -690,6 +699,8 @@ var DetSysAction = class {
     this.exceptionAttachments = /* @__PURE__ */ new Map();
     this.nixStoreTrust = "unknown";
     this.strictMode = getBool("_internal-strict-mode");
+    this.features = /* @__PURE__ */ new Map();
+    this.featureEventMetadata = /* @__PURE__ */ new Map();
     this.events = [];
     this.client = got.extend({
       retry: {
@@ -804,6 +815,7 @@ var DetSysAction = class {
       context,
       correlation: this.identity,
       facts: this.facts,
+      features: this.featureEventMetadata,
       timestamp: /* @__PURE__ */ new Date(),
       uuid: randomUUID()
     });
@@ -839,6 +851,7 @@ var DetSysAction = class {
   }
   async executeAsync() {
     try {
+      await this.checkIn();
       process.env.DETSYS_CORRELATION = JSON.stringify(
         this.getCorrelationHashes()
       );
@@ -885,6 +898,86 @@ var DetSysAction = class {
     } finally {
       await this.complete();
     }
+  }
+  async checkIn() {
+    const checkin = await this.requestCheckIn();
+    if (checkin === void 0) {
+      return;
+    }
+    this.features = checkin.options;
+    for (const [key, feature] of this.features) {
+      this.featureEventMetadata.set(key, feature.variant);
+    }
+    const impactSymbol = /* @__PURE__ */ new Map([
+      ["none", "\u26AA"],
+      ["maintenance", "\u{1F6E0}\uFE0F"],
+      ["minor", "\u{1F7E1}"],
+      ["major", "\u{1F7E0}"],
+      ["critical", "\u{1F534}"]
+    ]);
+    const defaultImpactSymbol = "\u{1F535}";
+    if (checkin.status !== null) {
+      const summaries = [];
+      for (const incident of checkin.status.incidents) {
+        summaries.push(
+          `${impactSymbol.get(incident.impact) || defaultImpactSymbol} ${incident.status.replace("_", " ")}: ${incident.name} (${incident.shortlink})`
+        );
+      }
+      for (const maintenance of checkin.status.scheduled_maintenance) {
+        summaries.push(
+          `${impactSymbol.get(maintenance.impact) || defaultImpactSymbol} ${maintenance.status.replace("_", " ")}: ${maintenance.name} (${maintenance.shortlink})`
+        );
+      }
+      if (summaries.length > 0) {
+        actionsCore7.info(
+          // Bright red, Bold, Underline
+          `${"\x1B[38;2;255;0;0m"}${"\x1B[1m"}${"\x1B[4m"}${checkin.status.page.name} Status`
+        );
+        for (const notice of summaries) {
+          actionsCore7.info(notice);
+        }
+        actionsCore7.info(`See: ${checkin.status.page.url}`);
+        actionsCore7.info(``);
+      }
+    }
+  }
+  getFeature(name) {
+    const result = this.features.get(name);
+    if (result === void 0) {
+      return void 0;
+    }
+    this.recordEvent("$feature_flag_called", {
+      $feature_flag: name,
+      $feature_flag_response: result.variant
+    });
+    return result;
+  }
+  /**
+   * Check in to install.determinate.systems, to accomplish three things:
+   *
+   * 1. Preflight the server selected from IdsHost, to increase the chances of success.
+   * 2. Fetch any incidents and maintenance events to let users know in case things are weird.
+   * 3. Get feature flag data so we can gently roll out new features.
+   */
+  async requestCheckIn() {
+    for (const checkInUrl = await this.getCheckInUrl(); checkInUrl !== void 0; this.idsHost.markCurrentHostBroken()) {
+      try {
+        actionsCore7.debug(`Preflighting via ${checkInUrl}`);
+        checkInUrl.searchParams.set("ci", "github");
+        checkInUrl.searchParams.set(
+          "correlation",
+          JSON.stringify(this.identity)
+        );
+        return await this.client.get(checkInUrl, {
+          timeout: {
+            request: CHECK_IN_ENDPOINT_TIMEOUT_MS
+          }
+        }).json();
+      } catch (e) {
+        actionsCore7.debug(`Error checking in: ${stringifyError2(e)}`);
+      }
+    }
+    return void 0;
   }
   /**
    * Fetch an artifact, such as a tarball, from the location determined by the
@@ -962,6 +1055,14 @@ var DetSysAction = class {
   async complete() {
     this.recordEvent(`complete_${this.executionPhase}`);
     await this.submitEvents();
+  }
+  async getCheckInUrl() {
+    const checkInUrl = await this.idsHost.getDynamicRootUrl();
+    if (checkInUrl === void 0) {
+      return void 0;
+    }
+    checkInUrl.pathname += "check-in";
+    return checkInUrl;
   }
   async getSourceUrl() {
     const p = this.sourceParameters;

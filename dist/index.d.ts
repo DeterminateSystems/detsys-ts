@@ -1,3 +1,8 @@
+type Feature = {
+    variant: boolean | string;
+    payload?: string;
+};
+
 type AnonymizedCorrelationHashes = {
     correlation_source: string;
     repository?: string;
@@ -134,6 +139,8 @@ declare abstract class DetSysAction {
     private events;
     private identity;
     private idsHost;
+    private features;
+    private featureEventMetadata;
     private determineExecutionPhase;
     constructor(actionOptions: ActionOptions);
     /**
@@ -177,6 +184,16 @@ declare abstract class DetSysAction {
     private get isMain();
     private get isPost();
     private executeAsync;
+    private checkIn;
+    getFeature(name: string): Feature | undefined;
+    /**
+     * Check in to install.determinate.systems, to accomplish three things:
+     *
+     * 1. Preflight the server selected from IdsHost, to increase the chances of success.
+     * 2. Fetch any incidents and maintenance events to let users know in case things are weird.
+     * 3. Get feature flag data so we can gently roll out new features.
+     */
+    private requestCheckIn;
     /**
      * Fetch an artifact, such as a tarball, from the location determined by the
      * `source-*` inputs. If `source-binary` is specified, this will return a path
@@ -191,6 +208,7 @@ declare abstract class DetSysAction {
      */
     failOnError(msg: string): void;
     private complete;
+    private getCheckInUrl;
     private getSourceUrl;
     private cacheKey;
     private getCachedVersion;
