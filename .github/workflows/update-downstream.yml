@@ -8,6 +8,9 @@ jobs:
   update-downstream-repos:
     name: Pull request detsys-ts update to ${{ github.repository_owner }}/${{ matrix.repo }}
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      pull-requests: write
     strategy:
       matrix:
         repo:
