@@ -142,9 +142,9 @@ type DiagnosticEvent = {
 
 export abstract class DetSysAction {
   nixStoreTrust: NixStoreTrust;
+  strictMode: boolean;
 
   private actionOptions: ConfidentActionOptions;
-  private strictMode: boolean;
   private client: Got;
   private exceptionAttachments: Map<string, PathLike>;
   private archOs: string;

@@ -126,8 +126,8 @@ type ActionOptions = {
 };
 declare abstract class DetSysAction {
     nixStoreTrust: NixStoreTrust;
+    strictMode: boolean;
     private actionOptions;
-    private strictMode;
     private client;
     private exceptionAttachments;
     private archOs;
