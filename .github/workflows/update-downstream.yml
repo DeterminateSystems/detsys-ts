@@ -30,13 +30,13 @@ jobs:
       GIT_HEAD: ${{ github.actor }}:detsys-ts-update-${{ github.sha }}
       TARGET_REPO: ${{ github.repository_owner }}/${{ matrix.repo }}
       SOURCE_REPO: ${{ github.repository }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ github.token }} # for `gh pr create`
     steps:
       - name: Check out ${{ env.TARGET_REPO }}
         uses: actions/checkout@v4
         with:
           repository: ${{ env.TARGET_REPO }}
-          token: ${{ env.GITHUB_TOKEN }}
+          token: ${{ env.GH_TOKEN }}
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
@@ -73,8 +73,6 @@ jobs:
 
       - name: Create pull request against ${{ env.TARGET_REPO }}
         run: |
-          echo "${{ env.GITHUB_TOKEN }}" | gh auth login --with-token
-
           gh pr create \
             --base ${{ env.GIT_BASE }} \
             --head ${{ env.GIT_HEAD }} \
