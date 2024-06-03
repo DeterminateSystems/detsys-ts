@@ -19,6 +19,7 @@ jobs:
           - update-flake-lock
     env:
       REF: ${{ github.sha }}
+      REF_URL: https://github.com/${{ github.repository }}/tree/${{ github.sha }}
       GIT_USER: ${{ github.actor }}
       GIT_EMAIL: ${{ github.actor }}@users.noreply.github.com
       REPO: ${{ github.repository_owner }}/${{ matrix.repo }}
@@ -66,4 +67,4 @@ jobs:
           gh pr create \
             --repo ${{ env.REPO }} \
             --title "Update detsys-ts dependency and dist directory (trigged by ${{ env.SOURCE_REPO }})" \
-            --body "Bump detsys-ts to ${{ env.REF }} and regenerate application bundle."
+            --body "Bump detsys-ts to [${{ env.REF }}](${{ env.REF_URL }}) and regenerate application bundle."
