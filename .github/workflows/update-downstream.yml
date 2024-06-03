@@ -22,13 +22,13 @@ jobs:
       REF_URL: https://github.com/${{ github.repository }}/tree/${{ github.sha }}
       GIT_USER: ${{ github.actor }}
       GIT_EMAIL: ${{ github.actor }}@users.noreply.github.com
-      REPO: ${{ github.repository_owner }}/${{ matrix.repo }}
+      TARGET_REPO: ${{ github.repository_owner }}/${{ matrix.repo }}
       SOURCE_REPO: ${{ github.repository }}
     steps:
-      - name: Check out ${{ env.REPO }}
+      - name: Check out ${{ env.TARGET_REPO }}
         uses: actions/checkout@v4
         with:
-          repository: ${{ env.REPO }}
+          repository: ${{ env.TARGET_REPO }}
           token: ${{ github.token }}
 
       - name: Install Nix
@@ -42,12 +42,12 @@ jobs:
           git config user.name "${{ env.GIT_USER }}"
           git config user.email "${{ env.GIT_EMAIL }}"
 
-      - name: Update detsys-ts dependency for ${{ env.REPO }} to ref ${{ env.REF }}
+      - name: Update detsys-ts dependency for ${{ env.TARGET_REPO }} to ref ${{ env.REF }}
         run: |
           nix develop --command pnpm update detsys-ts
           nix develop --command pnpm all
 
-      - name: Commit changes
+      - name: Commit changes to package.json, pnpm-lock.yaml, and dist/
         run: |
           git add .
 
@@ -62,9 +62,9 @@ jobs:
             exit 1
           fi
 
-      - name: Create pull request against ${{ env.REPO }}
+      - name: Create pull request against ${{ env.TARGET_REPO }}
         run: |
           gh pr create \
-            --repo ${{ env.REPO }} \
+            --repo ${{ env.TARGET_REPO }} \
             --title "Update detsys-ts dependency and dist directory (trigged by ${{ env.SOURCE_REPO }})" \
             --body "Bump detsys-ts to [${{ env.REF }}](${{ env.REF_URL }}) and regenerate application bundle."
