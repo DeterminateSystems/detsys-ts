@@ -700,7 +700,7 @@ var DetSysAction = class {
     this.nixStoreTrust = "unknown";
     this.strictMode = getBool("_internal-strict-mode");
     this.features = {};
-    this.featureEventMetadata = /* @__PURE__ */ new Map();
+    this.featureEventMetadata = {};
     this.events = [];
     this.client = got.extend({
       retry: {
@@ -907,7 +907,7 @@ var DetSysAction = class {
     }
     this.features = checkin.options;
     for (const [key, feature] of Object.entries(this.features)) {
-      this.featureEventMetadata.set(key, feature.variant);
+      this.featureEventMetadata[key] = feature.variant;
     }
     const impactSymbol = /* @__PURE__ */ new Map([
       ["none", "\u26AA"],
