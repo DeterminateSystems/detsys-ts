@@ -16,11 +16,11 @@ jobs:
       matrix:
         repo:
           - flake-checker-action
-          - flakehub-push
-          - flakehub-mirror
           - magic-nix-cache-action
-          - nix-installer-action
-          - update-flake-lock
+          #- flakehub-push
+          #- flakehub-mirror
+          #- nix-installer-action
+          #- update-flake-lock
     env:
       REF: ${{ github.sha }}
       REF_URL: https://github.com/${{ github.repository }}/tree/${{ github.sha }}
