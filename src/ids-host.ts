@@ -41,7 +41,7 @@ export class IdsHost {
     this.prioritizedURLs = urls;
   }
 
-  async getRootUrl(): Promise<URL> {
+  async getDynamicRootUrl(): Promise<URL | undefined> {
     const idsHost = process.env["IDS_HOST"];
     if (idsHost !== undefined) {
       try {
@@ -64,12 +64,22 @@ export class IdsHost {
     }
 
     if (url === undefined) {
-      url = new URL(DEFAULT_IDS_HOST);
+      return undefined;
+    } else {
+      // This is a load-bearing `new URL(url)` so that callers can't mutate
+      // getRootUrl's return value.
+      return new URL(url);
+    }
+  }
+
+  async getRootUrl(): Promise<URL> {
+    const url = await this.getDynamicRootUrl();
+
+    if (url === undefined) {
+      return new URL(DEFAULT_IDS_HOST);
     }
 
-    // This is a load-bearing `new URL(url)` so that callers can't mutate
-    // getRootUrl's return value.
-    return new URL(url);
+    return url;
   }
 
   async getDiagnosticsUrl(): Promise<URL | undefined> {
