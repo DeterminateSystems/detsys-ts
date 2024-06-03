@@ -1,6 +1,6 @@
 export type CheckIn = {
   status: StatusSummary | null;
-  options: Map<string, Feature>;
+  options: { [k: string]: Feature };
 };
 
 export type StatusSummary = {

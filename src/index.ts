@@ -154,7 +154,7 @@ export abstract class DetSysAction {
   private events: DiagnosticEvent[];
   private identity: correlation.AnonymizedCorrelationHashes;
   private idsHost: IdsHost;
-  private features: Map<string, Feature>;
+  private features: { [k: string]: Feature };
   private featureEventMetadata: Map<string, string | boolean>;
 
   private determineExecutionPhase(): ExecutionPhase {
@@ -180,7 +180,7 @@ export abstract class DetSysAction {
     this.nixStoreTrust = "unknown";
     this.strictMode = getBool("_internal-strict-mode");
 
-    this.features = new Map();
+    this.features = {};
     this.featureEventMetadata = new Map();
     this.events = [];
     this.client = got.extend({
@@ -442,7 +442,7 @@ export abstract class DetSysAction {
     }
 
     this.features = checkin.options;
-    for (const [key, feature] of this.features.entries()) {
+    for (const [key, feature] of Object.entries(this.features)) {
       this.featureEventMetadata.set(key, feature.variant);
     }
 
@@ -485,7 +485,11 @@ export abstract class DetSysAction {
   }
 
   getFeature(name: string): Feature | undefined {
-    const result = this.features.get(name);
+    if (!this.features.hasOwnProperty(name)) {
+      return undefined;
+    }
+
+    const result = this.features[name];
     if (result === undefined) {
       return undefined;
     }

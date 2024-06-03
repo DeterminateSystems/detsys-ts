@@ -699,7 +699,7 @@ var DetSysAction = class {
     this.exceptionAttachments = /* @__PURE__ */ new Map();
     this.nixStoreTrust = "unknown";
     this.strictMode = getBool("_internal-strict-mode");
-    this.features = /* @__PURE__ */ new Map();
+    this.features = {};
     this.featureEventMetadata = /* @__PURE__ */ new Map();
     this.events = [];
     this.client = got.extend({
@@ -905,7 +905,7 @@ var DetSysAction = class {
       return;
     }
     this.features = checkin.options;
-    for (const [key, feature] of this.features.entries()) {
+    for (const [key, feature] of Object.entries(this.features)) {
       this.featureEventMetadata.set(key, feature.variant);
     }
     const impactSymbol = /* @__PURE__ */ new Map([
@@ -942,7 +942,10 @@ var DetSysAction = class {
     }
   }
   getFeature(name) {
-    const result = this.features.get(name);
+    if (!this.features.hasOwnProperty(name)) {
+      return void 0;
+    }
+    const result = this.features[name];
     if (result === void 0) {
       return void 0;
     }
