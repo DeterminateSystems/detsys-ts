@@ -1,7 +1,6 @@
 name: Update downstream
 
 on:
-  pull_request:
   push:
     branches: [main]
 
@@ -24,8 +23,6 @@ jobs:
       GIT_EMAIL: ${{ github.actor }}@users.noreply.github.com
       REPO: ${{ github.repository_owner }}/${{ matrix.repo }}
       SOURCE_REPO: ${{ github.repository }}
-      SOURCE_PR: ${{ github.repository_owner }}/${{ matrix.repo }}#${{ github.event.pull_request.number }}
-      SOURCE_PR_URL: https://github.com/${{ github.repository_owner }}/${{ matrix.repo }}/${{ github.event.pull_request.number }}
     steps:
       - name: Check out ${{ env.REPO }}
         uses: actions/checkout@v4
@@ -69,4 +66,4 @@ jobs:
           gh pr create \
             --repo ${{ env.REPO }} \
             --title "Update detsys-ts dependency and dist directory (trigged by ${{ env.SOURCE_REPO }})" \
-            --body "Bump detsys-ts to ${{ env.REF }} and regenerate application bundle. See [${{ env.SOURCE_PR }}](${{ env.SOURCE_PR_URL }}) for the triggering pull request."
+            --body "Bump detsys-ts to ${{ env.REF }} and regenerate application bundle."
