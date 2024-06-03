@@ -129,11 +129,13 @@ type ConfidentActionOptions = {
 };
 
 type DiagnosticEvent = {
+  // Note: putting a Map in here won't serialize to json properly.
+  // It'll just be {} on serialization.
   event_name: string;
   context: Record<string, unknown>;
   correlation: correlation.AnonymizedCorrelationHashes;
   facts: Record<string, string | boolean>;
-  features: Map<string, string | boolean>;
+  features: { [k: string]: string | boolean };
   timestamp: Date;
   uuid: UUID;
 };
@@ -155,7 +157,7 @@ export abstract class DetSysAction {
   private identity: correlation.AnonymizedCorrelationHashes;
   private idsHost: IdsHost;
   private features: { [k: string]: Feature };
-  private featureEventMetadata: Map<string, string | boolean>;
+  private featureEventMetadata: { [k: string]: string | boolean };
 
   private determineExecutionPhase(): ExecutionPhase {
     const currentPhase = actionsCore.getState(STATE_KEY_EXECUTION_PHASE);
@@ -181,7 +183,7 @@ export abstract class DetSysAction {
     this.strictMode = getBool("_internal-strict-mode");
 
     this.features = {};
-    this.featureEventMetadata = new Map();
+    this.featureEventMetadata = {};
     this.events = [];
     this.client = got.extend({
       retry: {
@@ -447,7 +449,7 @@ export abstract class DetSysAction {
 
     this.features = checkin.options;
     for (const [key, feature] of Object.entries(this.features)) {
-      this.featureEventMetadata.set(key, feature.variant);
+      this.featureEventMetadata[key] = feature.variant;
     }
 
     const impactSymbol: Map<string, string> = new Map([
