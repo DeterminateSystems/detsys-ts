@@ -44,7 +44,9 @@ export class IdsHost {
     if (this.client === undefined) {
       this.client = got.extend({
         prefixUrl: DEFAULT_IDS_HOST,
-        timeout: DEFAULT_TIMEOUT,
+        timeout: {
+          request: DEFAULT_TIMEOUT,
+        },
 
         retry: {
           limit: (await this.getUrlsByPreference()).length,

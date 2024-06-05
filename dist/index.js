@@ -335,7 +335,9 @@ var IdsHost = class {
     if (this.client === void 0) {
       this.client = got.extend({
         prefixUrl: DEFAULT_IDS_HOST,
-        timeout: DEFAULT_TIMEOUT,
+        timeout: {
+          request: DEFAULT_TIMEOUT
+        },
         retry: {
           limit: (await this.getUrlsByPreference()).length,
           methods: ["GET", "HEAD"]
