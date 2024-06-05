@@ -27,7 +27,7 @@ jobs:
       SOURCE_PR_NUMBER: ${{ github.event.pull_request.number }}
       SOURCE_PR_URL: ${{ github.event.pull_request.html_url }}
       BASE_REF: ${{ github.event.pull_request.base.ref }}
-      DIFF_URL: https://github.com/${{ github.repository }}/compare/${{ github.head_ref }}..${{ github.sha }}
+      DIFF_URL: https://github.com/${{ github.repository }}/compare/${{ github.event.pull_request.base.ref }}..${{ github.sha }}
       GIT_USER: ${{ github.actor }}
       GIT_EMAIL: ${{ github.actor }}@users.noreply.github.com
       GIT_BRANCH: detsys-ts-update-${{ github.sha }}
