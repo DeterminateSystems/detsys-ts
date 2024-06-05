@@ -76,10 +76,13 @@ export class IdsHost {
               const currentUrl: URL = options.url as URL;
 
               if (this.isUrlSubjectToDynamicUrls(currentUrl)) {
-                const url: URL = await this.getRootUrl();
-                currentUrl.host = url.host;
+                const newUrl: URL = new URL(currentUrl);
 
-                options.url = currentUrl;
+                const url: URL = await this.getRootUrl();
+                newUrl.host = url.host;
+
+                options.url = newUrl;
+                actionsCore.debug(`Transmuted ${currentUrl} into {newUrl}`);
               }
             },
           ],

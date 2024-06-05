@@ -360,9 +360,11 @@ var IdsHost = class {
             async (options) => {
               const currentUrl = options.url;
               if (this.isUrlSubjectToDynamicUrls(currentUrl)) {
+                const newUrl = new URL(currentUrl);
                 const url = await this.getRootUrl();
-                currentUrl.host = url.host;
-                options.url = currentUrl;
+                newUrl.host = url.host;
+                options.url = newUrl;
+                actionsCore3.debug(`Transmuted ${currentUrl} into {newUrl}`);
               }
             }
           ]
