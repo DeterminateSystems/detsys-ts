@@ -26,7 +26,7 @@ jobs:
       SOURCE_REPO: ${{ github.repository }}
       SOURCE_PR_NUMBER: ${{ github.event.pull_request.number }}
       SOURCE_PR_URL: https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}
-      HEAD_REF: ${{ github.head_ref }}
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
       HEAD_COMMIT_MSG: ${{ github.event.head_commit.message }}
       DIFF_URL: https://github.com/${{ github.repository }}/compare/${{ github.head_ref }}..${{ github.sha }}
       GIT_USER: ${{ github.actor }}
@@ -74,7 +74,7 @@ jobs:
 
             * Source ref: [`${{ env.REF }}`](${{ env.REF_URL }})
             * Source pull request: [`${{ env.SOURCE_REPO }}#${{ env.SOURCE_PR_NUMBER }}`](${{ env.SOURCE_PR_URL }})
-            * Source diff: [`${{ env.HEAD_REF }}..${{ env.REF }}`](${{ env.DIFF_URL }})
+            * Source diff: [`${{ env.BASE_REF }}..${{ env.REF }}`](${{ env.DIFF_URL }})
           push-to-fork: detsys-pr-bot/${{ matrix.repo }}
           branch: "${{ env.GIT_BRANCH }}"
           base: ${{ env.GIT_BASE }}
