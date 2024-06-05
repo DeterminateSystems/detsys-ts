@@ -65,6 +65,7 @@ jobs:
           token: ${{ secrets.detsys_pr_bot_token }}
           title: "Update detsys-ts dependency and dist directory (trigged by ${{ env.SOURCE_REPO }})"
           body: Bump detsys-ts to [${{ env.REF }}](${{ env.REF_URL }}) and regenerate application bundle.
+          push-to-fork: detsys-pr-bot/${{ matrix.repo }}
           branch: "${{ env.GIT_BRANCH }}"
           base: ${{ env.GIT_BASE }}
           draft: false
