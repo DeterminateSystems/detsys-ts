@@ -3,15 +3,13 @@ name: Update downstream
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   update-downstream-repos:
+    environment: detsys-pr-bot
     name: Pull request detsys-ts update to ${{ github.repository_owner }}/${{ matrix.repo }}
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
-      pull-requests: write
-      repository-projects: write
     strategy:
       matrix:
         repo:
@@ -28,10 +26,10 @@ jobs:
       GIT_EMAIL: ${{ github.actor }}@users.noreply.github.com
       GIT_BRANCH: detsys-ts-update-${{ github.sha }}
       GIT_BASE: main
-      GIT_HEAD: ${{ github.actor }}:detsys-ts-update-${{ github.sha }}
+      GIT_HEAD: detsys-pr-bot:detsys-ts-update-${{ github.sha }}
       TARGET_REPO: ${{ github.repository_owner }}/${{ matrix.repo }}
       SOURCE_REPO: ${{ github.repository }}
-      GH_TOKEN: ${{ github.token }} # for `gh pr create`
+      GH_TOKEN: ${{ secrets.detsys_pr_bot_token }} # for `gh pr create`
     steps:
       - name: Check out ${{ env.TARGET_REPO }}
         uses: actions/checkout@v4
@@ -50,33 +48,24 @@ jobs:
           git config user.name "${{ env.GIT_USER }}"
           git config user.email "${{ env.GIT_EMAIL }}"
 
+
+      - name: Make sure the repo is forked
+        run: |
+          gh repo fork
+
       - name: Update detsys-ts dependency for ${{ env.TARGET_REPO }} to ref ${{ env.REF }}
         run: |
           nix develop --command pnpm update detsys-ts
           nix develop --command pnpm all
 
-      - name: Commit changes to package.json, pnpm-lock.yaml, and dist/
-        run: |
-          git checkout -b ${{ env.GIT_BRANCH }}
-
-          git add .
-
-          if [[ $(git status -s) ]]; then
-            git commit \
-              --message "update(deps): update detsys-ts dependency to ${{ env.REF }} and rebuild dist directory" \
-              --no-verify
-
-            echo "updated detsys-ts dependency to ${{ env.REF }} and rebuilt dist directory"
-          else
-            echo "error: pnpm dependencies do not seem to have changed"
-            exit 1
-          fi
-
-      - name: Create pull request against ${{ env.TARGET_REPO }}
-        run: |
-          gh pr create \
-            --base ${{ env.GIT_BASE }} \
-            --head ${{ env.GIT_HEAD }} \
-            --repo ${{ env.TARGET_REPO }} \
-            --title "Update detsys-ts dependency and dist directory (trigged by ${{ env.SOURCE_REPO }})" \
-            --body "Bump detsys-ts to [${{ env.REF }}](${{ env.REF_URL }}) and regenerate application bundle."
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v3
+        with:
+          token: ${{ secrets.detsys_pr_bot_token }}
+          title: "Update detsys-ts: ${{ github.event.head_commit.message }}"
+          commit-message: "Update detsys-ts for: ${{ github.event.head_commit.message }} (${{ env.REF }})"
+          body: Bump detsys-ts to [${{ env.REF }}](${{ env.REF_URL }}) and regenerate application bundle.
+          push-to-fork: detsys-pr-bot/${{ matrix.repo }}
+          branch: "${{ env.GIT_BRANCH }}"
+          base: ${{ env.GIT_BASE }}
+          draft: false
