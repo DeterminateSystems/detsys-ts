@@ -15,10 +15,10 @@ jobs:
         repo:
           - flake-checker-action
           - magic-nix-cache-action
-          #- flakehub-push
-          #- flakehub-mirror
-          #- nix-installer-action
-          #- update-flake-lock
+          - flakehub-push
+          - flakehub-mirror
+          - nix-installer-action
+          - update-flake-lock
     env:
       REF: ${{ github.sha }}
       REF_URL: https://github.com/${{ github.repository }}/tree/${{ github.sha }}
