@@ -7,7 +7,7 @@ on:
 
 jobs:
   update-downstream-repos:
-    if: ${{ github.event.pull_request.merged }}
+    if: ${{ github.event.pull_request.merged && github.event.pull_request.base.ref == 'main' }}
     environment: detsys-pr-bot
     name: Pull request detsys-ts update to ${{ github.repository_owner }}/${{ matrix.repo }}
     runs-on: ubuntu-22.04
@@ -26,8 +26,8 @@ jobs:
       SOURCE_REPO: ${{ github.repository }}
       SOURCE_PR_NUMBER: ${{ github.event.pull_request.number }}
       SOURCE_PR_URL: ${{ github.event.pull_request.html_url }}
-      BASE_REF: ${{ github.event.pull_request.base.ref }}
-      DIFF_URL: https://github.com/${{ github.repository }}/compare/${{ github.event.pull_request.base.ref }}..${{ github.sha }}
+      BASE_REF: ${{ github.event.pull_request.base.sha }}
+      DIFF_URL: https://github.com/${{ github.repository }}/compare/${{ github.event.pull_request.base.sha }}..${{ github.sha }}
       DIFF_FILE_URL: ${{ github.event.pull_request.diff_url }}
       GIT_USER: ${{ github.actor }}
       GIT_EMAIL: ${{ github.actor }}@users.noreply.github.com
