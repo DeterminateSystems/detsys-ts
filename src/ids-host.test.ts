@@ -5,7 +5,7 @@ import {
   recordToUrl,
   weightedRandom,
 } from "./ids-host.js";
-import { SrvRecord } from "node:dns";
+import type { SrvRecord } from "node:dns";
 import { assert, describe, expect, test } from "vitest";
 
 function mkRecord(

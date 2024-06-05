@@ -5,7 +5,7 @@
 import { stringifyError } from "./errors.js";
 import * as actionsCore from "@actions/core";
 import got, { Got } from "got";
-import { SrvRecord } from "node:dns";
+import type { SrvRecord } from "node:dns";
 import { resolveSrv } from "node:dns/promises";
 
 const DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
@@ -27,7 +27,6 @@ export class IdsHost {
   private diagnosticsSuffix?: string;
   private runtimeDiagnosticsUrl?: string;
   private prioritizedURLs?: URL[];
-  private records?: SrvRecord[];
   private client?: Got;
 
   constructor(
