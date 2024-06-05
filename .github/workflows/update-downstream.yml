@@ -26,7 +26,7 @@ jobs:
       GIT_EMAIL: ${{ github.actor }}@users.noreply.github.com
       GIT_BRANCH: detsys-ts-update-${{ github.sha }}
       GIT_BASE: main
-      GIT_HEAD: ${{ github.actor }}:detsys-ts-update-${{ github.sha }}
+      GIT_HEAD: detsys-pr-bot:detsys-ts-update-${{ github.sha }}
       TARGET_REPO: ${{ github.repository_owner }}/${{ matrix.repo }}
       SOURCE_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ secrets.detsys_pr_bot_token }} # for `gh pr create`
@@ -55,6 +55,7 @@ jobs:
 
       - name: Commit changes to package.json, pnpm-lock.yaml, and dist/
         run: |
+          gh repo fork
           git checkout -b ${{ env.GIT_BRANCH }}
 
           git add .
@@ -70,11 +71,12 @@ jobs:
             exit 1
           fi
 
-      - name: Create pull request against ${{ env.TARGET_REPO }}
-        run: |
-          gh pr create \
-            --base ${{ env.GIT_BASE }} \
-            --head ${{ env.GIT_HEAD }} \
-            --repo ${{ env.TARGET_REPO }} \
-            --title "Update detsys-ts dependency and dist directory (trigged by ${{ env.SOURCE_REPO }})" \
-            --body "Bump detsys-ts to [${{ env.REF }}](${{ env.REF_URL }}) and regenerate application bundle."
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v3
+        with:
+          token: ${{ secrets.detsys_pr_bot_token }}
+          title: "Update detsys-ts dependency and dist directory (trigged by ${{ env.SOURCE_REPO }})"
+          body: Bump detsys-ts to [${{ env.REF }}](${{ env.REF_URL }}) and regenerate application bundle.
+          branch: "${{ env.GIT_BRANCH }}"
+          base: ${{ env.GIT_BASE }}
+          draft: false
