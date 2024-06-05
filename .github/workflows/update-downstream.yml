@@ -27,7 +27,8 @@ jobs:
       SOURCE_PR_NUMBER: ${{ github.event.pull_request.number }}
       SOURCE_PR_URL: ${{ github.event.pull_request.html_url }}
       BASE_REF: ${{ github.event.pull_request.base.ref }}
-      DIFF_URL: ${{ github.event.pull_request.diff_url }}
+      DIFF_URL: https://github.com/${{ github.repository }}/compare/${{ github.event.pull_request.base.ref }}..${{ github.sha }}
+      DIFF_FILE_URL: ${{ github.event.pull_request.diff_url }}
       GIT_USER: ${{ github.actor }}
       GIT_EMAIL: ${{ github.actor }}@users.noreply.github.com
       GIT_BRANCH: detsys-ts-update-${{ github.sha }}
@@ -82,6 +83,7 @@ jobs:
             * Source ref: [`${{ env.REF }}`](${{ env.REF_URL }})
             * Source pull request: [`${{ env.SOURCE_REPO }}#${{ env.SOURCE_PR_NUMBER }}`](${{ env.SOURCE_PR_URL }})
             * Source diff: [`${{ env.BASE_REF }}..${{ env.REF }}`](${{ env.DIFF_URL }})
+            * Diff file: [`${{ env.SOURCE_PR_NUMBER }}.diff`](${{ env.DIFF_FILE_URL }})
           push-to-fork: detsys-pr-bot/${{ matrix.repo }}
           branch: "${{ env.GIT_BRANCH }}"
           base: ${{ env.GIT_BASE }}
