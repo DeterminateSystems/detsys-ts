@@ -19,6 +19,9 @@ const LOOKUP = process.env["IDS_LOOKUP"] ?? DEFAULT_LOOKUP;
 
 const DEFAULT_TIMEOUT = 30_000; // 30 seconds in milliseconds
 
+/**
+ * Host information for install.determinate.systems.
+ */
 export class IdsHost {
   private idsProjectName: string;
   private diagnosticsSuffix?: string;

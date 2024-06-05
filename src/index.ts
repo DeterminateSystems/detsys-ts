@@ -117,8 +117,10 @@ export type ActionOptions = {
   diagnosticsSuffix?: string;
 };
 
-// A confident version of Options, where defaults have been resolved into final values
-type ConfidentActionOptions = {
+/**
+ * A confident version of Options, where defaults have been resolved into final values.
+ */
+export type ConfidentActionOptions = {
   name: string;
   idsProjectName: string;
   eventPrefix: string;
@@ -128,7 +130,10 @@ type ConfidentActionOptions = {
   providedDiagnosticsUrl?: URL;
 };
 
-type DiagnosticEvent = {
+/**
+ * An event to send to the diagnostic endpoint of i.d.s.
+ */
+export type DiagnosticEvent = {
   // Note: putting a Map in here won't serialize to json properly.
   // It'll just be {} on serialization.
   event_name: string;
@@ -910,6 +915,17 @@ function makeOptionsConfident(
 }
 
 // Public exports from other files
+export {
+  CheckIn,
+  Feature,
+  Incident,
+  Maintenance,
+  Page,
+  StatusSummary,
+} from "./check-in.js";
+export { AnonymizedCorrelationHashes } from "./correlation.js";
 export { stringifyError } from "./errors.js";
+export { IdsHost } from "./ids-host.js";
+export { SourceDef } from "./sourcedef.js";
 export * as inputs from "./inputs.js";
 export * as platform from "./platform.js";
