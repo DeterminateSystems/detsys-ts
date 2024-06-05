@@ -38,7 +38,9 @@ export class IdsHost {
     this.client = undefined;
   }
 
-  async getGot(): Promise<Got> {
+  async getGot(
+    recordFailoverCallback?: (prevUrl: URL, nextUrl: URL) => void,
+  ): Promise<Got> {
     if (this.client === undefined) {
       this.client = got.extend({
         prefixUrl: DEFAULT_IDS_HOST,
@@ -51,8 +53,14 @@ export class IdsHost {
 
         hooks: {
           beforeRetry: [
-            (error, retryCount) => {
+            async (error, retryCount) => {
+              const prevUrl = await this.getRootUrl();
               this.markCurrentHostBroken();
+              const nextUrl = await this.getRootUrl();
+
+              if (recordFailoverCallback !== undefined) {
+                recordFailoverCallback(prevUrl, nextUrl);
+              }
 
               actionsCore.info(
                 `Retrying after error ${error.code}, retry #: ${retryCount}`,

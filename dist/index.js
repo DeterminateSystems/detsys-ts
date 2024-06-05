@@ -331,7 +331,7 @@ var IdsHost = class {
     this.runtimeDiagnosticsUrl = runtimeDiagnosticsUrl;
     this.client = void 0;
   }
-  async getGot() {
+  async getGot(recordFailoverCallback) {
     if (this.client === void 0) {
       this.client = got.extend({
         prefixUrl: DEFAULT_IDS_HOST,
@@ -342,8 +342,13 @@ var IdsHost = class {
         },
         hooks: {
           beforeRetry: [
-            (error3, retryCount) => {
+            async (error3, retryCount) => {
+              const prevUrl = await this.getRootUrl();
               this.markCurrentHostBroken();
+              const nextUrl = await this.getRootUrl();
+              if (recordFailoverCallback !== void 0) {
+                recordFailoverCallback(prevUrl, nextUrl);
+              }
               actionsCore3.info(
                 `Retrying after error ${error3.code}, retry #: ${retryCount}`
               );
@@ -932,7 +937,12 @@ var DetSysAction = class {
     }
   }
   async getClient() {
-    return await this.idsHost.getGot();
+    return await this.idsHost.getGot((prevUrl, nextUrl) => {
+      this.recordEvent("ids-failover", {
+        previousUrl: prevUrl.toString(),
+        nextUrl: nextUrl.toString()
+      });
+    });
   }
   async checkIn() {
     const checkin = await this.requestCheckIn();
@@ -1289,26 +1299,10 @@ var DetSysAction = class {
           request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS
         }
       });
-    } catch (e) {
+    } catch (err) {
       actionsCore7.debug(
-        `Error submitting diagnostics event: ${stringifyError2(e)}`
+        `Error submitting diagnostics event to ${diagnosticsUrl}: ${stringifyError2(err)}`
       );
-      this.idsHost.markCurrentHostBroken();
-      const secondaryDiagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
-      if (secondaryDiagnosticsUrl !== void 0) {
-        try {
-          await (await this.getClient()).post(secondaryDiagnosticsUrl, {
-            json: batch,
-            timeout: {
-              request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS
-            }
-          });
-        } catch (err) {
-          actionsCore7.debug(
-            `Error submitting diagnostics event to secondary host (${secondaryDiagnosticsUrl}): ${stringifyError2(err)}`
-          );
-        }
-      }
     }
     this.events = [];
   }

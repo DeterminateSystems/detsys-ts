@@ -426,7 +426,12 @@ export abstract class DetSysAction {
   }
 
   async getClient(): Promise<Got> {
-    return await this.idsHost.getGot();
+    return await this.idsHost.getGot((prevUrl: URL, nextUrl: URL) => {
+      this.recordEvent("ids-failover", {
+        previousUrl: prevUrl.toString(),
+        nextUrl: nextUrl.toString(),
+      });
+    });
   }
 
   private async checkIn(): Promise<void> {
@@ -869,29 +874,10 @@ export abstract class DetSysAction {
           request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS,
         },
       });
-    } catch (e: unknown) {
+    } catch (err: unknown) {
       actionsCore.debug(
-        `Error submitting diagnostics event: ${stringifyError(e)}`,
+        `Error submitting diagnostics event to ${diagnosticsUrl}: ${stringifyError(err)}`,
       );
-      this.idsHost.markCurrentHostBroken();
-
-      const secondaryDiagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
-      if (secondaryDiagnosticsUrl !== undefined) {
-        try {
-          await (
-            await this.getClient()
-          ).post(secondaryDiagnosticsUrl, {
-            json: batch,
-            timeout: {
-              request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS,
-            },
-          });
-        } catch (err: unknown) {
-          actionsCore.debug(
-            `Error submitting diagnostics event to secondary host (${secondaryDiagnosticsUrl}): ${stringifyError(err)}`,
-          );
-        }
-      }
     }
     this.events = [];
   }
