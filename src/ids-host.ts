@@ -43,7 +43,6 @@ export class IdsHost {
   ): Promise<Got> {
     if (this.client === undefined) {
       this.client = got.extend({
-        prefixUrl: DEFAULT_IDS_HOST,
         timeout: {
           request: DEFAULT_TIMEOUT,
         },

@@ -334,7 +334,6 @@ var IdsHost = class {
   async getGot(recordFailoverCallback) {
     if (this.client === void 0) {
       this.client = got.extend({
-        prefixUrl: DEFAULT_IDS_HOST,
         timeout: {
           request: DEFAULT_TIMEOUT
         },
