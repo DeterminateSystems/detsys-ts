@@ -56,21 +56,8 @@ jobs:
       - name: Commit changes to package.json, pnpm-lock.yaml, and dist/
         run: |
           gh repo fork
-          git checkout -b ${{ env.GIT_BRANCH }}
 
           date > boop
-          git add .
-
-          if [[ $(git status -s) ]]; then
-            git commit \
-              --message "update(deps): update detsys-ts dependency to ${{ env.REF }} and rebuild dist directory" \
-              --no-verify
-
-            echo "updated detsys-ts dependency to ${{ env.REF }} and rebuilt dist directory"
-          else
-            echo "error: pnpm dependencies do not seem to have changed"
-            exit 1
-          fi
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v3
