@@ -1,4 +1,4 @@
-import { Separator, handleString } from "./inputs";
+import { Separator, handleString } from "./inputs.js";
 import { describe, expect, test } from "vitest";
 
 describe("converting strings into arrays", () => {

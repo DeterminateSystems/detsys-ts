@@ -4,7 +4,7 @@ import {
   orderRecordsByPriorityWeight,
   recordToUrl,
   weightedRandom,
-} from "./ids-host";
+} from "./ids-host.js";
 import { SrvRecord } from "node:dns";
 import { assert, describe, expect, test } from "vitest";
 

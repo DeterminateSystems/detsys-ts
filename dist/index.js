@@ -1331,6 +1331,7 @@ function makeOptionsConfident(actionOptions) {
 }
 export {
   DetSysAction,
+  IdsHost,
   inputs_exports as inputs,
   platform_exports as platform,
   stringifyError
