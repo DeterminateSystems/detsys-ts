@@ -1,12 +1,13 @@
 name: Update downstream
 
 on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+  pull_request:
+    types:
+      - closed
 
 jobs:
   update-downstream-repos:
+    if: ${{ github.event.pull_request.merged }}
     environment: detsys-pr-bot
     name: Pull request detsys-ts update to ${{ github.repository_owner }}/${{ matrix.repo }}
     runs-on: ubuntu-22.04
@@ -22,13 +23,18 @@ jobs:
     env:
       REF: ${{ github.sha }}
       REF_URL: https://github.com/${{ github.repository }}/tree/${{ github.sha }}
+      SOURCE_REPO: ${{ github.repository }}
+      SOURCE_PR_NUMBER: ${{ github.event.pull_request.number }}
+      SOURCE_PR_URL: https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+      HEAD_REF: ${{ github.head_ref }}
+      HEAD_COMMIT_MSG: ${{ github.event.head_commit.message }}
+      DIFF_URL: https://github.com/${{ github.repository }}/compare/${{ github.head_ref }}..${{ github.sha }}
       GIT_USER: ${{ github.actor }}
       GIT_EMAIL: ${{ github.actor }}@users.noreply.github.com
       GIT_BRANCH: detsys-ts-update-${{ github.sha }}
       GIT_BASE: main
       GIT_HEAD: detsys-pr-bot:detsys-ts-update-${{ github.sha }}
       TARGET_REPO: ${{ github.repository_owner }}/${{ matrix.repo }}
-      SOURCE_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ secrets.detsys_pr_bot_token }} # for `gh pr create`
     steps:
       - name: Check out ${{ env.TARGET_REPO }}
@@ -48,12 +54,11 @@ jobs:
           git config user.name "${{ env.GIT_USER }}"
           git config user.email "${{ env.GIT_EMAIL }}"
 
-
       - name: Make sure the repo is forked
         run: |
           gh repo fork
 
-      - name: Update detsys-ts dependency for ${{ env.TARGET_REPO }} to ref ${{ env.REF }}
+      - name: Update `detsys-ts` dependency for ${{ env.TARGET_REPO }} to ref `${{ env.REF }}`
         run: |
           nix develop --command pnpm update detsys-ts
           nix develop --command pnpm all
@@ -62,9 +67,14 @@ jobs:
         uses: peter-evans/create-pull-request@v3
         with:
           token: ${{ secrets.detsys_pr_bot_token }}
-          title: "Update detsys-ts: ${{ github.event.head_commit.message }}"
-          commit-message: "Update detsys-ts for: ${{ github.event.head_commit.message }} (${{ env.REF }})"
-          body: Bump detsys-ts to [${{ env.REF }}](${{ env.REF_URL }}) and regenerate application bundle.
+          title: "Update `detsys-ts`: ${{ env.HEAD_COMMIT_MSG }}"
+          commit-message: "Update `detsys-ts` for: `${{ env.HEAD_COMMIT_MSG }}` (`${{ env.REF }}`)"
+          body: |
+            Bump [`detsys-ts`](${{ env.SOURCE_REPO }}) to the latest `HEAD` and regenerate application bundle.
+
+            * Source ref: [`${{ env.REF }}`](${{ env.REF_URL }})
+            * Source pull request: [`${{ env.SOURCE_REPO }}#${{ env.SOURCE_PR_NUMBER }}`](${{ env.SOURCE_PR_URL }})
+            * Source diff: [`${{ env.HEAD_REF }}..${{ env.REF }}`](${{ env.DIFF_URL }})
           push-to-fork: detsys-pr-bot/${{ matrix.repo }}
           branch: "${{ env.GIT_BRANCH }}"
           base: ${{ env.GIT_BASE }}
