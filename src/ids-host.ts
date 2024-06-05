@@ -82,7 +82,9 @@ export class IdsHost {
                 newUrl.host = url.host;
 
                 options.url = newUrl;
-                actionsCore.debug(`Transmuted ${currentUrl} into {newUrl}`);
+                actionsCore.debug(`Transmuted ${currentUrl} into ${newUrl}`);
+              } else {
+                actionsCore.debug(`No transmutations on ${currentUrl}`);
               }
             },
           ],

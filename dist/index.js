@@ -364,7 +364,9 @@ var IdsHost = class {
                 const url = await this.getRootUrl();
                 newUrl.host = url.host;
                 options.url = newUrl;
-                actionsCore3.debug(`Transmuted ${currentUrl} into {newUrl}`);
+                actionsCore3.debug(`Transmuted ${currentUrl} into ${newUrl}`);
+              } else {
+                actionsCore3.debug(`No transmutations on ${currentUrl}`);
               }
             }
           ]
