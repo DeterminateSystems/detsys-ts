@@ -4,6 +4,7 @@
  */
 import { stringifyError } from "./errors.js";
 import * as actionsCore from "@actions/core";
+import got, { Got } from "got";
 import { SrvRecord } from "node:dns";
 import { resolveSrv } from "node:dns/promises";
 
@@ -22,6 +23,7 @@ export class IdsHost {
   private runtimeDiagnosticsUrl?: string;
   private prioritizedURLs?: URL[];
   private records?: SrvRecord[];
+  private client?: Got;
 
   constructor(
     idsProjectName: string,
@@ -31,6 +33,47 @@ export class IdsHost {
     this.idsProjectName = idsProjectName;
     this.diagnosticsSuffix = diagnosticsSuffix;
     this.runtimeDiagnosticsUrl = runtimeDiagnosticsUrl;
+    this.client = undefined;
+  }
+
+  async getGot(): Promise<Got> {
+    if (this.client === undefined) {
+      this.client = got.extend({
+        prefixUrl: DEFAULT_IDS_HOST,
+        retry: {
+          limit: (await this.getUrlsByPreference()).length,
+          methods: ["GET", "HEAD"],
+        },
+
+        hooks: {
+          beforeRetry: [
+            (error, retryCount) => {
+              this.markCurrentHostBroken();
+
+              actionsCore.info(
+                `Retrying after error ${error.code}, retry #: ${retryCount}`,
+              );
+            },
+          ],
+
+          beforeRequest: [
+            async (options) => {
+              // The getter always returns a URL, even though the setter accepts a string
+              const currentUrl: URL = options.url as URL;
+
+              if (this.isUrlSubjectToDynamicUrls(currentUrl)) {
+                const url: URL = await this.getRootUrl();
+                currentUrl.host = url.host;
+
+                options.url = currentUrl;
+              }
+            },
+          ],
+        },
+      });
+
+      return this.client;
+    }
   }
 
   markCurrentHostBroken(): void {
@@ -39,6 +82,20 @@ export class IdsHost {
 
   setPrioritizedUrls(urls: URL[]): void {
     this.prioritizedURLs = urls;
+  }
+
+  isUrlSubjectToDynamicUrls(url: URL): boolean {
+    if (url.origin === DEFAULT_IDS_HOST) {
+      return true;
+    }
+
+    for (const suffix of ALLOWED_SUFFIXES) {
+      if (url.host.endsWith(suffix)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   async getDynamicRootUrl(): Promise<URL | undefined> {

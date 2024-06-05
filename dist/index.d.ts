@@ -1,3 +1,5 @@
+import { Got } from 'got';
+
 type Feature = {
     variant: boolean | string;
     payload?: string;
@@ -128,7 +130,6 @@ declare abstract class DetSysAction {
     nixStoreTrust: NixStoreTrust;
     strictMode: boolean;
     private actionOptions;
-    private client;
     private exceptionAttachments;
     private archOs;
     private executionPhase;
@@ -184,6 +185,7 @@ declare abstract class DetSysAction {
     private get isMain();
     private get isPost();
     private executeAsync;
+    getClient(): Promise<Got>;
     private checkIn;
     getFeature(name: string): Feature | undefined;
     /**

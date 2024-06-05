@@ -13,7 +13,7 @@ import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import * as actionsExec from "@actions/exec";
-import got, { Got } from "got";
+import { Got } from "got";
 import { exec } from "node:child_process";
 import { UUID, randomUUID } from "node:crypto";
 import { PathLike, createWriteStream, readFileSync } from "node:fs";
@@ -145,7 +145,6 @@ export abstract class DetSysAction {
   strictMode: boolean;
 
   private actionOptions: ConfidentActionOptions;
-  private client: Got;
   private exceptionAttachments: Map<string, PathLike>;
   private archOs: string;
   private executionPhase: ExecutionPhase;
@@ -185,21 +184,6 @@ export abstract class DetSysAction {
     this.features = {};
     this.featureEventMetadata = {};
     this.events = [];
-    this.client = got.extend({
-      retry: {
-        limit: 3,
-        methods: ["GET", "HEAD"],
-      },
-      hooks: {
-        beforeRetry: [
-          (error, retryCount) => {
-            actionsCore.info(
-              `Retrying after error ${error.code}, retry #: ${retryCount}`,
-            );
-          },
-        ],
-      },
-    });
 
     // JSON sent to server
     /* eslint-disable camelcase */
@@ -441,6 +425,10 @@ export abstract class DetSysAction {
     }
   }
 
+  async getClient(): Promise<Got> {
+    return await this.idsHost.getGot();
+  }
+
   private async checkIn(): Promise<void> {
     const checkin = await this.requestCheckIn();
     if (checkin === undefined) {
@@ -535,7 +523,7 @@ export abstract class DetSysAction {
           JSON.stringify(this.identity),
         );
 
-        return await this.client
+        return (await this.getClient())
           .get(checkInUrl, {
             timeout: {
               request: CHECK_IN_ENDPOINT_TIMEOUT_MS,
@@ -581,7 +569,7 @@ export abstract class DetSysAction {
         JSON.stringify(this.identity),
       );
 
-      const versionCheckup = await this.client.head(correlatedUrl);
+      const versionCheckup = await (await this.getClient()).head(correlatedUrl);
       if (versionCheckup.headers.etag) {
         const v = versionCheckup.headers.etag;
         this.addFact(FACT_SOURCE_URL_ETAG, v);
@@ -604,7 +592,7 @@ export abstract class DetSysAction {
       );
 
       const destFile = this.getTemporaryName();
-      const fetchStream = this.client.stream(versionCheckup.url);
+      const fetchStream = (await this.getClient()).stream(versionCheckup.url);
 
       await pipeline(
         fetchStream,
@@ -873,7 +861,9 @@ export abstract class DetSysAction {
     };
 
     try {
-      await this.client.post(diagnosticsUrl, {
+      await (
+        await this.getClient()
+      ).post(diagnosticsUrl, {
         json: batch,
         timeout: {
           request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS,
@@ -888,7 +878,9 @@ export abstract class DetSysAction {
       const secondaryDiagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
       if (secondaryDiagnosticsUrl !== undefined) {
         try {
-          await this.client.post(secondaryDiagnosticsUrl, {
+          await (
+            await this.getClient()
+          ).post(secondaryDiagnosticsUrl, {
             json: batch,
             timeout: {
               request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS,

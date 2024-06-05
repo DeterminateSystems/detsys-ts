@@ -314,6 +314,7 @@ function stringifyError(e) {
 
 // src/ids-host.ts
 import * as actionsCore3 from "@actions/core";
+import got from "got";
 import { resolveSrv } from "node:dns/promises";
 var DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
 var ALLOWED_SUFFIXES = [
@@ -327,12 +328,56 @@ var IdsHost = class {
     this.idsProjectName = idsProjectName;
     this.diagnosticsSuffix = diagnosticsSuffix;
     this.runtimeDiagnosticsUrl = runtimeDiagnosticsUrl;
+    this.client = void 0;
+  }
+  async getGot() {
+    if (this.client === void 0) {
+      this.client = got.extend({
+        prefixUrl: DEFAULT_IDS_HOST,
+        retry: {
+          limit: (await this.getUrlsByPreference()).length,
+          methods: ["GET", "HEAD"]
+        },
+        hooks: {
+          beforeRetry: [
+            (error3, retryCount) => {
+              this.markCurrentHostBroken();
+              actionsCore3.info(
+                `Retrying after error ${error3.code}, retry #: ${retryCount}`
+              );
+            }
+          ],
+          beforeRequest: [
+            async (options) => {
+              const currentUrl = options.url;
+              if (this.isUrlSubjectToDynamicUrls(currentUrl)) {
+                const url = await this.getRootUrl();
+                currentUrl.host = url.host;
+                options.url = currentUrl;
+              }
+            }
+          ]
+        }
+      });
+      return this.client;
+    }
   }
   markCurrentHostBroken() {
     this.prioritizedURLs?.shift();
   }
   setPrioritizedUrls(urls) {
     this.prioritizedURLs = urls;
+  }
+  isUrlSubjectToDynamicUrls(url) {
+    if (url.origin === DEFAULT_IDS_HOST) {
+      return true;
+    }
+    for (const suffix of ALLOWED_SUFFIXES) {
+      if (url.host.endsWith(suffix)) {
+        return true;
+      }
+    }
+    return false;
   }
   async getDynamicRootUrl() {
     const idsHost = process.env["IDS_HOST"];
@@ -644,7 +689,6 @@ function noisilyGetInput(suffix, legacyPrefix) {
 import * as actionsCache from "@actions/cache";
 import * as actionsCore7 from "@actions/core";
 import * as actionsExec from "@actions/exec";
-import got from "got";
 import { exec as exec3 } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createWriteStream, readFileSync as readFileSync2 } from "node:fs";
@@ -702,21 +746,6 @@ var DetSysAction = class {
     this.features = {};
     this.featureEventMetadata = {};
     this.events = [];
-    this.client = got.extend({
-      retry: {
-        limit: 3,
-        methods: ["GET", "HEAD"]
-      },
-      hooks: {
-        beforeRetry: [
-          (error3, retryCount) => {
-            actionsCore7.info(
-              `Retrying after error ${error3.code}, retry #: ${retryCount}`
-            );
-          }
-        ]
-      }
-    });
     this.facts = {
       $lib: "idslib",
       $lib_version: version,
@@ -900,6 +929,9 @@ var DetSysAction = class {
       await this.complete();
     }
   }
+  async getClient() {
+    return await this.idsHost.getGot();
+  }
   async checkIn() {
     const checkin = await this.requestCheckIn();
     if (checkin === void 0) {
@@ -976,7 +1008,7 @@ var DetSysAction = class {
           "correlation",
           JSON.stringify(this.identity)
         );
-        return await this.client.get(checkInUrl, {
+        return (await this.getClient()).get(checkInUrl, {
           timeout: {
             request: CHECK_IN_ENDPOINT_TIMEOUT_MS
           }
@@ -1012,7 +1044,7 @@ var DetSysAction = class {
         "correlation",
         JSON.stringify(this.identity)
       );
-      const versionCheckup = await this.client.head(correlatedUrl);
+      const versionCheckup = await (await this.getClient()).head(correlatedUrl);
       if (versionCheckup.headers.etag) {
         const v = versionCheckup.headers.etag;
         this.addFact(FACT_SOURCE_URL_ETAG, v);
@@ -1031,7 +1063,7 @@ var DetSysAction = class {
         `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`
       );
       const destFile = this.getTemporaryName();
-      const fetchStream = this.client.stream(versionCheckup.url);
+      const fetchStream = (await this.getClient()).stream(versionCheckup.url);
       await pipeline(
         fetchStream,
         createWriteStream(destFile, {
@@ -1249,7 +1281,7 @@ var DetSysAction = class {
       events: this.events
     };
     try {
-      await this.client.post(diagnosticsUrl, {
+      await (await this.getClient()).post(diagnosticsUrl, {
         json: batch,
         timeout: {
           request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS
@@ -1263,7 +1295,7 @@ var DetSysAction = class {
       const secondaryDiagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
       if (secondaryDiagnosticsUrl !== void 0) {
         try {
-          await this.client.post(secondaryDiagnosticsUrl, {
+          await (await this.getClient()).post(secondaryDiagnosticsUrl, {
             json: batch,
             timeout: {
               request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS
