@@ -371,8 +371,8 @@ var IdsHost = class {
           ]
         }
       });
-      return this.client;
     }
+    return this.client;
   }
   markCurrentHostBroken() {
     this.prioritizedURLs?.shift();

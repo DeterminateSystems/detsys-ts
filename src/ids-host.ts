@@ -89,9 +89,9 @@ export class IdsHost {
           ],
         },
       });
-
-      return this.client;
     }
+
+    return this.client;
   }
 
   markCurrentHostBroken(): void {
