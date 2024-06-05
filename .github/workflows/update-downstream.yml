@@ -25,9 +25,8 @@ jobs:
       REF_URL: https://github.com/${{ github.repository }}/tree/${{ github.sha }}
       SOURCE_REPO: ${{ github.repository }}
       SOURCE_PR_NUMBER: ${{ github.event.pull_request.number }}
-      SOURCE_PR_URL: https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+      SOURCE_PR_URL: ${{ github.event.pull_request.html_url }}
       BASE_REF: ${{ github.event.pull_request.base.ref }}
-      HEAD_COMMIT_MSG: ${{ github.event.head_commit.message }}
       DIFF_URL: https://github.com/${{ github.repository }}/compare/${{ github.head_ref }}..${{ github.sha }}
       GIT_USER: ${{ github.actor }}
       GIT_EMAIL: ${{ github.actor }}@users.noreply.github.com
@@ -63,12 +62,20 @@ jobs:
           nix develop --command pnpm update detsys-ts
           nix develop --command pnpm all
 
+      - name: Get last commit message
+        id: commit-msg
+        run: |
+          MSG=$(git show -s --format=%s)
+          echo "msg=${MSG}" >> $GITHUB_OUTPUT
+
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v3
+        env:
+          COMMIT_MSG: ${{ steps.commit-msg.outputs.msg }}
         with:
           token: ${{ secrets.detsys_pr_bot_token }}
-          title: "Update `detsys-ts`: ${{ env.HEAD_COMMIT_MSG }}"
-          commit-message: "Update `detsys-ts` for: `${{ env.HEAD_COMMIT_MSG }}` (`${{ env.REF }}`)"
+          title: "Update `detsys-ts`: ${{ env.COMMIT_MSG }}"
+          commit-message: "Update `detsys-ts` for: `${{ env.COMMIT_MSG }}` (`${{ env.REF }}`)"
           body: |
             Bump [`detsys-ts`](${{ env.SOURCE_REPO }}) to the latest `HEAD` and regenerate application bundle.
 
