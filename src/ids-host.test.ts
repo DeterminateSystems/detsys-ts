@@ -4,8 +4,8 @@ import {
   orderRecordsByPriorityWeight,
   recordToUrl,
   weightedRandom,
-} from "./ids-host";
-import { SrvRecord } from "node:dns";
+} from "./ids-host.js";
+import type { SrvRecord } from "node:dns";
 import { assert, describe, expect, test } from "vitest";
 
 function mkRecord(
@@ -24,6 +24,62 @@ function mkRecord(
 async function mkPromise<T>(lookup: () => T): Promise<T> {
   return lookup();
 }
+
+describe("isUrlSubjectToDynamicUrls", () => {
+  type TestCase = {
+    inputUrl: string;
+    inScope: boolean;
+  };
+
+  const testCases: TestCase[] = [
+    {
+      inputUrl: "https://example.com/bar",
+      inScope: false,
+    },
+    {
+      inputUrl: "https://install.determinate.systems/aoeu",
+      inScope: true,
+    },
+    {
+      inputUrl: "https://install.determinate.systems/",
+      inScope: true,
+    },
+    {
+      inputUrl: "https://install.determinate.systems",
+      inScope: true,
+    },
+    {
+      inputUrl: "https://install.determinate.systems:123/",
+      inScope: false,
+    },
+    {
+      inputUrl: "http://install.determinate.systems/",
+      inScope: false,
+    },
+    {
+      inputUrl: "https://install.detsys.dev/",
+      inScope: false, // FALSE: only subdomains are valid
+    },
+    {
+      inputUrl: "https://foo.install.detsys.dev/",
+      inScope: true,
+    },
+    {
+      inputUrl: "https://foo.install.determinate.systems/",
+      inScope: true,
+    },
+  ];
+
+  for (const { inputUrl, inScope } of testCases) {
+    test(`${inputUrl} should ${inScope ? "" : "not "}be subject to dynamic URLs`, async () => {
+      const host = new IdsHost("foo", "bar", "-");
+
+      expect(host.isUrlSubjectToDynamicUrls(new URL(inputUrl))).toStrictEqual(
+        inScope,
+      );
+    });
+  }
+});
 
 describe("getRootUrl", () => {
   test("handles no URLs", async () => {

@@ -10,6 +10,6 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   dts: {
-    resolve: true,
+    resolve: false,
   },
 });

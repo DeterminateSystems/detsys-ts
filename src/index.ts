@@ -13,7 +13,7 @@ import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import * as actionsExec from "@actions/exec";
-import got, { Got } from "got";
+import { Got } from "got";
 import { exec } from "node:child_process";
 import { UUID, randomUUID } from "node:crypto";
 import { PathLike, createWriteStream, readFileSync } from "node:fs";
@@ -117,8 +117,10 @@ export type ActionOptions = {
   diagnosticsSuffix?: string;
 };
 
-// A confident version of Options, where defaults have been resolved into final values
-type ConfidentActionOptions = {
+/**
+ * A confident version of Options, where defaults have been resolved into final values.
+ */
+export type ConfidentActionOptions = {
   name: string;
   idsProjectName: string;
   eventPrefix: string;
@@ -128,7 +130,10 @@ type ConfidentActionOptions = {
   providedDiagnosticsUrl?: URL;
 };
 
-type DiagnosticEvent = {
+/**
+ * An event to send to the diagnostic endpoint of i.d.s.
+ */
+export type DiagnosticEvent = {
   // Note: putting a Map in here won't serialize to json properly.
   // It'll just be {} on serialization.
   event_name: string;
@@ -145,7 +150,6 @@ export abstract class DetSysAction {
   strictMode: boolean;
 
   private actionOptions: ConfidentActionOptions;
-  private client: Got;
   private exceptionAttachments: Map<string, PathLike>;
   private archOs: string;
   private executionPhase: ExecutionPhase;
@@ -185,21 +189,6 @@ export abstract class DetSysAction {
     this.features = {};
     this.featureEventMetadata = {};
     this.events = [];
-    this.client = got.extend({
-      retry: {
-        limit: 3,
-        methods: ["GET", "HEAD"],
-      },
-      hooks: {
-        beforeRetry: [
-          (error, retryCount) => {
-            actionsCore.info(
-              `Retrying after error ${error.code}, retry #: ${retryCount}`,
-            );
-          },
-        ],
-      },
-    });
 
     // JSON sent to server
     /* eslint-disable camelcase */
@@ -441,6 +430,15 @@ export abstract class DetSysAction {
     }
   }
 
+  async getClient(): Promise<Got> {
+    return await this.idsHost.getGot((prevUrl: URL, nextUrl: URL) => {
+      this.recordEvent("ids-failover", {
+        previousUrl: prevUrl.toString(),
+        nextUrl: nextUrl.toString(),
+      });
+    });
+  }
+
   private async checkIn(): Promise<void> {
     const checkin = await this.requestCheckIn();
     if (checkin === undefined) {
@@ -535,7 +533,7 @@ export abstract class DetSysAction {
           JSON.stringify(this.identity),
         );
 
-        return await this.client
+        return (await this.getClient())
           .get(checkInUrl, {
             timeout: {
               request: CHECK_IN_ENDPOINT_TIMEOUT_MS,
@@ -581,7 +579,7 @@ export abstract class DetSysAction {
         JSON.stringify(this.identity),
       );
 
-      const versionCheckup = await this.client.head(correlatedUrl);
+      const versionCheckup = await (await this.getClient()).head(correlatedUrl);
       if (versionCheckup.headers.etag) {
         const v = versionCheckup.headers.etag;
         this.addFact(FACT_SOURCE_URL_ETAG, v);
@@ -604,7 +602,7 @@ export abstract class DetSysAction {
       );
 
       const destFile = this.getTemporaryName();
-      const fetchStream = this.client.stream(versionCheckup.url);
+      const fetchStream = (await this.getClient()).stream(versionCheckup.url);
 
       await pipeline(
         fetchStream,
@@ -873,33 +871,18 @@ export abstract class DetSysAction {
     };
 
     try {
-      await this.client.post(diagnosticsUrl, {
+      await (
+        await this.getClient()
+      ).post(diagnosticsUrl, {
         json: batch,
         timeout: {
           request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS,
         },
       });
-    } catch (e: unknown) {
+    } catch (err: unknown) {
       actionsCore.debug(
-        `Error submitting diagnostics event: ${stringifyError(e)}`,
+        `Error submitting diagnostics event to ${diagnosticsUrl}: ${stringifyError(err)}`,
       );
-      this.idsHost.markCurrentHostBroken();
-
-      const secondaryDiagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
-      if (secondaryDiagnosticsUrl !== undefined) {
-        try {
-          await this.client.post(secondaryDiagnosticsUrl, {
-            json: batch,
-            timeout: {
-              request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS,
-            },
-          });
-        } catch (err: unknown) {
-          actionsCore.debug(
-            `Error submitting diagnostics event to secondary host (${secondaryDiagnosticsUrl}): ${stringifyError(err)}`,
-          );
-        }
-      }
     }
     this.events = [];
   }
@@ -932,6 +915,17 @@ function makeOptionsConfident(
 }
 
 // Public exports from other files
+export {
+  CheckIn,
+  Feature,
+  Incident,
+  Maintenance,
+  Page,
+  StatusSummary,
+} from "./check-in.js";
+export { AnonymizedCorrelationHashes } from "./correlation.js";
 export { stringifyError } from "./errors.js";
+export { IdsHost } from "./ids-host.js";
+export { SourceDef } from "./sourcedef.js";
 export * as inputs from "./inputs.js";
 export * as platform from "./platform.js";

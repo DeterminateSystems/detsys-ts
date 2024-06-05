@@ -4,7 +4,8 @@
  */
 import { stringifyError } from "./errors.js";
 import * as actionsCore from "@actions/core";
-import { SrvRecord } from "node:dns";
+import got, { Got } from "got";
+import type { SrvRecord } from "node:dns";
 import { resolveSrv } from "node:dns/promises";
 
 const DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
@@ -16,12 +17,17 @@ const ALLOWED_SUFFIXES = [
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const LOOKUP = process.env["IDS_LOOKUP"] ?? DEFAULT_LOOKUP;
 
+const DEFAULT_TIMEOUT = 30_000; // 30 seconds in milliseconds
+
+/**
+ * Host information for install.determinate.systems.
+ */
 export class IdsHost {
   private idsProjectName: string;
   private diagnosticsSuffix?: string;
   private runtimeDiagnosticsUrl?: string;
   private prioritizedURLs?: URL[];
-  private records?: SrvRecord[];
+  private client?: Got;
 
   constructor(
     idsProjectName: string,
@@ -31,6 +37,63 @@ export class IdsHost {
     this.idsProjectName = idsProjectName;
     this.diagnosticsSuffix = diagnosticsSuffix;
     this.runtimeDiagnosticsUrl = runtimeDiagnosticsUrl;
+    this.client = undefined;
+  }
+
+  async getGot(
+    recordFailoverCallback?: (prevUrl: URL, nextUrl: URL) => void,
+  ): Promise<Got> {
+    if (this.client === undefined) {
+      this.client = got.extend({
+        timeout: {
+          request: DEFAULT_TIMEOUT,
+        },
+
+        retry: {
+          limit: (await this.getUrlsByPreference()).length,
+          methods: ["GET", "HEAD"],
+        },
+
+        hooks: {
+          beforeRetry: [
+            async (error, retryCount) => {
+              const prevUrl = await this.getRootUrl();
+              this.markCurrentHostBroken();
+              const nextUrl = await this.getRootUrl();
+
+              if (recordFailoverCallback !== undefined) {
+                recordFailoverCallback(prevUrl, nextUrl);
+              }
+
+              actionsCore.info(
+                `Retrying after error ${error.code}, retry #: ${retryCount}`,
+              );
+            },
+          ],
+
+          beforeRequest: [
+            async (options) => {
+              // The getter always returns a URL, even though the setter accepts a string
+              const currentUrl: URL = options.url as URL;
+
+              if (this.isUrlSubjectToDynamicUrls(currentUrl)) {
+                const newUrl: URL = new URL(currentUrl);
+
+                const url: URL = await this.getRootUrl();
+                newUrl.host = url.host;
+
+                options.url = newUrl;
+                actionsCore.debug(`Transmuted ${currentUrl} into ${newUrl}`);
+              } else {
+                actionsCore.debug(`No transmutations on ${currentUrl}`);
+              }
+            },
+          ],
+        },
+      });
+    }
+
+    return this.client;
   }
 
   markCurrentHostBroken(): void {
@@ -39,6 +102,20 @@ export class IdsHost {
 
   setPrioritizedUrls(urls: URL[]): void {
     this.prioritizedURLs = urls;
+  }
+
+  isUrlSubjectToDynamicUrls(url: URL): boolean {
+    if (url.origin === DEFAULT_IDS_HOST) {
+      return true;
+    }
+
+    for (const suffix of ALLOWED_SUFFIXES) {
+      if (url.host.endsWith(suffix)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   async getDynamicRootUrl(): Promise<URL | undefined> {

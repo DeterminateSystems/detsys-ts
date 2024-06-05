@@ -1,8 +1,43 @@
+import { Got } from 'got';
+import { UUID } from 'node:crypto';
+
+type CheckIn = {
+    status: StatusSummary | null;
+    options: {
+        [k: string]: Feature;
+    };
+};
+type StatusSummary = {
+    page: Page;
+    incidents: Incident[];
+    scheduled_maintenances: Maintenance[];
+};
+type Page = {
+    name: string;
+    url: string;
+};
+type Incident = {
+    name: string;
+    status: string;
+    impact: string;
+    shortlink: string;
+};
+type Maintenance = {
+    name: string;
+    status: string;
+    impact: string;
+    shortlink: string;
+    scheduled_for: string;
+    scheduled_until: string;
+};
 type Feature = {
     variant: boolean | string;
     payload?: string;
 };
 
+/**
+ * JSON sent to server.
+ */
 type AnonymizedCorrelationHashes = {
     correlation_source: string;
     repository?: string;
@@ -16,6 +51,35 @@ type AnonymizedCorrelationHashes = {
  * Coerce a value of type `unknown` into a string.
  */
 declare function stringifyError(e: unknown): string;
+
+/**
+ * Host information for install.determinate.systems.
+ */
+declare class IdsHost {
+    private idsProjectName;
+    private diagnosticsSuffix?;
+    private runtimeDiagnosticsUrl?;
+    private prioritizedURLs?;
+    private client?;
+    constructor(idsProjectName: string, diagnosticsSuffix: string | undefined, runtimeDiagnosticsUrl: string | undefined);
+    getGot(recordFailoverCallback?: (prevUrl: URL, nextUrl: URL) => void): Promise<Got>;
+    markCurrentHostBroken(): void;
+    setPrioritizedUrls(urls: URL[]): void;
+    isUrlSubjectToDynamicUrls(url: URL): boolean;
+    getDynamicRootUrl(): Promise<URL | undefined>;
+    getRootUrl(): Promise<URL>;
+    getDiagnosticsUrl(): Promise<URL | undefined>;
+    private getUrlsByPreference;
+}
+
+type SourceDef = {
+    path?: string;
+    url?: string;
+    tag?: string;
+    pr?: string;
+    branch?: string;
+    revision?: string;
+};
 
 /**
  * Get a Boolean input from the Action's configuration by name.
@@ -124,11 +188,36 @@ type ActionOptions = {
     requireNix: NixRequirementHandling;
     diagnosticsSuffix?: string;
 };
+/**
+ * A confident version of Options, where defaults have been resolved into final values.
+ */
+type ConfidentActionOptions = {
+    name: string;
+    idsProjectName: string;
+    eventPrefix: string;
+    fetchStyle: FetchSuffixStyle;
+    legacySourcePrefix?: string;
+    requireNix: NixRequirementHandling;
+    providedDiagnosticsUrl?: URL;
+};
+/**
+ * An event to send to the diagnostic endpoint of i.d.s.
+ */
+type DiagnosticEvent = {
+    event_name: string;
+    context: Record<string, unknown>;
+    correlation: AnonymizedCorrelationHashes;
+    facts: Record<string, string | boolean>;
+    features: {
+        [k: string]: string | boolean;
+    };
+    timestamp: Date;
+    uuid: UUID;
+};
 declare abstract class DetSysAction {
     nixStoreTrust: NixStoreTrust;
     strictMode: boolean;
     private actionOptions;
-    private client;
     private exceptionAttachments;
     private archOs;
     private executionPhase;
@@ -184,6 +273,7 @@ declare abstract class DetSysAction {
     private get isMain();
     private get isPost();
     private executeAsync;
+    getClient(): Promise<Got>;
     private checkIn;
     getFeature(name: string): Feature | undefined;
     /**
@@ -218,4 +308,4 @@ declare abstract class DetSysAction {
     private submitEvents;
 }
 
-export { type ActionOptions, DetSysAction, type ExecutionPhase, type FetchSuffixStyle, type NixRequirementHandling, type NixStoreTrust, inputs, platform, stringifyError };
+export { type ActionOptions, type AnonymizedCorrelationHashes, type CheckIn, type ConfidentActionOptions, DetSysAction, type DiagnosticEvent, type ExecutionPhase, type Feature, type FetchSuffixStyle, IdsHost, type Incident, type Maintenance, type NixRequirementHandling, type NixStoreTrust, type Page, type SourceDef, type StatusSummary, inputs, platform, stringifyError };

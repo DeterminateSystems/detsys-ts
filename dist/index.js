@@ -314,6 +314,7 @@ function stringifyError(e) {
 
 // src/ids-host.ts
 import * as actionsCore3 from "@actions/core";
+import got from "got";
 import { resolveSrv } from "node:dns/promises";
 var DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
 var ALLOWED_SUFFIXES = [
@@ -322,17 +323,73 @@ var ALLOWED_SUFFIXES = [
 ];
 var DEFAULT_IDS_HOST = "https://install.determinate.systems";
 var LOOKUP = process.env["IDS_LOOKUP"] ?? DEFAULT_LOOKUP;
+var DEFAULT_TIMEOUT = 3e4;
 var IdsHost = class {
   constructor(idsProjectName, diagnosticsSuffix, runtimeDiagnosticsUrl) {
     this.idsProjectName = idsProjectName;
     this.diagnosticsSuffix = diagnosticsSuffix;
     this.runtimeDiagnosticsUrl = runtimeDiagnosticsUrl;
+    this.client = void 0;
+  }
+  async getGot(recordFailoverCallback) {
+    if (this.client === void 0) {
+      this.client = got.extend({
+        timeout: {
+          request: DEFAULT_TIMEOUT
+        },
+        retry: {
+          limit: (await this.getUrlsByPreference()).length,
+          methods: ["GET", "HEAD"]
+        },
+        hooks: {
+          beforeRetry: [
+            async (error3, retryCount) => {
+              const prevUrl = await this.getRootUrl();
+              this.markCurrentHostBroken();
+              const nextUrl = await this.getRootUrl();
+              if (recordFailoverCallback !== void 0) {
+                recordFailoverCallback(prevUrl, nextUrl);
+              }
+              actionsCore3.info(
+                `Retrying after error ${error3.code}, retry #: ${retryCount}`
+              );
+            }
+          ],
+          beforeRequest: [
+            async (options) => {
+              const currentUrl = options.url;
+              if (this.isUrlSubjectToDynamicUrls(currentUrl)) {
+                const newUrl = new URL(currentUrl);
+                const url = await this.getRootUrl();
+                newUrl.host = url.host;
+                options.url = newUrl;
+                actionsCore3.debug(`Transmuted ${currentUrl} into ${newUrl}`);
+              } else {
+                actionsCore3.debug(`No transmutations on ${currentUrl}`);
+              }
+            }
+          ]
+        }
+      });
+    }
+    return this.client;
   }
   markCurrentHostBroken() {
     this.prioritizedURLs?.shift();
   }
   setPrioritizedUrls(urls) {
     this.prioritizedURLs = urls;
+  }
+  isUrlSubjectToDynamicUrls(url) {
+    if (url.origin === DEFAULT_IDS_HOST) {
+      return true;
+    }
+    for (const suffix of ALLOWED_SUFFIXES) {
+      if (url.host.endsWith(suffix)) {
+        return true;
+      }
+    }
+    return false;
   }
   async getDynamicRootUrl() {
     const idsHost = process.env["IDS_HOST"];
@@ -644,7 +701,6 @@ function noisilyGetInput(suffix, legacyPrefix) {
 import * as actionsCache from "@actions/cache";
 import * as actionsCore7 from "@actions/core";
 import * as actionsExec from "@actions/exec";
-import got from "got";
 import { exec as exec3 } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createWriteStream, readFileSync as readFileSync2 } from "node:fs";
@@ -702,21 +758,6 @@ var DetSysAction = class {
     this.features = {};
     this.featureEventMetadata = {};
     this.events = [];
-    this.client = got.extend({
-      retry: {
-        limit: 3,
-        methods: ["GET", "HEAD"]
-      },
-      hooks: {
-        beforeRetry: [
-          (error3, retryCount) => {
-            actionsCore7.info(
-              `Retrying after error ${error3.code}, retry #: ${retryCount}`
-            );
-          }
-        ]
-      }
-    });
     this.facts = {
       $lib: "idslib",
       $lib_version: version,
@@ -900,6 +941,14 @@ var DetSysAction = class {
       await this.complete();
     }
   }
+  async getClient() {
+    return await this.idsHost.getGot((prevUrl, nextUrl) => {
+      this.recordEvent("ids-failover", {
+        previousUrl: prevUrl.toString(),
+        nextUrl: nextUrl.toString()
+      });
+    });
+  }
   async checkIn() {
     const checkin = await this.requestCheckIn();
     if (checkin === void 0) {
@@ -976,7 +1025,7 @@ var DetSysAction = class {
           "correlation",
           JSON.stringify(this.identity)
         );
-        return await this.client.get(checkInUrl, {
+        return (await this.getClient()).get(checkInUrl, {
           timeout: {
             request: CHECK_IN_ENDPOINT_TIMEOUT_MS
           }
@@ -1012,7 +1061,7 @@ var DetSysAction = class {
         "correlation",
         JSON.stringify(this.identity)
       );
-      const versionCheckup = await this.client.head(correlatedUrl);
+      const versionCheckup = await (await this.getClient()).head(correlatedUrl);
       if (versionCheckup.headers.etag) {
         const v = versionCheckup.headers.etag;
         this.addFact(FACT_SOURCE_URL_ETAG, v);
@@ -1031,7 +1080,7 @@ var DetSysAction = class {
         `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`
       );
       const destFile = this.getTemporaryName();
-      const fetchStream = this.client.stream(versionCheckup.url);
+      const fetchStream = (await this.getClient()).stream(versionCheckup.url);
       await pipeline(
         fetchStream,
         createWriteStream(destFile, {
@@ -1249,32 +1298,16 @@ var DetSysAction = class {
       events: this.events
     };
     try {
-      await this.client.post(diagnosticsUrl, {
+      await (await this.getClient()).post(diagnosticsUrl, {
         json: batch,
         timeout: {
           request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS
         }
       });
-    } catch (e) {
+    } catch (err) {
       actionsCore7.debug(
-        `Error submitting diagnostics event: ${stringifyError2(e)}`
+        `Error submitting diagnostics event to ${diagnosticsUrl}: ${stringifyError2(err)}`
       );
-      this.idsHost.markCurrentHostBroken();
-      const secondaryDiagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
-      if (secondaryDiagnosticsUrl !== void 0) {
-        try {
-          await this.client.post(secondaryDiagnosticsUrl, {
-            json: batch,
-            timeout: {
-              request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS
-            }
-          });
-        } catch (err) {
-          actionsCore7.debug(
-            `Error submitting diagnostics event to secondary host (${secondaryDiagnosticsUrl}): ${stringifyError2(err)}`
-          );
-        }
-      }
     }
     this.events = [];
   }
@@ -1298,6 +1331,7 @@ function makeOptionsConfident(actionOptions) {
 }
 export {
   DetSysAction,
+  IdsHost,
   inputs_exports as inputs,
   platform_exports as platform,
   stringifyError
