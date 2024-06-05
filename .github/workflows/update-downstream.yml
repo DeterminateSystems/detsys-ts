@@ -3,15 +3,13 @@ name: Update downstream
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   update-downstream-repos:
+    environment: detsys-pr-bot
     name: Pull request detsys-ts update to ${{ github.repository_owner }}/${{ matrix.repo }}
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
-      pull-requests: write
-      repository-projects: write
     strategy:
       matrix:
         repo:
@@ -31,7 +29,7 @@ jobs:
       GIT_HEAD: ${{ github.actor }}:detsys-ts-update-${{ github.sha }}
       TARGET_REPO: ${{ github.repository_owner }}/${{ matrix.repo }}
       SOURCE_REPO: ${{ github.repository }}
-      GH_TOKEN: ${{ github.token }} # for `gh pr create`
+      GH_TOKEN: ${{ secrets.detsys_pr_bot_token }} # for `gh pr create`
     steps:
       - name: Check out ${{ env.TARGET_REPO }}
         uses: actions/checkout@v4
