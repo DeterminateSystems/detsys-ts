@@ -48,16 +48,15 @@ jobs:
           git config user.name "${{ env.GIT_USER }}"
           git config user.email "${{ env.GIT_EMAIL }}"
 
+
+      - name: Make sure the repo is forked
+        run: |
+          gh repo fork
+
       - name: Update detsys-ts dependency for ${{ env.TARGET_REPO }} to ref ${{ env.REF }}
         run: |
           nix develop --command pnpm update detsys-ts
           nix develop --command pnpm all
-
-      - name: Commit changes to package.json, pnpm-lock.yaml, and dist/
-        run: |
-          gh repo fork
-
-          date > boop
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v3
