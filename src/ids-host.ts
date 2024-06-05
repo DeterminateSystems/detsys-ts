@@ -17,6 +17,8 @@ const ALLOWED_SUFFIXES = [
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const LOOKUP = process.env["IDS_LOOKUP"] ?? DEFAULT_LOOKUP;
 
+const DEFAULT_TIMEOUT = 30_000; // 30 seconds in milliseconds
+
 export class IdsHost {
   private idsProjectName: string;
   private diagnosticsSuffix?: string;
@@ -40,6 +42,8 @@ export class IdsHost {
     if (this.client === undefined) {
       this.client = got.extend({
         prefixUrl: DEFAULT_IDS_HOST,
+        timeout: DEFAULT_TIMEOUT,
+
         retry: {
           limit: (await this.getUrlsByPreference()).length,
           methods: ["GET", "HEAD"],

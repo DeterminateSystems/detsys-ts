@@ -323,6 +323,7 @@ var ALLOWED_SUFFIXES = [
 ];
 var DEFAULT_IDS_HOST = "https://install.determinate.systems";
 var LOOKUP = process.env["IDS_LOOKUP"] ?? DEFAULT_LOOKUP;
+var DEFAULT_TIMEOUT = 3e4;
 var IdsHost = class {
   constructor(idsProjectName, diagnosticsSuffix, runtimeDiagnosticsUrl) {
     this.idsProjectName = idsProjectName;
@@ -334,6 +335,7 @@ var IdsHost = class {
     if (this.client === void 0) {
       this.client = got.extend({
         prefixUrl: DEFAULT_IDS_HOST,
+        timeout: DEFAULT_TIMEOUT,
         retry: {
           limit: (await this.getUrlsByPreference()).length,
           methods: ["GET", "HEAD"]
