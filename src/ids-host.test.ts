@@ -45,6 +45,10 @@ describe("isUrlSubjectToDynamicUrls", () => {
       inScope: true,
     },
     {
+      inputUrl: "https://install.determinate.systems",
+      inScope: true,
+    },
+    {
       inputUrl: "https://install.determinate.systems:123/",
       inScope: false,
     },
