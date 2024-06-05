@@ -58,6 +58,7 @@ jobs:
           gh repo fork
           git checkout -b ${{ env.GIT_BRANCH }}
 
+          date > boop
           git add .
 
           if [[ $(git status -s) ]]; then
