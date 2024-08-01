@@ -37,9 +37,23 @@ jobs:
       TARGET_REPO: ${{ github.repository_owner }}/${{ matrix.repo }}
       GH_TOKEN: ${{ secrets.detsys_pr_bot_token }} # for `gh pr create`
     steps:
+      - name: Check out detsys-ts
+        uses: actions/checkout@v4
+        with:
+          path: current
+          token: ${{ env.GH_TOKEN }}
+
+      - name: Get last detsys-ts commit message
+        id: commit-msg
+        working-directory: current
+        run: |
+          MSG=$(git show -s --format="%s" ${{ github.sha }}))
+          echo "msg=${MSG}" >> $GITHUB_OUTPUT
+
       - name: Check out ${{ env.TARGET_REPO }}
         uses: actions/checkout@v4
         with:
+          path: target
           repository: ${{ env.TARGET_REPO }}
           token: ${{ env.GH_TOKEN }}
 
@@ -50,30 +64,28 @@ jobs:
         uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Configure Git for ${{ env.GIT_USER }}
+        working-directory: target
         run: |
           git config user.name "${{ env.GIT_USER }}"
           git config user.email "${{ env.GIT_EMAIL }}"
 
       - name: Make sure the repo is forked
+        working-directory: target
         run: |
           gh repo fork
 
       - name: Update `detsys-ts` dependency for ${{ env.TARGET_REPO }} to ref `${{ env.REF }}`
+        working-directory: target
         run: |
           nix develop --command pnpm update detsys-ts
           nix develop --command pnpm all
-
-      - name: Get last commit message
-        id: commit-msg
-        run: |
-          MSG=$(git show -s --format=%s)
-          echo "msg=${MSG}" >> $GITHUB_OUTPUT
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v3
         env:
           COMMIT_MSG: ${{ steps.commit-msg.outputs.msg }}
         with:
+          path: target
           token: ${{ secrets.detsys_pr_bot_token }}
           title: "Update `detsys-ts`: ${{ env.COMMIT_MSG }}"
           commit-message: "Update `detsys-ts` for: `${{ env.COMMIT_MSG }}` (`${{ env.REF }}`)"
@@ -87,4 +99,5 @@ jobs:
           push-to-fork: detsys-pr-bot/${{ matrix.repo }}
           branch: "${{ env.GIT_BRANCH }}"
           base: ${{ env.GIT_BASE }}
+          reviewers: lucperkins
           draft: false
