@@ -99,4 +99,5 @@ jobs:
           push-to-fork: detsys-pr-bot/${{ matrix.repo }}
           branch: "${{ env.GIT_BRANCH }}"
           base: ${{ env.GIT_BASE }}
+          reviewers: lucperkins
           draft: false
