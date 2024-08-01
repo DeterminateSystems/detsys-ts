@@ -47,7 +47,7 @@ jobs:
         id: commit-msg
         working-directory: current
         run: |
-          MSG=$(git show -s --format="%s" ${{ github.sha }}))
+          MSG=$(git show -s --format="%s" ${{ github.sha }})
           echo "msg=${MSG}" >> $GITHUB_OUTPUT
 
       - name: Check out ${{ env.TARGET_REPO }}
