@@ -238,22 +238,63 @@ async function collectBacktraces(prefixes) {
   return /* @__PURE__ */ new Map();
 }
 async function collectBacktracesMacOS(prefixes) {
-  const dir = `${process.env["HOME"]}/Library/Logs/DiagnosticReports/`;
-  const fileNames = (await readdir(dir)).filter((fileName) => {
-    return prefixes.some((prefix) => fileName.startsWith(prefix));
-  });
   const backtraces = /* @__PURE__ */ new Map();
-  const doGzip = promisify2(gzip);
-  for (const fileName of fileNames) {
-    try {
-      const logText = await readFile2(`${dir}/${fileName}`);
-      const buf = await doGzip(logText);
-      backtraces.set(`backtrace_value_${fileName}`, buf.toString("base64"));
-    } catch (innerError) {
-      backtraces.set(
-        `backtrace_failure_${fileName}`,
-        stringifyError(innerError)
-      );
+  try {
+    const { stdout: logJson } = await exec2.getExecOutput(
+      "log",
+      [
+        "show",
+        "--style",
+        "json",
+        "--last",
+        // Note we collect the last 1m only, because it should only take a few seconds to write the crash log.
+        // Therefor, any crashes before this 1m should be long done by now.
+        "1m",
+        "--no-info",
+        "--predicate",
+        "sender = 'ReportCrash'"
+      ],
+      {
+        silent: true
+      }
+    );
+    const sussyArray = JSON.parse(logJson);
+    if (!Array.isArray(sussyArray)) {
+      throw new Error(`Log json isn't an array: ${logJson}`);
+    }
+    if (sussyArray.length > 0) {
+      actionsCore2.info(`Collecting crash data...`);
+      const delay = async (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      await delay(5e3);
+    }
+  } catch (e) {
+    actionsCore2.debug(
+      "Failed to check logs for in-progress crash dumps, assuming there are none."
+    );
+  }
+  const dirs = [
+    ["system", "/Library/Logs/DiagnosticReports/"],
+    ["user", `${process.env["HOME"]}/Library/Logs/DiagnosticReports/`]
+  ];
+  for (const [source, dir] of dirs) {
+    const fileNames = (await readdir(dir)).filter((fileName) => {
+      return prefixes.some((prefix) => fileName.startsWith(prefix));
+    });
+    const doGzip = promisify2(gzip);
+    for (const fileName of fileNames) {
+      try {
+        const logText = await readFile2(`${dir}/${fileName}`);
+        const buf = await doGzip(logText);
+        backtraces.set(
+          `backtrace_value_${source}_${fileName}`,
+          buf.toString("base64")
+        );
+      } catch (innerError) {
+        backtraces.set(
+          `backtrace_failure_${source}_${fileName}`,
+          stringifyError(innerError)
+        );
+      }
     }
   }
   return backtraces;
