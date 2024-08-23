@@ -770,8 +770,8 @@ export abstract class DetSysAction {
       const backtraces = await collectBacktraces(
         this.actionOptions.binaryNamePrefixes,
       );
+      actionsCore.debug(`Backtraces identified: ${backtraces.size}`);
       if (backtraces.size > 0) {
-        actionsCore.debug(`backtraces identified: ${backtraces.size}`);
         this.recordEvent(EVENT_BACKTRACES, Object.fromEntries(backtraces));
       }
     } catch (innerError: unknown) {
