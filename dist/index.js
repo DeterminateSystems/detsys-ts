@@ -238,9 +238,9 @@ async function collectBacktraces(prefixes) {
   return /* @__PURE__ */ new Map();
 }
 async function collectBacktracesMacOS(prefixes) {
-  const dir = process.env["HOME"];
-  const fileNames = (await readdir(`${dir}/Library/Logs/DiagnosticReports/`)).filter((fileName) => {
-    return prefixes.some((prefix) => fileName.startsWith(`${prefix}_`));
+  const dir = `${process.env["HOME"]}/Library/Logs/DiagnosticReports/`;
+  const fileNames = (await readdir(dir)).filter((fileName) => {
+    return prefixes.some((prefix) => fileName.startsWith(prefix));
   });
   const backtraces = /* @__PURE__ */ new Map();
   const doGzip = promisify2(gzip);
@@ -1029,6 +1029,7 @@ var DetSysAction = class {
             this.actionOptions.binaryNamePrefixes
           );
           if (backtraces.size > 0) {
+            actionsCore8.debug(`backtraces identified: ${backtraces.size}`);
             this.recordEvent(EVENT_BACKTRACES, Object.fromEntries(backtraces));
           }
         } catch (innerError) {

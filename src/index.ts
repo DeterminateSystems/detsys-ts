@@ -419,6 +419,7 @@ export abstract class DetSysAction {
             this.actionOptions.binaryNamePrefixes,
           );
           if (backtraces.size > 0) {
+            actionsCore.debug(`backtraces identified: ${backtraces.size}`);
             this.recordEvent(EVENT_BACKTRACES, Object.fromEntries(backtraces));
           }
         } catch (innerError: unknown) {

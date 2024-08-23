@@ -26,11 +26,9 @@ export async function collectBacktraces(
 export async function collectBacktracesMacOS(
   prefixes: string[],
 ): Promise<Map<string, string>> {
-  const dir = process.env["HOME"];
-  const fileNames = (
-    await readdir(`${dir}/Library/Logs/DiagnosticReports/`)
-  ).filter((fileName) => {
-    return prefixes.some((prefix) => fileName.startsWith(`${prefix}_`));
+  const dir = `${process.env["HOME"]}/Library/Logs/DiagnosticReports/`;
+  const fileNames = (await readdir(dir)).filter((fileName) => {
+    return prefixes.some((prefix) => fileName.startsWith(prefix));
   });
 
   const backtraces: Map<string, string> = new Map();
