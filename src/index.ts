@@ -398,8 +398,6 @@ export abstract class DetSysAction {
         await this.main();
       } else if (this.isPost) {
         await this.post();
-
-        await this.collectBacktraces();
       }
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
     } catch (e: unknown) {
@@ -436,6 +434,10 @@ export abstract class DetSysAction {
 
       this.recordEvent(EVENT_EXCEPTION, Object.fromEntries(exceptionContext));
     } finally {
+      if (this.isPost) {
+        await this.collectBacktraces();
+      }
+
       await this.complete();
     }
   }
