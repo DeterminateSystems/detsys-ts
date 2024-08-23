@@ -210,8 +210,122 @@ async function getDetails() {
   };
 }
 
-// src/correlation.ts
+// src/errors.ts
+function stringifyError(e) {
+  if (e instanceof Error) {
+    return e.message;
+  } else if (typeof e === "string") {
+    return e;
+  } else {
+    return JSON.stringify(e);
+  }
+}
+
+// src/backtrace.ts
 import * as actionsCore2 from "@actions/core";
+import * as exec2 from "@actions/exec";
+import { readFile as readFile2, readdir } from "node:fs/promises";
+import { promisify as promisify2 } from "node:util";
+import { gzip } from "node:zlib";
+import os3 from "os";
+async function collectBacktraces(prefixes) {
+  if (os3.platform() === "darwin") {
+    return await collectBacktracesMacOS(prefixes);
+  }
+  if (os3.platform() === "linux") {
+    return await collectBacktracesSystemd(prefixes);
+  }
+  return /* @__PURE__ */ new Map();
+}
+async function collectBacktracesMacOS(prefixes) {
+  const dir = process.env["HOME"];
+  const fileNames = (await readdir(`${dir}/Library/Logs/DiagnosticReports/`)).filter((fileName) => {
+    return prefixes.some((prefix) => fileName.startsWith(`${prefix}_`));
+  });
+  const backtraces = /* @__PURE__ */ new Map();
+  const doGzip = promisify2(gzip);
+  for (const fileName of fileNames) {
+    try {
+      const logText = await readFile2(`${dir}/${fileName}`);
+      const buf = await doGzip(logText);
+      backtraces.set(`backtrace_value_${fileName}`, buf.toString("base64"));
+    } catch (innerError) {
+      backtraces.set(
+        `backtrace_failure_${fileName}`,
+        stringifyError(innerError)
+      );
+    }
+  }
+  return backtraces;
+}
+async function collectBacktracesSystemd(prefixes) {
+  const backtraces = /* @__PURE__ */ new Map();
+  const coredumps = [];
+  try {
+    const { stdout: coredumpjson } = await exec2.getExecOutput(
+      "coredumpctl",
+      ["--json=pretty", "list", "--since", "1 hour ago"],
+      {
+        silent: true
+      }
+    );
+    const sussyArray = JSON.parse(coredumpjson);
+    if (!Array.isArray(sussyArray)) {
+      throw new Error(`Coredump isn't an array: ${coredumpjson}`);
+    }
+    for (const sussyObject of sussyArray) {
+      const keys = Object.keys(sussyObject);
+      if (keys.includes("exe") && keys.includes("pid")) {
+        if (typeof sussyObject.exe == "string" && typeof sussyObject.pid == "number") {
+          const execParts = sussyObject.exe.split("/");
+          const binaryName = execParts[execParts.length - 1];
+          if (prefixes.some((prefix) => binaryName.startsWith(prefix))) {
+            coredumps.push({
+              exe: sussyObject.exe,
+              pid: sussyObject.pid
+            });
+          }
+        } else {
+          actionsCore2.debug(
+            `Mysterious coredump entry missing exe string and/or pid number: ${JSON.stringify(sussyObject)}`
+          );
+        }
+      } else {
+        actionsCore2.debug(
+          `Mysterious coredump entry missing exe value and/or pid value: ${JSON.stringify(sussyObject)}`
+        );
+      }
+    }
+  } catch (innerError) {
+    actionsCore2.debug(
+      `Cannot collect backtraces: ${stringifyError(innerError)}`
+    );
+    return backtraces;
+  }
+  const doGzip = promisify2(gzip);
+  for (const coredump of coredumps) {
+    try {
+      const { stdout: logText } = await exec2.getExecOutput(
+        "coredumpctl",
+        ["info", `${coredump.pid}`],
+        {
+          silent: true
+        }
+      );
+      const buf = await doGzip(logText);
+      backtraces.set(`backtrace_value_${coredump.pid}`, buf.toString("base64"));
+    } catch (innerError) {
+      backtraces.set(
+        `backtrace_failure_${coredump.pid}`,
+        stringifyError(innerError)
+      );
+    }
+  }
+  return backtraces;
+}
+
+// src/correlation.ts
+import * as actionsCore3 from "@actions/core";
 import { createHash } from "node:crypto";
 var OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 function identify(projectName) {
@@ -274,8 +388,8 @@ function identify(projectName) {
       ])
     }
   };
-  actionsCore2.debug("Correlation data:");
-  actionsCore2.debug(JSON.stringify(ident, null, 2));
+  actionsCore3.debug("Correlation data:");
+  actionsCore3.debug(JSON.stringify(ident, null, 2));
   return ident;
 }
 function hashEnvironmentVariables(prefix, variables) {
@@ -284,12 +398,12 @@ function hashEnvironmentVariables(prefix, variables) {
     let value = process.env[varName];
     if (value === void 0) {
       if (OPTIONAL_VARIABLES.includes(varName)) {
-        actionsCore2.debug(
+        actionsCore3.debug(
           `Optional environment variable not set: ${varName} -- substituting with the variable name`
         );
         value = varName;
       } else {
-        actionsCore2.debug(
+        actionsCore3.debug(
           `Environment variable not set: ${varName} -- can't generate the requested identity`
         );
         return void 0;
@@ -301,19 +415,8 @@ function hashEnvironmentVariables(prefix, variables) {
   return `${prefix}-${hash.digest("hex")}`;
 }
 
-// src/errors.ts
-function stringifyError(e) {
-  if (e instanceof Error) {
-    return e.message;
-  } else if (typeof e === "string") {
-    return e;
-  } else {
-    return JSON.stringify(e);
-  }
-}
-
 // src/ids-host.ts
-import * as actionsCore3 from "@actions/core";
+import * as actionsCore4 from "@actions/core";
 import got from "got";
 import { resolveSrv } from "node:dns/promises";
 var DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
@@ -350,7 +453,7 @@ var IdsHost = class {
               if (recordFailoverCallback !== void 0) {
                 recordFailoverCallback(prevUrl, nextUrl);
               }
-              actionsCore3.info(
+              actionsCore4.info(
                 `Retrying after error ${error3.code}, retry #: ${retryCount}`
               );
             }
@@ -363,9 +466,9 @@ var IdsHost = class {
                 const url = await this.getRootUrl();
                 newUrl.host = url.host;
                 options.url = newUrl;
-                actionsCore3.debug(`Transmuted ${currentUrl} into ${newUrl}`);
+                actionsCore4.debug(`Transmuted ${currentUrl} into ${newUrl}`);
               } else {
-                actionsCore3.debug(`No transmutations on ${currentUrl}`);
+                actionsCore4.debug(`No transmutations on ${currentUrl}`);
               }
             }
           ]
@@ -397,7 +500,7 @@ var IdsHost = class {
       try {
         return new URL(idsHost);
       } catch (err) {
-        actionsCore3.error(
+        actionsCore4.error(
           `IDS_HOST environment variable is not a valid URL. Ignoring. ${stringifyError(err)}`
         );
       }
@@ -407,7 +510,7 @@ var IdsHost = class {
       const urls = await this.getUrlsByPreference();
       url = urls[0];
     } catch (err) {
-      actionsCore3.error(
+      actionsCore4.error(
         `Error collecting IDS URLs by preference: ${stringifyError(err)}`
       );
     }
@@ -432,7 +535,7 @@ var IdsHost = class {
       try {
         return new URL(this.runtimeDiagnosticsUrl);
       } catch (err) {
-        actionsCore3.info(
+        actionsCore4.info(
           `User-provided diagnostic endpoint ignored: not a valid URL: ${stringifyError(err)}`
         );
       }
@@ -444,7 +547,7 @@ var IdsHost = class {
       diagnosticUrl.pathname += this.diagnosticsSuffix || "diagnostics";
       return diagnosticUrl;
     } catch (err) {
-      actionsCore3.info(
+      actionsCore4.info(
         `Generated diagnostic endpoint ignored, and diagnostics are disabled: not a valid URL: ${stringifyError(err)}`
       );
       return void 0;
@@ -464,7 +567,7 @@ function recordToUrl(record) {
   try {
     return new URL(urlStr);
   } catch (err) {
-    actionsCore3.debug(
+    actionsCore4.debug(
       `Record ${JSON.stringify(record)} produced an invalid URL: ${urlStr} (${err})`
     );
     return void 0;
@@ -483,7 +586,7 @@ async function discoverServicesStub(lookup, timeout) {
   try {
     records = await Promise.race([lookup, defaultFallback]);
   } catch (reason) {
-    actionsCore3.debug(`Error resolving SRV records: ${stringifyError(reason)}`);
+    actionsCore4.debug(`Error resolving SRV records: ${stringifyError(reason)}`);
     records = [];
   }
   const acceptableRecords = records.filter((record) => {
@@ -492,15 +595,15 @@ async function discoverServicesStub(lookup, timeout) {
         return true;
       }
     }
-    actionsCore3.debug(
+    actionsCore4.debug(
       `Unacceptable domain due to an invalid suffix: ${record.name}`
     );
     return false;
   });
   if (acceptableRecords.length === 0) {
-    actionsCore3.debug(`No records found for ${LOOKUP}`);
+    actionsCore4.debug(`No records found for ${LOOKUP}`);
   } else {
-    actionsCore3.debug(
+    actionsCore4.debug(
       `Resolved ${LOOKUP} to ${JSON.stringify(acceptableRecords)}`
     );
   }
@@ -565,9 +668,9 @@ __export(inputs_exports, {
   getStringOrUndefined: () => getStringOrUndefined,
   handleString: () => handleString
 });
-import * as actionsCore4 from "@actions/core";
+import * as actionsCore5 from "@actions/core";
 var getBool = (name) => {
-  return actionsCore4.getBooleanInput(name);
+  return actionsCore5.getBooleanInput(name);
 };
 var getArrayOfStrings = (name, separator) => {
   const original = getString(name);
@@ -590,7 +693,7 @@ var handleString = (input, separator) => {
   return trimmed.split(sepChar).map((s) => s.trim());
 };
 var getMultilineStringOrNull = (name) => {
-  const value = actionsCore4.getMultilineInput(name);
+  const value = actionsCore5.getMultilineInput(name);
   if (value.length === 0) {
     return null;
   } else {
@@ -598,7 +701,7 @@ var getMultilineStringOrNull = (name) => {
   }
 };
 var getNumberOrNull = (name) => {
-  const value = actionsCore4.getInput(name);
+  const value = actionsCore5.getInput(name);
   if (value === "") {
     return null;
   } else {
@@ -606,10 +709,10 @@ var getNumberOrNull = (name) => {
   }
 };
 var getString = (name) => {
-  return actionsCore4.getInput(name);
+  return actionsCore5.getInput(name);
 };
 var getStringOrNull = (name) => {
-  const value = actionsCore4.getInput(name);
+  const value = actionsCore5.getInput(name);
   if (value === "") {
     return null;
   } else {
@@ -617,7 +720,7 @@ var getStringOrNull = (name) => {
   }
 };
 var getStringOrUndefined = (name) => {
-  const value = actionsCore4.getInput(name);
+  const value = actionsCore5.getInput(name);
   if (value === "") {
     return void 0;
   } else {
@@ -631,14 +734,14 @@ __export(platform_exports, {
   getArchOs: () => getArchOs,
   getNixPlatform: () => getNixPlatform
 });
-import * as actionsCore5 from "@actions/core";
+import * as actionsCore6 from "@actions/core";
 function getArchOs() {
   const envArch = process.env.RUNNER_ARCH;
   const envOs = process.env.RUNNER_OS;
   if (envArch && envOs) {
     return `${envArch}-${envOs}`;
   } else {
-    actionsCore5.error(
+    actionsCore6.error(
       `Can't identify the platform: RUNNER_ARCH or RUNNER_OS undefined (${envArch}-${envOs})`
     );
     throw new Error("RUNNER_ARCH and/or RUNNER_OS is not defined");
@@ -655,7 +758,7 @@ function getNixPlatform(archOs) {
   if (mappedTo) {
     return mappedTo;
   } else {
-    actionsCore5.error(
+    actionsCore6.error(
       `ArchOs (${archOs}) doesn't map to a supported Nix platform.`
     );
     throw new Error(
@@ -665,7 +768,7 @@ function getNixPlatform(archOs) {
 }
 
 // src/sourcedef.ts
-import * as actionsCore6 from "@actions/core";
+import * as actionsCore7 from "@actions/core";
 function constructSourceParameters(legacyPrefix) {
   return {
     path: noisilyGetInput("path", legacyPrefix),
@@ -683,12 +786,12 @@ function noisilyGetInput(suffix, legacyPrefix) {
   }
   const legacyInput = getStringOrUndefined(`${legacyPrefix}-${suffix}`);
   if (preferredInput && legacyInput) {
-    actionsCore6.warning(
+    actionsCore7.warning(
       `The supported option source-${suffix} and the legacy option ${legacyPrefix}-${suffix} are both set. Preferring source-${suffix}. Please stop setting ${legacyPrefix}-${suffix}.`
     );
     return preferredInput;
   } else if (legacyInput) {
-    actionsCore6.warning(
+    actionsCore7.warning(
       `The legacy option ${legacyPrefix}-${suffix} is set. Please migrate to source-${suffix}.`
     );
     return legacyInput;
@@ -699,18 +802,19 @@ function noisilyGetInput(suffix, legacyPrefix) {
 
 // src/index.ts
 import * as actionsCache from "@actions/cache";
-import * as actionsCore7 from "@actions/core";
+import * as actionsCore8 from "@actions/core";
 import * as actionsExec from "@actions/exec";
-import { exec as exec3 } from "node:child_process";
+import { exec as exec4 } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createWriteStream, readFileSync as readFileSync2 } from "node:fs";
 import fs2, { chmod, copyFile, mkdir } from "node:fs/promises";
-import * as os3 from "node:os";
+import * as os4 from "node:os";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { promisify as promisify2 } from "node:util";
-import { gzip } from "node:zlib";
+import { promisify as promisify3 } from "node:util";
+import { gzip as gzip2 } from "node:zlib";
+var EVENT_BACKTRACES = "backtrace";
 var EVENT_EXCEPTION = "exception";
 var EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
 var EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
@@ -735,9 +839,9 @@ var DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 3e4;
 var CHECK_IN_ENDPOINT_TIMEOUT_MS = 5e3;
 var DetSysAction = class {
   determineExecutionPhase() {
-    const currentPhase = actionsCore7.getState(STATE_KEY_EXECUTION_PHASE);
+    const currentPhase = actionsCore8.getState(STATE_KEY_EXECUTION_PHASE);
     if (currentPhase === "") {
-      actionsCore7.saveState(STATE_KEY_EXECUTION_PHASE, "post");
+      actionsCore8.saveState(STATE_KEY_EXECUTION_PHASE, "post");
       return "main";
     } else {
       return "post";
@@ -791,7 +895,7 @@ var DetSysAction = class {
           this.addFact(FACT_OS_VERSION, details.version);
         }
       }).catch((e) => {
-        actionsCore7.debug(
+        actionsCore8.debug(
           `Failure getting platform details: ${stringifyError2(e)}`
         );
       });
@@ -869,10 +973,10 @@ var DetSysAction = class {
    */
   async unpackClosure(bin) {
     const artifact = await this.fetchArtifact();
-    const { stdout } = await promisify2(exec3)(
+    const { stdout } = await promisify3(exec4)(
       `cat "${artifact}" | xz -d | nix-store --import`
     );
-    const paths = stdout.split(os3.EOL);
+    const paths = stdout.split(os4.EOL);
     const lastPath = paths.at(-2);
     return `${lastPath}/bin/${bin}`;
   }
@@ -915,11 +1019,25 @@ var DetSysAction = class {
       const reportable = stringifyError2(e);
       this.addFact(FACT_FINAL_EXCEPTION, reportable);
       if (this.isPost) {
-        actionsCore7.warning(reportable);
+        actionsCore8.warning(reportable);
       } else {
-        actionsCore7.setFailed(reportable);
+        actionsCore8.setFailed(reportable);
       }
-      const doGzip = promisify2(gzip);
+      if (this.isPost) {
+        try {
+          const backtraces = await collectBacktraces(
+            this.actionOptions.binaryNamePrefixes
+          );
+          if (backtraces.size > 0) {
+            this.recordEvent(EVENT_BACKTRACES, Object.fromEntries(backtraces));
+          }
+        } catch (innerError) {
+          actionsCore8.debug(
+            `Error collecting backtraces: ${stringifyError2(innerError)}`
+          );
+        }
+      }
+      const doGzip = promisify3(gzip2);
       const exceptionContext = /* @__PURE__ */ new Map();
       for (const [attachmentLabel, filePath] of this.exceptionAttachments) {
         try {
@@ -979,15 +1097,15 @@ var DetSysAction = class {
         );
       }
       if (summaries.length > 0) {
-        actionsCore7.info(
+        actionsCore8.info(
           // Bright red, Bold, Underline
           `${"\x1B[0;31m"}${"\x1B[1m"}${"\x1B[4m"}${checkin.status.page.name} Status`
         );
         for (const notice of summaries) {
-          actionsCore7.info(notice);
+          actionsCore8.info(notice);
         }
-        actionsCore7.info(`See: ${checkin.status.page.url}`);
-        actionsCore7.info(``);
+        actionsCore8.info(`See: ${checkin.status.page.url}`);
+        actionsCore8.info(``);
       }
     }
   }
@@ -1019,7 +1137,7 @@ var DetSysAction = class {
         return void 0;
       }
       try {
-        actionsCore7.debug(`Preflighting via ${checkInUrl}`);
+        actionsCore8.debug(`Preflighting via ${checkInUrl}`);
         checkInUrl.searchParams.set("ci", "github");
         checkInUrl.searchParams.set(
           "correlation",
@@ -1031,7 +1149,7 @@ var DetSysAction = class {
           }
         }).json();
       } catch (e) {
-        actionsCore7.debug(`Error checking in: ${stringifyError2(e)}`);
+        actionsCore8.debug(`Error checking in: ${stringifyError2(e)}`);
         this.idsHost.markCurrentHostBroken();
       }
     }
@@ -1047,14 +1165,14 @@ var DetSysAction = class {
   async fetchArtifact() {
     const sourceBinary = getStringOrNull("source-binary");
     if (sourceBinary !== null && sourceBinary !== "") {
-      actionsCore7.debug(`Using the provided source binary at ${sourceBinary}`);
+      actionsCore8.debug(`Using the provided source binary at ${sourceBinary}`);
       return sourceBinary;
     }
-    actionsCore7.startGroup(
+    actionsCore8.startGroup(
       `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`
     );
     try {
-      actionsCore7.info(`Fetching from ${await this.getSourceUrl()}`);
+      actionsCore8.info(`Fetching from ${await this.getSourceUrl()}`);
       const correlatedUrl = await this.getSourceUrl();
       correlatedUrl.searchParams.set("ci", "github");
       correlatedUrl.searchParams.set(
@@ -1065,18 +1183,18 @@ var DetSysAction = class {
       if (versionCheckup.headers.etag) {
         const v = versionCheckup.headers.etag;
         this.addFact(FACT_SOURCE_URL_ETAG, v);
-        actionsCore7.debug(
+        actionsCore8.debug(
           `Checking the tool cache for ${await this.getSourceUrl()} at ${v}`
         );
         const cached = await this.getCachedVersion(v);
         if (cached) {
           this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = true;
-          actionsCore7.debug(`Tool cache hit.`);
+          actionsCore8.debug(`Tool cache hit.`);
           return cached;
         }
       }
       this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = false;
-      actionsCore7.debug(
+      actionsCore8.debug(
         `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`
       );
       const destFile = this.getTemporaryName();
@@ -1093,12 +1211,12 @@ var DetSysAction = class {
         try {
           await this.saveCachedVersion(v, destFile);
         } catch (e) {
-          actionsCore7.debug(`Error caching the artifact: ${stringifyError2(e)}`);
+          actionsCore8.debug(`Error caching the artifact: ${stringifyError2(e)}`);
         }
       }
       return destFile;
     } finally {
-      actionsCore7.endGroup();
+      actionsCore8.endGroup();
     }
   }
   /**
@@ -1107,7 +1225,7 @@ var DetSysAction = class {
    */
   failOnError(msg) {
     if (this.strictMode) {
-      actionsCore7.setFailed(`strict mode failure: ${msg}`);
+      actionsCore8.setFailed(`strict mode failure: ${msg}`);
     }
   }
   async complete() {
@@ -1204,28 +1322,28 @@ var DetSysAction = class {
       const candidateNix = path.join(location, "nix");
       try {
         await fs2.access(candidateNix, fs2.constants.X_OK);
-        actionsCore7.debug(`Found Nix at ${candidateNix}`);
+        actionsCore8.debug(`Found Nix at ${candidateNix}`);
         nixLocation = candidateNix;
         break;
       } catch {
-        actionsCore7.debug(`Nix not at ${candidateNix}`);
+        actionsCore8.debug(`Nix not at ${candidateNix}`);
       }
     }
     this.addFact(FACT_NIX_LOCATION, nixLocation || "");
     if (this.actionOptions.requireNix === "ignore") {
       return true;
     }
-    const currentNotFoundState = actionsCore7.getState(STATE_KEY_NIX_NOT_FOUND);
+    const currentNotFoundState = actionsCore8.getState(STATE_KEY_NIX_NOT_FOUND);
     if (currentNotFoundState === STATE_NOT_FOUND) {
       return false;
     }
     if (nixLocation !== void 0) {
       return true;
     }
-    actionsCore7.saveState(STATE_KEY_NIX_NOT_FOUND, STATE_NOT_FOUND);
+    actionsCore8.saveState(STATE_KEY_NIX_NOT_FOUND, STATE_NOT_FOUND);
     switch (this.actionOptions.requireNix) {
       case "fail":
-        actionsCore7.setFailed(
+        actionsCore8.setFailed(
           [
             "This action can only be used when Nix is installed.",
             "Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
@@ -1233,7 +1351,7 @@ var DetSysAction = class {
         );
         break;
       case "warn":
-        actionsCore7.warning(
+        actionsCore8.warning(
           [
             "This action is in no-op mode because Nix is not installed.",
             "Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
@@ -1286,10 +1404,10 @@ var DetSysAction = class {
   async submitEvents() {
     const diagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
     if (diagnosticsUrl === void 0) {
-      actionsCore7.debug(
+      actionsCore8.debug(
         "Diagnostics are disabled. Not sending the following events:"
       );
-      actionsCore7.debug(JSON.stringify(this.events, void 0, 2));
+      actionsCore8.debug(JSON.stringify(this.events, void 0, 2));
       return;
     }
     const batch = {
@@ -1305,7 +1423,7 @@ var DetSysAction = class {
         }
       });
     } catch (err) {
-      actionsCore7.debug(
+      actionsCore8.debug(
         `Error submitting diagnostics event to ${diagnosticsUrl}: ${stringifyError2(err)}`
       );
     }
@@ -1323,10 +1441,11 @@ function makeOptionsConfident(actionOptions) {
     eventPrefix: actionOptions.eventPrefix || "action:",
     fetchStyle: actionOptions.fetchStyle,
     legacySourcePrefix: actionOptions.legacySourcePrefix,
-    requireNix: actionOptions.requireNix
+    requireNix: actionOptions.requireNix,
+    binaryNamePrefixes: actionOptions.binaryNamePrefixes || ["nix"]
   };
-  actionsCore7.debug("idslib options:");
-  actionsCore7.debug(JSON.stringify(finalOpts, void 0, 2));
+  actionsCore8.debug("idslib options:");
+  actionsCore8.debug(JSON.stringify(finalOpts, void 0, 2));
   return finalOpts;
 }
 export {
