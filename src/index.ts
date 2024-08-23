@@ -398,6 +398,8 @@ export abstract class DetSysAction {
         await this.main();
       } else if (this.isPost) {
         await this.post();
+
+        await this.collectBacktraces();
       }
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
     } catch (e: unknown) {
@@ -411,22 +413,6 @@ export abstract class DetSysAction {
         actionsCore.warning(reportable);
       } else {
         actionsCore.setFailed(reportable);
-      }
-
-      if (this.isPost) {
-        try {
-          const backtraces = await collectBacktraces(
-            this.actionOptions.binaryNamePrefixes,
-          );
-          if (backtraces.size > 0) {
-            actionsCore.debug(`backtraces identified: ${backtraces.size}`);
-            this.recordEvent(EVENT_BACKTRACES, Object.fromEntries(backtraces));
-          }
-        } catch (innerError: unknown) {
-          actionsCore.debug(
-            `Error collecting backtraces: ${stringifyError(innerError)}`,
-          );
-        }
       }
 
       const doGzip = promisify(gzip);
@@ -774,6 +760,22 @@ export abstract class DetSysAction {
       process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
       delete process.env.GITHUB_WORKSPACE_BACKUP;
       process.chdir(startCwd);
+    }
+  }
+
+  private async collectBacktraces(): Promise<void> {
+    try {
+      const backtraces = await collectBacktraces(
+        this.actionOptions.binaryNamePrefixes,
+      );
+      if (backtraces.size > 0) {
+        actionsCore.debug(`backtraces identified: ${backtraces.size}`);
+        this.recordEvent(EVENT_BACKTRACES, Object.fromEntries(backtraces));
+      }
+    } catch (innerError: unknown) {
+      actionsCore.debug(
+        `Error collecting backtraces: ${stringifyError(innerError)}`,
+      );
     }
   }
 

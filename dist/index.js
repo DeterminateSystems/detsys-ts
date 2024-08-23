@@ -1012,6 +1012,7 @@ var DetSysAction = class {
         await this.main();
       } else if (this.isPost) {
         await this.post();
+        await this.collectBacktraces();
       }
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
     } catch (e) {
@@ -1022,21 +1023,6 @@ var DetSysAction = class {
         actionsCore8.warning(reportable);
       } else {
         actionsCore8.setFailed(reportable);
-      }
-      if (this.isPost) {
-        try {
-          const backtraces = await collectBacktraces(
-            this.actionOptions.binaryNamePrefixes
-          );
-          if (backtraces.size > 0) {
-            actionsCore8.debug(`backtraces identified: ${backtraces.size}`);
-            this.recordEvent(EVENT_BACKTRACES, Object.fromEntries(backtraces));
-          }
-        } catch (innerError) {
-          actionsCore8.debug(
-            `Error collecting backtraces: ${stringifyError2(innerError)}`
-          );
-        }
       }
       const doGzip = promisify3(gzip2);
       const exceptionContext = /* @__PURE__ */ new Map();
@@ -1314,6 +1300,21 @@ var DetSysAction = class {
       process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
       delete process.env.GITHUB_WORKSPACE_BACKUP;
       process.chdir(startCwd);
+    }
+  }
+  async collectBacktraces() {
+    try {
+      const backtraces = await collectBacktraces(
+        this.actionOptions.binaryNamePrefixes
+      );
+      if (backtraces.size > 0) {
+        actionsCore8.debug(`backtraces identified: ${backtraces.size}`);
+        this.recordEvent(EVENT_BACKTRACES, Object.fromEntries(backtraces));
+      }
+    } catch (innerError) {
+      actionsCore8.debug(
+        `Error collecting backtraces: ${stringifyError2(innerError)}`
+      );
     }
   }
   async preflightRequireNix() {

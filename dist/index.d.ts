@@ -305,6 +305,7 @@ declare abstract class DetSysAction {
     private cacheKey;
     private getCachedVersion;
     private saveCachedVersion;
+    private collectBacktraces;
     private preflightRequireNix;
     private preflightNixStoreInfo;
     private submitEvents;
