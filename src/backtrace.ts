@@ -2,21 +2,21 @@
  * @packageDocumentation
  * Collects backtraces for executables for diagnostics
  */
+import { isLinux, isMacOS } from "./actions-core-platform.js";
 import { stringifyError } from "./errors.js";
 import * as actionsCore from "@actions/core";
 import * as exec from "@actions/exec";
 import { readFile, readdir } from "node:fs/promises";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
-import os from "os";
 
 export async function collectBacktraces(
   prefixes: string[],
 ): Promise<Map<string, string>> {
-  if (os.platform() === "darwin") {
+  if (isMacOS) {
     return await collectBacktracesMacOS(prefixes);
   }
-  if (os.platform() === "linux") {
+  if (isLinux) {
     return await collectBacktracesSystemd(prefixes);
   }
 
@@ -37,7 +37,7 @@ export async function collectBacktracesMacOS(
         "json",
         "--last",
         // Note we collect the last 1m only, because it should only take a few seconds to write the crash log.
-        // Therefor, any crashes before this 1m should be long done by now.
+        // Therefore, any crashes before this 1m should be long done by now.
         "1m",
         "--no-info",
         "--predicate",
@@ -61,7 +61,7 @@ export async function collectBacktracesMacOS(
     }
   } catch (e: unknown) {
     actionsCore.debug(
-      "Failed to check logs for in-progress crash dumps, assuming there are none.",
+      "Failed to check logs for in-progress crash dumps; now proceeding with the assumption that all crash dumps completed.",
     );
   }
 
@@ -96,10 +96,10 @@ export async function collectBacktracesMacOS(
   return backtraces;
 }
 
-interface SystemdCoreDumpInfo {
+type SystemdCoreDumpInfo = {
   exe: string;
   pid: number;
-}
+};
 
 export async function collectBacktracesSystemd(
   prefixes: string[],

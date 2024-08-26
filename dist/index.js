@@ -227,12 +227,11 @@ import * as exec2 from "@actions/exec";
 import { readFile as readFile2, readdir } from "node:fs/promises";
 import { promisify as promisify2 } from "node:util";
 import { gzip } from "node:zlib";
-import os3 from "os";
 async function collectBacktraces(prefixes) {
-  if (os3.platform() === "darwin") {
+  if (isMacOS) {
     return await collectBacktracesMacOS(prefixes);
   }
-  if (os3.platform() === "linux") {
+  if (isLinux) {
     return await collectBacktracesSystemd(prefixes);
   }
   return /* @__PURE__ */ new Map();
@@ -248,7 +247,7 @@ async function collectBacktracesMacOS(prefixes) {
         "json",
         "--last",
         // Note we collect the last 1m only, because it should only take a few seconds to write the crash log.
-        // Therefor, any crashes before this 1m should be long done by now.
+        // Therefore, any crashes before this 1m should be long done by now.
         "1m",
         "--no-info",
         "--predicate",
@@ -269,7 +268,7 @@ async function collectBacktracesMacOS(prefixes) {
     }
   } catch (e) {
     actionsCore2.debug(
-      "Failed to check logs for in-progress crash dumps, assuming there are none."
+      "Failed to check logs for in-progress crash dumps; now proceeding with the assumption that all crash dumps completed."
     );
   }
   const dirs = [
@@ -849,7 +848,7 @@ import { exec as exec4 } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createWriteStream, readFileSync as readFileSync2 } from "node:fs";
 import fs2, { chmod, copyFile, mkdir } from "node:fs/promises";
-import * as os4 from "node:os";
+import * as os3 from "node:os";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -1017,7 +1016,7 @@ var DetSysAction = class {
     const { stdout } = await promisify3(exec4)(
       `cat "${artifact}" | xz -d | nix-store --import`
     );
-    const paths = stdout.split(os4.EOL);
+    const paths = stdout.split(os3.EOL);
     const lastPath = paths.at(-2);
     return `${lastPath}/bin/${bin}`;
   }
