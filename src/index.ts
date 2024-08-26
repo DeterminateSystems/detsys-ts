@@ -51,6 +51,7 @@ const STATE_KEY_EXECUTION_PHASE = "detsys_action_execution_phase";
 const STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
 const STATE_NOT_FOUND = "not-found";
 const STATE_KEY_CROSS_PHASE_ID = "detsys_cross_phase_id";
+const STATE_BACKTRACE_START_TIMESTAMP = "detsys_backtrace_start_timestamp";
 
 const DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 30_000; // 30 seconds in milliseconds
 const CHECK_IN_ENDPOINT_TIMEOUT_MS = 5_000; // 5 seconds in milliseconds
@@ -787,6 +788,8 @@ export abstract class DetSysAction {
         "DETSYS_BACKTRACE_COLLECTOR",
         this.getCrossPhaseId(),
       );
+
+      actionsCore.saveState(STATE_BACKTRACE_START_TIMESTAMP, Date.now());
     }
   }
 
@@ -798,6 +801,7 @@ export abstract class DetSysAction {
 
       const backtraces = await collectBacktraces(
         this.actionOptions.binaryNamePrefixes,
+        parseInt(actionsCore.getState(STATE_BACKTRACE_START_TIMESTAMP)),
       );
       actionsCore.debug(`Backtraces identified: ${backtraces.size}`);
       if (backtraces.size > 0) {

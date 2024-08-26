@@ -224,19 +224,19 @@ function stringifyError(e) {
 // src/backtrace.ts
 import * as actionsCore2 from "@actions/core";
 import * as exec2 from "@actions/exec";
-import { readFile as readFile2, readdir } from "node:fs/promises";
+import { readFile as readFile2, readdir, stat } from "node:fs/promises";
 import { promisify as promisify2 } from "node:util";
 import { gzip } from "node:zlib";
-async function collectBacktraces(prefixes) {
+async function collectBacktraces(prefixes, startTimestampMs) {
   if (isMacOS) {
-    return await collectBacktracesMacOS(prefixes);
+    return await collectBacktracesMacOS(prefixes, startTimestampMs);
   }
   if (isLinux) {
-    return await collectBacktracesSystemd(prefixes);
+    return await collectBacktracesSystemd(prefixes, startTimestampMs);
   }
   return /* @__PURE__ */ new Map();
 }
-async function collectBacktracesMacOS(prefixes) {
+async function collectBacktracesMacOS(prefixes, startTimestampMs) {
   const backtraces = /* @__PURE__ */ new Map();
   try {
     const { stdout: logJson } = await exec2.getExecOutput(
@@ -284,12 +284,14 @@ async function collectBacktracesMacOS(prefixes) {
     const doGzip = promisify2(gzip);
     for (const fileName of fileNames) {
       try {
-        const logText = await readFile2(`${dir}/${fileName}`);
-        const buf = await doGzip(logText);
-        backtraces.set(
-          `backtrace_value_${source}_${fileName}`,
-          buf.toString("base64")
-        );
+        if ((await stat(`${dir}/${fileName}`)).ctimeMs >= startTimestampMs) {
+          const logText = await readFile2(`${dir}/${fileName}`);
+          const buf = await doGzip(logText);
+          backtraces.set(
+            `backtrace_value_${source}_${fileName}`,
+            buf.toString("base64")
+          );
+        }
       } catch (innerError) {
         backtraces.set(
           `backtrace_failure_${source}_${fileName}`,
@@ -300,13 +302,14 @@ async function collectBacktracesMacOS(prefixes) {
   }
   return backtraces;
 }
-async function collectBacktracesSystemd(prefixes) {
+async function collectBacktracesSystemd(prefixes, startTimestampMs) {
+  const sinceSeconds = Math.ceil((Date.now() - startTimestampMs) / 1e3);
   const backtraces = /* @__PURE__ */ new Map();
   const coredumps = [];
   try {
     const { stdout: coredumpjson } = await exec2.getExecOutput(
       "coredumpctl",
-      ["--json=pretty", "list", "--since", "1 hour ago"],
+      ["--json=pretty", "list", "--since", `${sinceSeconds} seconds ago`],
       {
         silent: true
       }
@@ -878,6 +881,7 @@ var STATE_KEY_EXECUTION_PHASE = "detsys_action_execution_phase";
 var STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
 var STATE_NOT_FOUND = "not-found";
 var STATE_KEY_CROSS_PHASE_ID = "detsys_cross_phase_id";
+var STATE_BACKTRACE_START_TIMESTAMP = "detsys_backtrace_start_timestamp";
 var DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 3e4;
 var CHECK_IN_ENDPOINT_TIMEOUT_MS = 5e3;
 var DetSysAction = class {
@@ -1364,6 +1368,7 @@ var DetSysAction = class {
         "DETSYS_BACKTRACE_COLLECTOR",
         this.getCrossPhaseId()
       );
+      actionsCore8.saveState(STATE_BACKTRACE_START_TIMESTAMP, Date.now());
     }
   }
   async collectBacktraces() {
@@ -1372,7 +1377,8 @@ var DetSysAction = class {
         return;
       }
       const backtraces = await collectBacktraces(
-        this.actionOptions.binaryNamePrefixes
+        this.actionOptions.binaryNamePrefixes,
+        parseInt(actionsCore8.getState(STATE_BACKTRACE_START_TIMESTAMP))
       );
       actionsCore8.debug(`Backtraces identified: ${backtraces.size}`);
       if (backtraces.size > 0) {

@@ -6,18 +6,19 @@ import { isLinux, isMacOS } from "./actions-core-platform.js";
 import { stringifyError } from "./errors.js";
 import * as actionsCore from "@actions/core";
 import * as exec from "@actions/exec";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
 
 export async function collectBacktraces(
   prefixes: string[],
+  startTimestampMs: number,
 ): Promise<Map<string, string>> {
   if (isMacOS) {
-    return await collectBacktracesMacOS(prefixes);
+    return await collectBacktracesMacOS(prefixes, startTimestampMs);
   }
   if (isLinux) {
-    return await collectBacktracesSystemd(prefixes);
+    return await collectBacktracesSystemd(prefixes, startTimestampMs);
   }
 
   return new Map();
@@ -25,6 +26,7 @@ export async function collectBacktraces(
 
 export async function collectBacktracesMacOS(
   prefixes: string[],
+  startTimestampMs: number,
 ): Promise<Map<string, string>> {
   const backtraces: Map<string, string> = new Map();
 
@@ -85,12 +87,14 @@ export async function collectBacktracesMacOS(
     const doGzip = promisify(gzip);
     for (const fileName of fileNames) {
       try {
-        const logText = await readFile(`${dir}/${fileName}`);
-        const buf = await doGzip(logText);
-        backtraces.set(
-          `backtrace_value_${source}_${fileName}`,
-          buf.toString("base64"),
-        );
+        if ((await stat(`${dir}/${fileName}`)).ctimeMs >= startTimestampMs) {
+          const logText = await readFile(`${dir}/${fileName}`);
+          const buf = await doGzip(logText);
+          backtraces.set(
+            `backtrace_value_${source}_${fileName}`,
+            buf.toString("base64"),
+          );
+        }
       } catch (innerError: unknown) {
         backtraces.set(
           `backtrace_failure_${source}_${fileName}`,
@@ -110,7 +114,9 @@ type SystemdCoreDumpInfo = {
 
 export async function collectBacktracesSystemd(
   prefixes: string[],
+  startTimestampMs: number,
 ): Promise<Map<string, string>> {
+  const sinceSeconds = Math.ceil((Date.now() - startTimestampMs) / 1000);
   const backtraces: Map<string, string> = new Map();
 
   const coredumps: SystemdCoreDumpInfo[] = [];
@@ -118,7 +124,7 @@ export async function collectBacktracesSystemd(
   try {
     const { stdout: coredumpjson } = await exec.getExecOutput(
       "coredumpctl",
-      ["--json=pretty", "list", "--since", "1 hour ago"],
+      ["--json=pretty", "list", "--since", `${sinceSeconds} seconds ago`],
       {
         silent: true,
       },
