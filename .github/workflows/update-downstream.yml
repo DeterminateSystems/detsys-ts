@@ -11,7 +11,9 @@ jobs:
     environment: detsys-pr-bot
     name: Pull request detsys-ts update to ${{ github.repository_owner }}/${{ matrix.repo }}
     runs-on: ubuntu-22.04
+
     strategy:
+      fail-fast: false
       matrix:
         repo:
           - flake-checker-action
@@ -81,7 +83,7 @@ jobs:
           nix develop --command pnpm all
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v3
+        uses: peter-evans/create-pull-request@v6
         env:
           COMMIT_MSG: ${{ steps.commit-msg.outputs.msg }}
         with:
@@ -99,5 +101,4 @@ jobs:
           push-to-fork: detsys-pr-bot/${{ matrix.repo }}
           branch: "${{ env.GIT_BRANCH }}"
           base: ${{ env.GIT_BASE }}
-          reviewers: lucperkins
           draft: false
