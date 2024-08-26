@@ -187,6 +187,7 @@ type ActionOptions = {
     legacySourcePrefix?: string;
     requireNix: NixRequirementHandling;
     diagnosticsSuffix?: string;
+    binaryNamePrefixes?: string[];
 };
 /**
  * A confident version of Options, where defaults have been resolved into final values.
@@ -199,6 +200,7 @@ type ConfidentActionOptions = {
     legacySourcePrefix?: string;
     requireNix: NixRequirementHandling;
     providedDiagnosticsUrl?: URL;
+    binaryNamePrefixes: string[];
 };
 /**
  * An event to send to the diagnostic endpoint of i.d.s.
@@ -303,6 +305,7 @@ declare abstract class DetSysAction {
     private cacheKey;
     private getCachedVersion;
     private saveCachedVersion;
+    private collectBacktraces;
     private preflightRequireNix;
     private preflightNixStoreInfo;
     private submitEvents;

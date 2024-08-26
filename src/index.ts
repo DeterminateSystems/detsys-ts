@@ -4,6 +4,7 @@
  */
 import { version as pkgVersion } from "../package.json";
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
+import { collectBacktraces } from "./backtrace.js";
 import { CheckIn, Feature } from "./check-in.js";
 import * as correlation from "./correlation.js";
 import { IdsHost } from "./ids-host.js";
@@ -25,6 +26,7 @@ import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
 
+const EVENT_BACKTRACES = "backtrace";
 const EVENT_EXCEPTION = "exception";
 const EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
 const EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
@@ -115,6 +117,11 @@ export type ActionOptions = {
   //
   // Default: `diagnostics`.
   diagnosticsSuffix?: string;
+
+  // Collect backtraces from segfaults and other failures from binaries that start with these names.
+  //
+  // Default: `[ "nix" ]`.
+  binaryNamePrefixes?: string[];
 };
 
 /**
@@ -128,6 +135,7 @@ export type ConfidentActionOptions = {
   legacySourcePrefix?: string;
   requireNix: NixRequirementHandling;
   providedDiagnosticsUrl?: URL;
+  binaryNamePrefixes: string[];
 };
 
 /**
@@ -426,6 +434,10 @@ export abstract class DetSysAction {
 
       this.recordEvent(EVENT_EXCEPTION, Object.fromEntries(exceptionContext));
     } finally {
+      if (this.isPost) {
+        await this.collectBacktraces();
+      }
+
       await this.complete();
     }
   }
@@ -753,6 +765,22 @@ export abstract class DetSysAction {
     }
   }
 
+  private async collectBacktraces(): Promise<void> {
+    try {
+      const backtraces = await collectBacktraces(
+        this.actionOptions.binaryNamePrefixes,
+      );
+      actionsCore.debug(`Backtraces identified: ${backtraces.size}`);
+      if (backtraces.size > 0) {
+        this.recordEvent(EVENT_BACKTRACES, Object.fromEntries(backtraces));
+      }
+    } catch (innerError: unknown) {
+      actionsCore.debug(
+        `Error collecting backtraces: ${stringifyError(innerError)}`,
+      );
+    }
+  }
+
   private async preflightRequireNix(): Promise<boolean> {
     let nixLocation: string | undefined;
 
@@ -906,6 +934,7 @@ function makeOptionsConfident(
     fetchStyle: actionOptions.fetchStyle,
     legacySourcePrefix: actionOptions.legacySourcePrefix,
     requireNix: actionOptions.requireNix,
+    binaryNamePrefixes: actionOptions.binaryNamePrefixes || ["nix"],
   };
 
   actionsCore.debug("idslib options:");
