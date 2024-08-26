@@ -71,9 +71,16 @@ export async function collectBacktracesMacOS(
   ];
 
   for (const [source, dir] of dirs) {
-    const fileNames = (await readdir(dir)).filter((fileName) => {
-      return prefixes.some((prefix) => fileName.startsWith(prefix));
-    });
+    const fileNames = (await readdir(dir))
+      .filter((fileName) => {
+        return prefixes.some((prefix) => fileName.startsWith(prefix));
+      })
+      .filter((fileName) => {
+        // macOS creates .diag files periodically, which are called "microstackshots".
+        // We don't necessarily want those, and they're definitely not crashes.
+        // See: https://patents.google.com/patent/US20140237219A1/en
+        return !fileName.endsWith(".diag");
+      });
 
     const doGzip = promisify(gzip);
     for (const fileName of fileNames) {

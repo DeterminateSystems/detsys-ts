@@ -278,6 +278,8 @@ async function collectBacktracesMacOS(prefixes) {
   for (const [source, dir] of dirs) {
     const fileNames = (await readdir(dir)).filter((fileName) => {
       return prefixes.some((prefix) => fileName.startsWith(prefix));
+    }).filter((fileName) => {
+      return !fileName.endsWith(".diag");
     });
     const doGzip = promisify2(gzip);
     for (const fileName of fileNames) {
