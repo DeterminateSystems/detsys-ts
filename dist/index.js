@@ -1486,7 +1486,7 @@ function makeOptionsConfident(actionOptions) {
     fetchStyle: actionOptions.fetchStyle,
     legacySourcePrefix: actionOptions.legacySourcePrefix,
     requireNix: actionOptions.requireNix,
-    binaryNamePrefixes: actionOptions.binaryNamePrefixes || [
+    binaryNamePrefixes: actionOptions.binaryNamePrefixes ?? [
       "nix",
       "determinate-nixd",
       actionOptions.name
