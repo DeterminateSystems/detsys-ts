@@ -259,6 +259,7 @@ declare abstract class DetSysAction {
     addFact(key: string, value: string | boolean): void;
     getDiagnosticsUrl(): Promise<URL | undefined>;
     getUniqueId(): string;
+    getCrossPhaseId(): string;
     getCorrelationHashes(): AnonymizedCorrelationHashes;
     recordEvent(eventName: string, context?: Record<string, unknown>): void;
     /**
@@ -305,6 +306,7 @@ declare abstract class DetSysAction {
     private cacheKey;
     private getCachedVersion;
     private saveCachedVersion;
+    private collectBacktraceSetup;
     private collectBacktraces;
     private preflightRequireNix;
     private preflightNixStoreInfo;

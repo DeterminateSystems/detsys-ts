@@ -50,6 +50,7 @@ const FACT_NIX_STORE_CHECK_ERROR = "nix_store_check_error";
 const STATE_KEY_EXECUTION_PHASE = "detsys_action_execution_phase";
 const STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
 const STATE_NOT_FOUND = "not-found";
+const STATE_KEY_CROSS_PHASE_ID = "detsys_cross_phase_id";
 
 const DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 30_000; // 30 seconds in milliseconds
 const CHECK_IN_ENDPOINT_TIMEOUT_MS = 5_000; // 5 seconds in milliseconds
@@ -198,6 +199,9 @@ export abstract class DetSysAction {
     this.featureEventMetadata = {};
     this.events = [];
 
+    this.getCrossPhaseId();
+    this.collectBacktraceSetup();
+
     // JSON sent to server
     /* eslint-disable camelcase */
     this.facts = {
@@ -323,6 +327,18 @@ export abstract class DetSysAction {
       process.env.RUNNER_TRACKING_ID ||
       randomUUID()
     );
+  }
+
+  // This ID will be saved in the action's state, to be persisted across phase steps
+  getCrossPhaseId(): string {
+    let crossPhaseId = actionsCore.getState(STATE_KEY_CROSS_PHASE_ID);
+
+    if (crossPhaseId === "") {
+      crossPhaseId = randomUUID();
+      actionsCore.saveState(STATE_KEY_CROSS_PHASE_ID, crossPhaseId);
+    }
+
+    return crossPhaseId;
   }
 
   getCorrelationHashes(): correlation.AnonymizedCorrelationHashes {
@@ -765,8 +781,21 @@ export abstract class DetSysAction {
     }
   }
 
+  private collectBacktraceSetup(): void {
+    if (process.env.DETSYS_BACKTRACE_COLLECTOR === "") {
+      actionsCore.exportVariable(
+        "DETSYS_BACKTRACE_COLLECTOR",
+        this.getCrossPhaseId(),
+      );
+    }
+  }
+
   private async collectBacktraces(): Promise<void> {
     try {
+      if (process.env.DETSYS_BACKTRACE_COLLECTOR !== this.getCrossPhaseId()) {
+        return;
+      }
+
       const backtraces = await collectBacktraces(
         this.actionOptions.binaryNamePrefixes,
       );
