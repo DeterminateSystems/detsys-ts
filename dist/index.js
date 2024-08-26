@@ -1486,7 +1486,11 @@ function makeOptionsConfident(actionOptions) {
     fetchStyle: actionOptions.fetchStyle,
     legacySourcePrefix: actionOptions.legacySourcePrefix,
     requireNix: actionOptions.requireNix,
-    binaryNamePrefixes: actionOptions.binaryNamePrefixes || ["nix"]
+    binaryNamePrefixes: actionOptions.binaryNamePrefixes || [
+      "nix",
+      "determinate-nixd",
+      actionOptions.name
+    ]
   };
   actionsCore8.debug("idslib options:");
   actionsCore8.debug(JSON.stringify(finalOpts, void 0, 2));

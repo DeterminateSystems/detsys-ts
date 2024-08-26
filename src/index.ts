@@ -120,7 +120,7 @@ export type ActionOptions = {
 
   // Collect backtraces from segfaults and other failures from binaries that start with these names.
   //
-  // Default: `[ "nix" ]`.
+  // Default: `[ "nix", "determinate-nixd", ActionOptions.name ]`.
   binaryNamePrefixes?: string[];
 };
 
@@ -934,7 +934,11 @@ function makeOptionsConfident(
     fetchStyle: actionOptions.fetchStyle,
     legacySourcePrefix: actionOptions.legacySourcePrefix,
     requireNix: actionOptions.requireNix,
-    binaryNamePrefixes: actionOptions.binaryNamePrefixes || ["nix"],
+    binaryNamePrefixes: actionOptions.binaryNamePrefixes || [
+      "nix",
+      "determinate-nixd",
+      actionOptions.name,
+    ],
   };
 
   actionsCore.debug("idslib options:");
