@@ -471,7 +471,7 @@ var ALLOWED_SUFFIXES = [
 ];
 var DEFAULT_IDS_HOST = "https://install.determinate.systems";
 var LOOKUP = process.env["IDS_LOOKUP"] ?? DEFAULT_LOOKUP;
-var DEFAULT_TIMEOUT = 3e4;
+var DEFAULT_TIMEOUT = 1e4;
 var IdsHost = class {
   constructor(idsProjectName, diagnosticsSuffix, runtimeDiagnosticsUrl) {
     this.idsProjectName = idsProjectName;
@@ -486,7 +486,7 @@ var IdsHost = class {
           request: DEFAULT_TIMEOUT
         },
         retry: {
-          limit: (await this.getUrlsByPreference()).length,
+          limit: Math.max((await this.getUrlsByPreference()).length, 3),
           methods: ["GET", "HEAD"]
         },
         hooks: {
@@ -496,7 +496,7 @@ var IdsHost = class {
               this.markCurrentHostBroken();
               const nextUrl = await this.getRootUrl();
               if (recordFailoverCallback !== void 0) {
-                recordFailoverCallback(prevUrl, nextUrl);
+                recordFailoverCallback(error3, prevUrl, nextUrl);
               }
               actionsCore4.info(
                 `Retrying after error ${error3.code}, retry #: ${retryCount}`
@@ -849,14 +849,17 @@ function noisilyGetInput(suffix, legacyPrefix) {
 import * as actionsCache from "@actions/cache";
 import * as actionsCore8 from "@actions/core";
 import * as actionsExec from "@actions/exec";
+import { TimeoutError } from "got";
 import { exec as exec4 } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { createWriteStream, readFileSync as readFileSync2 } from "node:fs";
+import {
+  createWriteStream,
+  readFileSync as readFileSync2
+} from "node:fs";
 import fs2, { chmod, copyFile, mkdir } from "node:fs/promises";
 import * as os3 from "node:os";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { pipeline } from "node:stream/promises";
 import { promisify as promisify3 } from "node:util";
 import { gzip as gzip2 } from "node:zlib";
 var EVENT_BACKTRACES = "backtrace";
@@ -882,8 +885,8 @@ var STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
 var STATE_NOT_FOUND = "not-found";
 var STATE_KEY_CROSS_PHASE_ID = "detsys_cross_phase_id";
 var STATE_BACKTRACE_START_TIMESTAMP = "detsys_backtrace_start_timestamp";
-var DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 3e4;
-var CHECK_IN_ENDPOINT_TIMEOUT_MS = 5e3;
+var DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 1e4;
+var CHECK_IN_ENDPOINT_TIMEOUT_MS = 1e3;
 var DetSysAction = class {
   determineExecutionPhase() {
     const currentPhase = actionsCore8.getState(STATE_KEY_EXECUTION_PHASE);
@@ -1107,12 +1110,15 @@ var DetSysAction = class {
     }
   }
   async getClient() {
-    return await this.idsHost.getGot((prevUrl, nextUrl) => {
-      this.recordEvent("ids-failover", {
-        previousUrl: prevUrl.toString(),
-        nextUrl: nextUrl.toString()
-      });
-    });
+    return await this.idsHost.getGot(
+      (incitingError, prevUrl, nextUrl) => {
+        this.recordPlausibleTimeout(incitingError);
+        this.recordEvent("ids-failover", {
+          previousUrl: prevUrl.toString(),
+          nextUrl: nextUrl.toString()
+        });
+      }
+    );
   }
   async checkIn() {
     const checkin = await this.requestCheckIn();
@@ -1196,11 +1202,26 @@ var DetSysAction = class {
           }
         }).json();
       } catch (e) {
+        this.recordPlausibleTimeout(e);
         actionsCore8.debug(`Error checking in: ${stringifyError2(e)}`);
         this.idsHost.markCurrentHostBroken();
       }
     }
     return void 0;
+  }
+  recordPlausibleTimeout(e) {
+    if (e instanceof TimeoutError && "timings" in e && "request" in e) {
+      const reportContext = {
+        url: e.request.requestUrl?.toString(),
+        retry_count: e.request.retryCount
+      };
+      for (const [key, value] of Object.entries(e.timings.phases)) {
+        if (Number.isFinite(value)) {
+          reportContext[`timing_phase_${key}`] = value;
+        }
+      }
+      this.recordEvent("timeout", reportContext);
+    }
   }
   /**
    * Fetch an artifact, such as a tarball, from the location determined by the
@@ -1245,13 +1266,9 @@ var DetSysAction = class {
         `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`
       );
       const destFile = this.getTemporaryName();
-      const fetchStream = (await this.getClient()).stream(versionCheckup.url);
-      await pipeline(
-        fetchStream,
-        createWriteStream(destFile, {
-          encoding: "binary",
-          mode: 493
-        })
+      const fetchStream = await this.downloadFile(
+        new URL(versionCheckup.url),
+        destFile
       );
       if (fetchStream.response?.headers.etag) {
         const v = fetchStream.response.headers.etag;
@@ -1262,6 +1279,9 @@ var DetSysAction = class {
         }
       }
       return destFile;
+    } catch (e) {
+      this.recordPlausibleTimeout(e);
+      throw e;
     } finally {
       actionsCore8.endGroup();
     }
@@ -1274,6 +1294,36 @@ var DetSysAction = class {
     if (this.strictMode) {
       actionsCore8.setFailed(`strict mode failure: ${msg}`);
     }
+  }
+  async downloadFile(url, destination) {
+    const client = await this.getClient();
+    return new Promise((resolve, reject) => {
+      let writeStream;
+      let failed = false;
+      const retry = (stream) => {
+        if (writeStream) {
+          writeStream.destroy();
+        }
+        writeStream = createWriteStream(destination, {
+          encoding: "binary",
+          mode: 493
+        });
+        writeStream.once("error", (error3) => {
+          failed = true;
+          reject(error3);
+        });
+        writeStream.on("finish", () => {
+          if (!failed) {
+            resolve(stream);
+          }
+        });
+        stream.once("retry", (_count, _error, createRetryStream) => {
+          retry(createRetryStream());
+        });
+        stream.pipe(writeStream);
+      };
+      retry(client.stream(url));
+    });
   }
   async complete() {
     this.recordEvent(`complete_${this.executionPhase}`);
@@ -1498,6 +1548,7 @@ var DetSysAction = class {
         }
       });
     } catch (err) {
+      this.recordPlausibleTimeout(err);
       actionsCore8.debug(
         `Error submitting diagnostics event to ${diagnosticsUrl}: ${stringifyError2(err)}`
       );

@@ -17,7 +17,7 @@ const ALLOWED_SUFFIXES = [
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
 const LOOKUP = process.env["IDS_LOOKUP"] ?? DEFAULT_LOOKUP;
 
-const DEFAULT_TIMEOUT = 30_000; // 30 seconds in milliseconds
+const DEFAULT_TIMEOUT = 10_000; // 10 seconds in ms
 
 /**
  * Host information for install.determinate.systems.
@@ -41,7 +41,11 @@ export class IdsHost {
   }
 
   async getGot(
-    recordFailoverCallback?: (prevUrl: URL, nextUrl: URL) => void,
+    recordFailoverCallback?: (
+      incitingError: unknown,
+      prevUrl: URL,
+      nextUrl: URL,
+    ) => void,
   ): Promise<Got> {
     if (this.client === undefined) {
       this.client = got.extend({
@@ -50,7 +54,7 @@ export class IdsHost {
         },
 
         retry: {
-          limit: (await this.getUrlsByPreference()).length,
+          limit: Math.max((await this.getUrlsByPreference()).length, 3),
           methods: ["GET", "HEAD"],
         },
 
@@ -62,7 +66,7 @@ export class IdsHost {
               const nextUrl = await this.getRootUrl();
 
               if (recordFailoverCallback !== undefined) {
-                recordFailoverCallback(prevUrl, nextUrl);
+                recordFailoverCallback(error, prevUrl, nextUrl);
               }
 
               actionsCore.info(
