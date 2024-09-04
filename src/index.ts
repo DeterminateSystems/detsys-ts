@@ -14,15 +14,19 @@ import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import * as actionsExec from "@actions/exec";
-import { Got } from "got";
+import { Got, Request, TimeoutError } from "got";
 import { exec } from "node:child_process";
 import { UUID, randomUUID } from "node:crypto";
-import { PathLike, createWriteStream, readFileSync } from "node:fs";
+import {
+  PathLike,
+  WriteStream,
+  createWriteStream,
+  readFileSync,
+} from "node:fs";
 import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
 import * as os from "node:os";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
 
@@ -53,8 +57,8 @@ const STATE_NOT_FOUND = "not-found";
 const STATE_KEY_CROSS_PHASE_ID = "detsys_cross_phase_id";
 const STATE_BACKTRACE_START_TIMESTAMP = "detsys_backtrace_start_timestamp";
 
-const DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 30_000; // 30 seconds in milliseconds
-const CHECK_IN_ENDPOINT_TIMEOUT_MS = 5_000; // 5 seconds in milliseconds
+const DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 10_000; // 10 seconds in ms
+const CHECK_IN_ENDPOINT_TIMEOUT_MS = 1_000; // 1 second in ms
 
 /**
  * An enum for describing different "fetch suffixes" for i.d.s.
@@ -346,7 +350,10 @@ export abstract class DetSysAction {
     return this.identity;
   }
 
-  recordEvent(eventName: string, context: Record<string, unknown> = {}): void {
+  recordEvent(
+    eventName: string,
+    context: Record<string, boolean | string | number | undefined> = {},
+  ): void {
     const prefixedName =
       eventName === "$feature_flag_called"
         ? eventName
@@ -460,12 +467,16 @@ export abstract class DetSysAction {
   }
 
   async getClient(): Promise<Got> {
-    return await this.idsHost.getGot((prevUrl: URL, nextUrl: URL) => {
-      this.recordEvent("ids-failover", {
-        previousUrl: prevUrl.toString(),
-        nextUrl: nextUrl.toString(),
-      });
-    });
+    return await this.idsHost.getGot(
+      (incitingError: unknown, prevUrl: URL, nextUrl: URL) => {
+        this.recordPlausibleTimeout(incitingError);
+
+        this.recordEvent("ids-failover", {
+          previousUrl: prevUrl.toString(),
+          nextUrl: nextUrl.toString(),
+        });
+      },
+    );
   }
 
   private async checkIn(): Promise<void> {
@@ -570,12 +581,33 @@ export abstract class DetSysAction {
           })
           .json();
       } catch (e: unknown) {
+        this.recordPlausibleTimeout(e);
         actionsCore.debug(`Error checking in: ${stringifyError(e)}`);
         this.idsHost.markCurrentHostBroken();
       }
     }
 
     return undefined;
+  }
+
+  private recordPlausibleTimeout(e: unknown): void {
+    // see: https://github.com/sindresorhus/got/blob/895e463fa699d6f2e4b2fc01ceb3b2bb9e157f4c/documentation/8-errors.md
+    if (e instanceof TimeoutError && "timings" in e && "request" in e) {
+      const reportContext: {
+        [index: string]: string | number | undefined;
+      } = {
+        url: e.request.requestUrl?.toString(),
+        retry_count: e.request.retryCount,
+      };
+
+      for (const [key, value] of Object.entries(e.timings.phases)) {
+        if (Number.isFinite(value)) {
+          reportContext[`timing_phase_${key}`] = value;
+        }
+      }
+
+      this.recordEvent("timeout", reportContext);
+    }
   }
 
   /**
@@ -631,14 +663,10 @@ export abstract class DetSysAction {
       );
 
       const destFile = this.getTemporaryName();
-      const fetchStream = (await this.getClient()).stream(versionCheckup.url);
 
-      await pipeline(
-        fetchStream,
-        createWriteStream(destFile, {
-          encoding: "binary",
-          mode: 0o755,
-        }),
+      const fetchStream = await this.downloadFile(
+        new URL(versionCheckup.url),
+        destFile,
       );
 
       if (fetchStream.response?.headers.etag) {
@@ -652,6 +680,9 @@ export abstract class DetSysAction {
       }
 
       return destFile;
+    } catch (e: unknown) {
+      this.recordPlausibleTimeout(e);
+      throw e;
     } finally {
       actionsCore.endGroup();
     }
@@ -665,6 +696,56 @@ export abstract class DetSysAction {
     if (this.strictMode) {
       actionsCore.setFailed(`strict mode failure: ${msg}`);
     }
+  }
+
+  private async downloadFile(
+    url: URL,
+    destination: PathLike,
+  ): Promise<Request> {
+    const client = await this.getClient();
+
+    return new Promise((resolve, reject) => {
+      // Current stream handle
+      let writeStream: WriteStream | undefined;
+
+      // Sentinel condition in case we want to abort retrying due to FS issues
+      let failed = false;
+
+      const retry = (stream: Request): void => {
+        if (writeStream) {
+          writeStream.destroy();
+        }
+
+        writeStream = createWriteStream(destination, {
+          encoding: "binary",
+          mode: 0o755,
+        });
+
+        writeStream.once("error", (error) => {
+          // Set failed here since promise rejections don't impact control flow
+          failed = true;
+          reject(error);
+        });
+
+        writeStream.on("finish", () => {
+          if (!failed) {
+            resolve(stream);
+          }
+        });
+
+        stream.once("retry", (_count, _error, createRetryStream) => {
+          // Optional: check `failed' here in case you want to stop retrying
+          retry(createRetryStream());
+        });
+
+        // Now that all the handlers have been set up we can pipe from the HTTP
+        // stream to disk
+        stream.pipe(writeStream);
+      };
+
+      // Begin the retry logic by giving it a fresh got.Request
+      retry(client.stream(url));
+    });
   }
 
   private async complete(): Promise<void> {
@@ -941,6 +1022,8 @@ export abstract class DetSysAction {
         },
       });
     } catch (err: unknown) {
+      this.recordPlausibleTimeout(err);
+
       actionsCore.debug(
         `Error submitting diagnostics event to ${diagnosticsUrl}: ${stringifyError(err)}`,
       );

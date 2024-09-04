@@ -62,7 +62,7 @@ declare class IdsHost {
     private prioritizedURLs?;
     private client?;
     constructor(idsProjectName: string, diagnosticsSuffix: string | undefined, runtimeDiagnosticsUrl: string | undefined);
-    getGot(recordFailoverCallback?: (prevUrl: URL, nextUrl: URL) => void): Promise<Got>;
+    getGot(recordFailoverCallback?: (incitingError: unknown, prevUrl: URL, nextUrl: URL) => void): Promise<Got>;
     markCurrentHostBroken(): void;
     setPrioritizedUrls(urls: URL[]): void;
     isUrlSubjectToDynamicUrls(url: URL): boolean;
@@ -261,7 +261,7 @@ declare abstract class DetSysAction {
     getUniqueId(): string;
     getCrossPhaseId(): string;
     getCorrelationHashes(): AnonymizedCorrelationHashes;
-    recordEvent(eventName: string, context?: Record<string, unknown>): void;
+    recordEvent(eventName: string, context?: Record<string, boolean | string | number | undefined>): void;
     /**
      * Unpacks the closure returned by `fetchArtifact()`, imports the
      * contents into the Nix store, and returns the path of the executable at
@@ -287,6 +287,7 @@ declare abstract class DetSysAction {
      * 3. Get feature flag data so we can gently roll out new features.
      */
     private requestCheckIn;
+    private recordPlausibleTimeout;
     /**
      * Fetch an artifact, such as a tarball, from the location determined by the
      * `source-*` inputs. If `source-binary` is specified, this will return a path
@@ -300,6 +301,7 @@ declare abstract class DetSysAction {
      * This is intended only for CI environments testing Actions themselves.
      */
     failOnError(msg: string): void;
+    private downloadFile;
     private complete;
     private getCheckInUrl;
     private getSourceUrl;
