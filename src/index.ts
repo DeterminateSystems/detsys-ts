@@ -643,7 +643,10 @@ export abstract class DetSysAction {
       );
 
       const versionCheckup = await (await this.getClient()).head(correlatedUrl);
-      if (versionCheckup.headers.etag) {
+      if (
+        (versionCheckup.headers.server ?? "") === "AmazonS3" &&
+        versionCheckup.headers.etag
+      ) {
         const v = versionCheckup.headers.etag;
         this.addFact(FACT_SOURCE_URL_ETAG, v);
 
@@ -671,7 +674,10 @@ export abstract class DetSysAction {
         destFile,
       );
 
-      if (fetchStream.response?.headers.etag) {
+      if (
+        (fetchStream.response?.headers.server ?? "") === "AmazonS3" &&
+        fetchStream.response?.headers.etag
+      ) {
         const v = fetchStream.response.headers.etag;
 
         try {
@@ -751,9 +757,14 @@ export abstract class DetSysAction {
 
     const fetchStream = await downloadPromise;
 
-    if (fetchStream.response?.headers.etag) {
+    if (
+      (fetchStream.response?.headers.server ?? "") === "AmazonS3" &&
+      fetchStream.response?.headers.etag
+    ) {
       const etag = fetchStream.response.headers.etag;
-      if ((await s3md5.verifyEtag(destination, etag)) !== "valid") {
+      if (
+        (await s3md5.verifyEtag(destination, etag)) === s3md5.EtagStatus.Corrupt
+      ) {
         throw new Error("download failed: etag mismatch");
       }
     }
@@ -835,7 +846,9 @@ export abstract class DetSysAction {
       ) {
         const filename = `${tempDir}/${this.actionOptions.name}`;
 
-        if ((await s3md5.verifyEtag(filename, etag)) === "valid") {
+        if (
+          (await s3md5.verifyEtag(filename, etag)) === s3md5.EtagStatus.Valid
+        ) {
           this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
           return `${tempDir}/${this.actionOptions.name}`;
         } else {

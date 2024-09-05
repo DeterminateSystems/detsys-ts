@@ -4,6 +4,14 @@ import { createHash } from "node:crypto";
 import { PathLike } from "node:fs";
 import { FileHandle, open } from "node:fs/promises";
 
+// eslint has a thing against enums:
+// https://github.com/typescript-eslint/typescript-eslint/blob/ee347494cb76a9b145283102e7814808e240201e/packages/eslint-plugin/docs/rules/no-shadow.mdx#why-does-the-rule-report-on-enum-members-that-share-the-same-name-as-a-variable-in-a-parent-scope
+// eslint-disable-next-line no-shadow
+export enum EtagStatus {
+  Valid = "valid",
+  Corrupt = "corrupt",
+}
+
 export interface AwsS3Etag {
   hash: string;
   chunks: number | undefined;
@@ -53,7 +61,7 @@ export function cleanEtag(inputEtag: string): string {
 export async function verifyEtag(
   filename: PathLike,
   quotedExpectedEtag: string,
-): Promise<"valid" | "corrupt"> {
+): Promise<EtagStatus> {
   try {
     const expectedEtag = cleanEtag(quotedExpectedEtag);
     const parsedEtag = parseEtag(expectedEtag);
@@ -61,7 +69,7 @@ export async function verifyEtag(
       actionsCore.info(
         `Verifying etag failed: etag did not parse: ${expectedEtag}`,
       );
-      return "corrupt";
+      return EtagStatus.Corrupt;
     }
 
     const fd = await open(filename, "r");
@@ -78,16 +86,16 @@ export async function verifyEtag(
     await fd.close();
 
     if (expectedEtag === actualEtag) {
-      return "valid";
+      return EtagStatus.Valid;
     } else {
       actionsCore.info(
         `Verifying etag failed: etag mismatch. Wanted ${expectedEtag}, got ${actualEtag}`,
       );
-      return "corrupt";
+      return EtagStatus.Corrupt;
     }
   } catch (e: unknown) {
     actionsCore.debug(`Verifying etag failed: ${stringifyError(e)}`);
-    return "corrupt";
+    return EtagStatus.Corrupt;
   }
 }
 

@@ -1,5 +1,6 @@
 import {
   AwsS3Etag,
+  EtagStatus,
   calculateMd5Etag,
   calculateS3ChunkedEtag,
   cleanEtag,
@@ -13,39 +14,39 @@ describe("verifyEtag", async () => {
   type TestCase = {
     text: string;
     etag: string;
-    expected: "valid" | "corrupt";
+    expected: EtagStatus;
   };
 
   const testCases: TestCase[] = [
     {
       text: "one,two,thr333ee",
       etag: "3f87fa5a68c3d80fe5bfa86e17aad32e",
-      expected: "valid",
+      expected: EtagStatus.Valid,
     },
     {
       text: "one,two,thr333ee",
       etag: "4f87fa5a68c3d80fe5bfa86e17aad32b",
-      expected: "corrupt",
+      expected: EtagStatus.Corrupt,
     },
     {
       text: "one,two,thr333ee",
       etag: "375b00d80a3b50548658edac27dafeb6-1",
-      expected: "valid",
+      expected: EtagStatus.Valid,
     },
     {
       text: "one,two,thr333ee",
       etag: '"375b00d80a3b50548658edac27dafeb6-1"',
-      expected: "valid",
+      expected: EtagStatus.Valid,
     },
     {
       text: "one,two,thr333ee",
       etag: '"4f87fa5a68c3d80fe5bfa86e17aad32b-1"',
-      expected: "corrupt",
+      expected: EtagStatus.Corrupt,
     },
     {
       text: "one,two,thr333ee",
       etag: "4f87fa5a68c3d80fe5bfa86e17aad32b-1",
-      expected: "corrupt",
+      expected: EtagStatus.Corrupt,
     },
   ];
 

@@ -858,7 +858,7 @@ async function verifyEtag(filename, quotedExpectedEtag) {
       actionsCore7.info(
         `Verifying etag failed: etag did not parse: ${expectedEtag}`
       );
-      return "corrupt";
+      return "corrupt" /* Corrupt */;
     }
     const fd = await open(filename, "r");
     let actualEtag;
@@ -871,16 +871,16 @@ async function verifyEtag(filename, quotedExpectedEtag) {
     }
     await fd.close();
     if (expectedEtag === actualEtag) {
-      return "valid";
+      return "valid" /* Valid */;
     } else {
       actionsCore7.info(
         `Verifying etag failed: etag mismatch. Wanted ${expectedEtag}, got ${actualEtag}`
       );
-      return "corrupt";
+      return "corrupt" /* Corrupt */;
     }
   } catch (e) {
     actionsCore7.debug(`Verifying etag failed: ${stringifyError(e)}`);
-    return "corrupt";
+    return "corrupt" /* Corrupt */;
   }
 }
 async function calculateMd5Etag(fd) {
@@ -1345,7 +1345,7 @@ var DetSysAction = class {
         JSON.stringify(this.identity)
       );
       const versionCheckup = await (await this.getClient()).head(correlatedUrl);
-      if (versionCheckup.headers.etag) {
+      if ((versionCheckup.headers.server ?? "") === "AmazonS3" && versionCheckup.headers.etag) {
         const v = versionCheckup.headers.etag;
         this.addFact(FACT_SOURCE_URL_ETAG, v);
         actionsCore9.debug(
@@ -1367,7 +1367,7 @@ var DetSysAction = class {
         new URL(versionCheckup.url),
         destFile
       );
-      if (fetchStream.response?.headers.etag) {
+      if ((fetchStream.response?.headers.server ?? "") === "AmazonS3" && fetchStream.response?.headers.etag) {
         const v = fetchStream.response.headers.etag;
         try {
           await this.saveCachedVersion(v, destFile);
@@ -1422,9 +1422,9 @@ var DetSysAction = class {
       retry(client.stream(url));
     });
     const fetchStream = await downloadPromise;
-    if (fetchStream.response?.headers.etag) {
+    if ((fetchStream.response?.headers.server ?? "") === "AmazonS3" && fetchStream.response?.headers.etag) {
       const etag = fetchStream.response.headers.etag;
-      if (await verifyEtag(destination, etag) !== "valid") {
+      if (await verifyEtag(destination, etag) === "corrupt" /* Corrupt */) {
         throw new Error("download failed: etag mismatch");
       }
     }
@@ -1485,7 +1485,7 @@ var DetSysAction = class {
         true
       )) {
         const filename = `${tempDir}/${this.actionOptions.name}`;
-        if (await verifyEtag(filename, etag) === "valid") {
+        if (await verifyEtag(filename, etag) === "valid" /* Valid */) {
           this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
           return `${tempDir}/${this.actionOptions.name}`;
         } else {
