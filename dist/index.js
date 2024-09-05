@@ -812,8 +812,84 @@ function getNixPlatform(archOs) {
   }
 }
 
-// src/sourcedef.ts
+// src/s3-md5.ts
 import * as actionsCore7 from "@actions/core";
+import { createHash as createHash2 } from "node:crypto";
+import { open } from "node:fs/promises";
+function parseEtag(etag) {
+  if (!etag.includes("-")) {
+    return {
+      hash: etag,
+      chunks: void 0
+    };
+  }
+  const parts = etag.split("-", 2);
+  if (parts.length !== 2) {
+    actionsCore7.debug(
+      `Parsing etag ${etag} failed: expected 2 parts but got ${parts.length}`
+    );
+    return void 0;
+  }
+  const chunks = parseInt(parts[1], 10);
+  if (isNaN(chunks)) {
+    actionsCore7.debug(`Parsing etag ${etag} failed: ${parts[1]} is NaN`);
+    return void 0;
+  }
+  return {
+    hash: parts[0],
+    chunks
+  };
+}
+async function verifyEtag(filename, expectedEtag) {
+  try {
+    const parsedEtag = parseEtag(expectedEtag);
+    if (parsedEtag === void 0) {
+      return "corrupt";
+    }
+    const fd = await open(filename, "r");
+    let actualEtag;
+    if (parsedEtag.chunks === void 0) {
+      actualEtag = await calculateMd5Etag(fd);
+    } else {
+      actualEtag = await calculateS3ChunkedEtag(fd, parsedEtag.chunks);
+    }
+    if (expectedEtag === actualEtag) {
+      return "valid";
+    } else {
+      return "corrupt";
+    }
+  } catch (e) {
+    actionsCore7.debug(`Verifying etag failed: ${stringifyError(e)}`);
+    return "corrupt";
+  }
+}
+async function calculateMd5Etag(fd) {
+  const fileHash = createHash2("md5");
+  const buf = Buffer.alloc(1024 * 1024);
+  let bytesRead;
+  while ({ bytesRead } = await fd.read(buf), bytesRead > 0) {
+    fileHash.update(buf.subarray(0, bytesRead));
+  }
+  return fileHash.digest("hex");
+}
+async function calculateS3ChunkedEtag(fd, chunks) {
+  const stat2 = await fd.stat();
+  const chunkSizeBytes = Math.ceil(stat2.size / (1024 * 1024) / chunks) * 1024 * 1024;
+  const overallHash = createHash2("md5");
+  const buf = Buffer.alloc(chunkSizeBytes);
+  let bytesRead;
+  let blockCount = 0;
+  while ({ bytesRead } = await fd.read(buf), bytesRead > 0) {
+    blockCount += 1;
+    const chunkHash = createHash2("md5");
+    chunkHash.update(buf.subarray(0, bytesRead));
+    overallHash.update(chunkHash.digest());
+  }
+  return `${overallHash.digest("hex")}-${blockCount}`;
+}
+
+// src/sourcedef.ts
+import * as actionsCore8 from "@actions/core";
 function constructSourceParameters(legacyPrefix) {
   return {
     path: noisilyGetInput("path", legacyPrefix),
@@ -831,12 +907,12 @@ function noisilyGetInput(suffix, legacyPrefix) {
   }
   const legacyInput = getStringOrUndefined(`${legacyPrefix}-${suffix}`);
   if (preferredInput && legacyInput) {
-    actionsCore7.warning(
+    actionsCore8.warning(
       `The supported option source-${suffix} and the legacy option ${legacyPrefix}-${suffix} are both set. Preferring source-${suffix}. Please stop setting ${legacyPrefix}-${suffix}.`
     );
     return preferredInput;
   } else if (legacyInput) {
-    actionsCore7.warning(
+    actionsCore8.warning(
       `The legacy option ${legacyPrefix}-${suffix} is set. Please migrate to source-${suffix}.`
     );
     return legacyInput;
@@ -847,7 +923,7 @@ function noisilyGetInput(suffix, legacyPrefix) {
 
 // src/index.ts
 import * as actionsCache from "@actions/cache";
-import * as actionsCore8 from "@actions/core";
+import * as actionsCore9 from "@actions/core";
 import * as actionsExec from "@actions/exec";
 import { TimeoutError } from "got";
 import { exec as exec4 } from "node:child_process";
@@ -867,6 +943,7 @@ var EVENT_EXCEPTION = "exception";
 var EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
 var EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
 var EVENT_ARTIFACT_CACHE_PERSIST = "artifact_cache_persist";
+var EVENT_ARTIFACT_CACHE_CORRUPT = "artifact_cache_corrupt";
 var EVENT_PREFLIGHT_REQUIRE_NIX_DENIED = "preflight-require-nix-denied";
 var FACT_ARTIFACT_FETCHED_FROM_CACHE = "artifact_fetched_from_cache";
 var FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
@@ -889,9 +966,9 @@ var DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 1e4;
 var CHECK_IN_ENDPOINT_TIMEOUT_MS = 1e3;
 var DetSysAction = class {
   determineExecutionPhase() {
-    const currentPhase = actionsCore8.getState(STATE_KEY_EXECUTION_PHASE);
+    const currentPhase = actionsCore9.getState(STATE_KEY_EXECUTION_PHASE);
     if (currentPhase === "") {
-      actionsCore8.saveState(STATE_KEY_EXECUTION_PHASE, "post");
+      actionsCore9.saveState(STATE_KEY_EXECUTION_PHASE, "post");
       return "main";
     } else {
       return "post";
@@ -947,7 +1024,7 @@ var DetSysAction = class {
           this.addFact(FACT_OS_VERSION, details.version);
         }
       }).catch((e) => {
-        actionsCore8.debug(
+        actionsCore9.debug(
           `Failure getting platform details: ${stringifyError2(e)}`
         );
       });
@@ -1005,10 +1082,10 @@ var DetSysAction = class {
   }
   // This ID will be saved in the action's state, to be persisted across phase steps
   getCrossPhaseId() {
-    let crossPhaseId = actionsCore8.getState(STATE_KEY_CROSS_PHASE_ID);
+    let crossPhaseId = actionsCore9.getState(STATE_KEY_CROSS_PHASE_ID);
     if (crossPhaseId === "") {
       crossPhaseId = randomUUID();
-      actionsCore8.saveState(STATE_KEY_CROSS_PHASE_ID, crossPhaseId);
+      actionsCore9.saveState(STATE_KEY_CROSS_PHASE_ID, crossPhaseId);
     }
     return crossPhaseId;
   }
@@ -1080,9 +1157,9 @@ var DetSysAction = class {
       const reportable = stringifyError2(e);
       this.addFact(FACT_FINAL_EXCEPTION, reportable);
       if (this.isPost) {
-        actionsCore8.warning(reportable);
+        actionsCore9.warning(reportable);
       } else {
-        actionsCore8.setFailed(reportable);
+        actionsCore9.setFailed(reportable);
       }
       const doGzip = promisify3(gzip2);
       const exceptionContext = /* @__PURE__ */ new Map();
@@ -1150,15 +1227,15 @@ var DetSysAction = class {
         );
       }
       if (summaries.length > 0) {
-        actionsCore8.info(
+        actionsCore9.info(
           // Bright red, Bold, Underline
           `${"\x1B[0;31m"}${"\x1B[1m"}${"\x1B[4m"}${checkin.status.page.name} Status`
         );
         for (const notice of summaries) {
-          actionsCore8.info(notice);
+          actionsCore9.info(notice);
         }
-        actionsCore8.info(`See: ${checkin.status.page.url}`);
-        actionsCore8.info(``);
+        actionsCore9.info(`See: ${checkin.status.page.url}`);
+        actionsCore9.info(``);
       }
     }
   }
@@ -1190,7 +1267,7 @@ var DetSysAction = class {
         return void 0;
       }
       try {
-        actionsCore8.debug(`Preflighting via ${checkInUrl}`);
+        actionsCore9.debug(`Preflighting via ${checkInUrl}`);
         checkInUrl.searchParams.set("ci", "github");
         checkInUrl.searchParams.set(
           "correlation",
@@ -1203,7 +1280,7 @@ var DetSysAction = class {
         }).json();
       } catch (e) {
         this.recordPlausibleTimeout(e);
-        actionsCore8.debug(`Error checking in: ${stringifyError2(e)}`);
+        actionsCore9.debug(`Error checking in: ${stringifyError2(e)}`);
         this.idsHost.markCurrentHostBroken();
       }
     }
@@ -1233,14 +1310,14 @@ var DetSysAction = class {
   async fetchArtifact() {
     const sourceBinary = getStringOrNull("source-binary");
     if (sourceBinary !== null && sourceBinary !== "") {
-      actionsCore8.debug(`Using the provided source binary at ${sourceBinary}`);
+      actionsCore9.debug(`Using the provided source binary at ${sourceBinary}`);
       return sourceBinary;
     }
-    actionsCore8.startGroup(
+    actionsCore9.startGroup(
       `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`
     );
     try {
-      actionsCore8.info(`Fetching from ${await this.getSourceUrl()}`);
+      actionsCore9.info(`Fetching from ${await this.getSourceUrl()}`);
       const correlatedUrl = await this.getSourceUrl();
       correlatedUrl.searchParams.set("ci", "github");
       correlatedUrl.searchParams.set(
@@ -1251,18 +1328,18 @@ var DetSysAction = class {
       if (versionCheckup.headers.etag) {
         const v = versionCheckup.headers.etag;
         this.addFact(FACT_SOURCE_URL_ETAG, v);
-        actionsCore8.debug(
+        actionsCore9.debug(
           `Checking the tool cache for ${await this.getSourceUrl()} at ${v}`
         );
         const cached = await this.getCachedVersion(v);
         if (cached) {
           this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = true;
-          actionsCore8.debug(`Tool cache hit.`);
+          actionsCore9.debug(`Tool cache hit.`);
           return cached;
         }
       }
       this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = false;
-      actionsCore8.debug(
+      actionsCore9.debug(
         `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`
       );
       const destFile = this.getTemporaryName();
@@ -1275,7 +1352,7 @@ var DetSysAction = class {
         try {
           await this.saveCachedVersion(v, destFile);
         } catch (e) {
-          actionsCore8.debug(`Error caching the artifact: ${stringifyError2(e)}`);
+          actionsCore9.debug(`Error caching the artifact: ${stringifyError2(e)}`);
         }
       }
       return destFile;
@@ -1283,7 +1360,7 @@ var DetSysAction = class {
       this.recordPlausibleTimeout(e);
       throw e;
     } finally {
-      actionsCore8.endGroup();
+      actionsCore9.endGroup();
     }
   }
   /**
@@ -1292,12 +1369,12 @@ var DetSysAction = class {
    */
   failOnError(msg) {
     if (this.strictMode) {
-      actionsCore8.setFailed(`strict mode failure: ${msg}`);
+      actionsCore9.setFailed(`strict mode failure: ${msg}`);
     }
   }
   async downloadFile(url, destination) {
     const client = await this.getClient();
-    return new Promise((resolve, reject) => {
+    const downloadPromise = new Promise((resolve, reject) => {
       let writeStream;
       let failed = false;
       const retry = (stream) => {
@@ -1324,6 +1401,14 @@ var DetSysAction = class {
       };
       retry(client.stream(url));
     });
+    const fetchStream = await downloadPromise;
+    if (fetchStream.response?.headers.etag) {
+      const etag = fetchStream.response.headers.etag;
+      if (await verifyEtag(destination, etag) !== "valid") {
+        throw new Error("download failed: etag mismatch");
+      }
+    }
+    return fetchStream;
   }
   async complete() {
     this.recordEvent(`complete_${this.executionPhase}`);
@@ -1364,7 +1449,7 @@ var DetSysAction = class {
     const cleanedVersion = version2.replace(/[^a-zA-Z0-9-+.]/g, "");
     return `determinatesystem-${this.actionOptions.name}-${this.architectureFetchSuffix}-${cleanedVersion}`;
   }
-  async getCachedVersion(version2) {
+  async getCachedVersion(etag) {
     const startCwd = process.cwd();
     try {
       const tempDir = this.getTemporaryName();
@@ -1374,13 +1459,19 @@ var DetSysAction = class {
       delete process.env.GITHUB_WORKSPACE;
       if (await actionsCache.restoreCache(
         [this.actionOptions.name],
-        this.cacheKey(version2),
+        this.cacheKey(etag),
         [],
         void 0,
         true
       )) {
-        this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
-        return `${tempDir}/${this.actionOptions.name}`;
+        const filename = `${tempDir}/${this.actionOptions.name}`;
+        if (await verifyEtag(filename, etag) === "valid") {
+          this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
+          return `${tempDir}/${this.actionOptions.name}`;
+        } else {
+          this.recordEvent(EVENT_ARTIFACT_CACHE_CORRUPT);
+          return void 0;
+        }
       }
       this.recordEvent(EVENT_ARTIFACT_CACHE_MISS);
       return void 0;
@@ -1414,11 +1505,11 @@ var DetSysAction = class {
   }
   collectBacktraceSetup() {
     if (process.env.DETSYS_BACKTRACE_COLLECTOR === "") {
-      actionsCore8.exportVariable(
+      actionsCore9.exportVariable(
         "DETSYS_BACKTRACE_COLLECTOR",
         this.getCrossPhaseId()
       );
-      actionsCore8.saveState(STATE_BACKTRACE_START_TIMESTAMP, Date.now());
+      actionsCore9.saveState(STATE_BACKTRACE_START_TIMESTAMP, Date.now());
     }
   }
   async collectBacktraces() {
@@ -1428,14 +1519,14 @@ var DetSysAction = class {
       }
       const backtraces = await collectBacktraces(
         this.actionOptions.binaryNamePrefixes,
-        parseInt(actionsCore8.getState(STATE_BACKTRACE_START_TIMESTAMP))
+        parseInt(actionsCore9.getState(STATE_BACKTRACE_START_TIMESTAMP))
       );
-      actionsCore8.debug(`Backtraces identified: ${backtraces.size}`);
+      actionsCore9.debug(`Backtraces identified: ${backtraces.size}`);
       if (backtraces.size > 0) {
         this.recordEvent(EVENT_BACKTRACES, Object.fromEntries(backtraces));
       }
     } catch (innerError) {
-      actionsCore8.debug(
+      actionsCore9.debug(
         `Error collecting backtraces: ${stringifyError2(innerError)}`
       );
     }
@@ -1447,28 +1538,28 @@ var DetSysAction = class {
       const candidateNix = path.join(location, "nix");
       try {
         await fs2.access(candidateNix, fs2.constants.X_OK);
-        actionsCore8.debug(`Found Nix at ${candidateNix}`);
+        actionsCore9.debug(`Found Nix at ${candidateNix}`);
         nixLocation = candidateNix;
         break;
       } catch {
-        actionsCore8.debug(`Nix not at ${candidateNix}`);
+        actionsCore9.debug(`Nix not at ${candidateNix}`);
       }
     }
     this.addFact(FACT_NIX_LOCATION, nixLocation || "");
     if (this.actionOptions.requireNix === "ignore") {
       return true;
     }
-    const currentNotFoundState = actionsCore8.getState(STATE_KEY_NIX_NOT_FOUND);
+    const currentNotFoundState = actionsCore9.getState(STATE_KEY_NIX_NOT_FOUND);
     if (currentNotFoundState === STATE_NOT_FOUND) {
       return false;
     }
     if (nixLocation !== void 0) {
       return true;
     }
-    actionsCore8.saveState(STATE_KEY_NIX_NOT_FOUND, STATE_NOT_FOUND);
+    actionsCore9.saveState(STATE_KEY_NIX_NOT_FOUND, STATE_NOT_FOUND);
     switch (this.actionOptions.requireNix) {
       case "fail":
-        actionsCore8.setFailed(
+        actionsCore9.setFailed(
           [
             "This action can only be used when Nix is installed.",
             "Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
@@ -1476,7 +1567,7 @@ var DetSysAction = class {
         );
         break;
       case "warn":
-        actionsCore8.warning(
+        actionsCore9.warning(
           [
             "This action is in no-op mode because Nix is not installed.",
             "Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
@@ -1529,10 +1620,10 @@ var DetSysAction = class {
   async submitEvents() {
     const diagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
     if (diagnosticsUrl === void 0) {
-      actionsCore8.debug(
+      actionsCore9.debug(
         "Diagnostics are disabled. Not sending the following events:"
       );
-      actionsCore8.debug(JSON.stringify(this.events, void 0, 2));
+      actionsCore9.debug(JSON.stringify(this.events, void 0, 2));
       return;
     }
     const batch = {
@@ -1549,7 +1640,7 @@ var DetSysAction = class {
       });
     } catch (err) {
       this.recordPlausibleTimeout(err);
-      actionsCore8.debug(
+      actionsCore9.debug(
         `Error submitting diagnostics event to ${diagnosticsUrl}: ${stringifyError2(err)}`
       );
     }
@@ -1574,8 +1665,8 @@ function makeOptionsConfident(actionOptions) {
       actionOptions.name
     ]
   };
-  actionsCore8.debug("idslib options:");
-  actionsCore8.debug(JSON.stringify(finalOpts, void 0, 2));
+  actionsCore9.debug("idslib options:");
+  actionsCore9.debug(JSON.stringify(finalOpts, void 0, 2));
   return finalOpts;
 }
 export {

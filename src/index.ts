@@ -10,6 +10,7 @@ import * as correlation from "./correlation.js";
 import { IdsHost } from "./ids-host.js";
 import { getBool, getStringOrNull } from "./inputs.js";
 import * as platform from "./platform.js";
+import * as s3md5 from "./s3-md5.js";
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
@@ -35,6 +36,7 @@ const EVENT_EXCEPTION = "exception";
 const EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
 const EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
 const EVENT_ARTIFACT_CACHE_PERSIST = "artifact_cache_persist";
+const EVENT_ARTIFACT_CACHE_CORRUPT = "artifact_cache_corrupt";
 const EVENT_PREFLIGHT_REQUIRE_NIX_DENIED = "preflight-require-nix-denied";
 
 const FACT_ARTIFACT_FETCHED_FROM_CACHE = "artifact_fetched_from_cache";
@@ -704,7 +706,7 @@ export abstract class DetSysAction {
   ): Promise<Request> {
     const client = await this.getClient();
 
-    return new Promise((resolve, reject) => {
+    const downloadPromise: Promise<Request> = new Promise((resolve, reject) => {
       // Current stream handle
       let writeStream: WriteStream | undefined;
 
@@ -746,6 +748,17 @@ export abstract class DetSysAction {
       // Begin the retry logic by giving it a fresh got.Request
       retry(client.stream(url));
     });
+
+    const fetchStream = await downloadPromise;
+
+    if (fetchStream.response?.headers.etag) {
+      const etag = fetchStream.response.headers.etag;
+      if ((await s3md5.verifyEtag(destination, etag)) !== "valid") {
+        throw new Error("download failed: etag mismatch");
+      }
+    }
+
+    return fetchStream;
   }
 
   private async complete(): Promise<void> {
@@ -799,7 +812,7 @@ export abstract class DetSysAction {
     return `determinatesystem-${this.actionOptions.name}-${this.architectureFetchSuffix}-${cleanedVersion}`;
   }
 
-  private async getCachedVersion(version: string): Promise<undefined | string> {
+  private async getCachedVersion(etag: string): Promise<undefined | string> {
     const startCwd = process.cwd();
 
     try {
@@ -814,14 +827,21 @@ export abstract class DetSysAction {
       if (
         await actionsCache.restoreCache(
           [this.actionOptions.name],
-          this.cacheKey(version),
+          this.cacheKey(etag),
           [],
           undefined,
           true,
         )
       ) {
-        this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
-        return `${tempDir}/${this.actionOptions.name}`;
+        const filename = `${tempDir}/${this.actionOptions.name}`;
+
+        if ((await s3md5.verifyEtag(filename, etag)) === "valid") {
+          this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
+          return `${tempDir}/${this.actionOptions.name}`;
+        } else {
+          this.recordEvent(EVENT_ARTIFACT_CACHE_CORRUPT);
+          return undefined;
+        }
       }
 
       this.recordEvent(EVENT_ARTIFACT_CACHE_MISS);
