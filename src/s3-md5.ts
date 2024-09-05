@@ -44,6 +44,9 @@ export async function verifyEtag(
   try {
     const parsedEtag = parseEtag(expectedEtag);
     if (parsedEtag === undefined) {
+      actionsCore.info(
+        `Verifying etag failed: etag did not parse: ${expectedEtag}`,
+      );
       return "corrupt";
     }
 
@@ -51,8 +54,10 @@ export async function verifyEtag(
 
     let actualEtag: string;
     if (parsedEtag.chunks === undefined) {
+      actionsCore.debug(`Verifying etag with a simple md5`);
       actualEtag = await calculateMd5Etag(fd);
     } else {
+      actionsCore.debug(`Verifying etag with a chunked md5 from s3`);
       actualEtag = await calculateS3ChunkedEtag(fd, parsedEtag.chunks);
     }
 
@@ -61,6 +66,9 @@ export async function verifyEtag(
     if (expectedEtag === actualEtag) {
       return "valid";
     } else {
+      actionsCore.info(
+        `Verifying etag failed: etag mismatch. Wanted ${expectedEtag}, got ${actualEtag}`,
+      );
       return "corrupt";
     }
   } catch (e: unknown) {

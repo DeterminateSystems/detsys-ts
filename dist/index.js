@@ -844,19 +844,27 @@ async function verifyEtag(filename, expectedEtag) {
   try {
     const parsedEtag = parseEtag(expectedEtag);
     if (parsedEtag === void 0) {
+      actionsCore7.info(
+        `Verifying etag failed: etag did not parse: ${expectedEtag}`
+      );
       return "corrupt";
     }
     const fd = await open(filename, "r");
     let actualEtag;
     if (parsedEtag.chunks === void 0) {
+      actionsCore7.debug(`Verifying etag with a simple md5`);
       actualEtag = await calculateMd5Etag(fd);
     } else {
+      actionsCore7.debug(`Verifying etag with a chunked md5 from s3`);
       actualEtag = await calculateS3ChunkedEtag(fd, parsedEtag.chunks);
     }
     await fd.close();
     if (expectedEtag === actualEtag) {
       return "valid";
     } else {
+      actionsCore7.info(
+        `Verifying etag failed: etag mismatch. Wanted ${expectedEtag}, got ${actualEtag}`
+      );
       return "corrupt";
     }
   } catch (e) {
