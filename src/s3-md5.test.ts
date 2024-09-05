@@ -2,6 +2,7 @@ import {
   AwsS3Etag,
   calculateMd5Etag,
   calculateS3ChunkedEtag,
+  cleanEtag,
   parseEtag,
   verifyEtag,
 } from "./s3-md5.js";
@@ -33,6 +34,16 @@ describe("verifyEtag", async () => {
     },
     {
       text: "one,two,thr333ee",
+      etag: '"375b00d80a3b50548658edac27dafeb6-1"',
+      expected: "valid",
+    },
+    {
+      text: "one,two,thr333ee",
+      etag: '"4f87fa5a68c3d80fe5bfa86e17aad32b-1"',
+      expected: "corrupt",
+    },
+    {
+      text: "one,two,thr333ee",
       etag: "4f87fa5a68c3d80fe5bfa86e17aad32b-1",
       expected: "corrupt",
     },
@@ -51,6 +62,20 @@ describe("verifyEtag", async () => {
       );
     });
   }
+});
+
+describe("cleanEtag", () => {
+  test(`Leading weak indicator is stripped`, () => {
+    expect(cleanEtag("W/foo")).toStrictEqual("foo");
+  });
+
+  test(`Quotes are stripped`, () => {
+    expect(cleanEtag('"foo"')).toStrictEqual("foo");
+  });
+
+  test(`Leading weak indicator and a quoted value is stripped`, () => {
+    expect(cleanEtag('W/"foo"')).toStrictEqual("foo");
+  });
 });
 
 describe("parseEtag", () => {

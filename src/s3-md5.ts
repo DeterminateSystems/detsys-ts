@@ -37,11 +37,25 @@ export function parseEtag(etag: string): AwsS3Etag | undefined {
   };
 }
 
+export function cleanEtag(inputEtag: string): string {
+  let etag = inputEtag;
+  if (etag.startsWith("W/")) {
+    etag = etag.substring(2);
+  }
+
+  if (etag.startsWith('"') && etag.endsWith('"')) {
+    etag = etag.substring(1, etag.length - 1);
+  }
+
+  return etag;
+}
+
 export async function verifyEtag(
   filename: PathLike,
-  expectedEtag: string,
+  quotedExpectedEtag: string,
 ): Promise<"valid" | "corrupt"> {
   try {
+    const expectedEtag = cleanEtag(quotedExpectedEtag);
     const parsedEtag = parseEtag(expectedEtag);
     if (parsedEtag === undefined) {
       actionsCore.info(

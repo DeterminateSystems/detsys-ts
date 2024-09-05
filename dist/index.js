@@ -840,8 +840,19 @@ function parseEtag(etag) {
     chunks
   };
 }
-async function verifyEtag(filename, expectedEtag) {
+function cleanEtag(inputEtag) {
+  let etag = inputEtag;
+  if (etag.startsWith("W/")) {
+    etag = etag.substring(2);
+  }
+  if (etag.startsWith('"') && etag.endsWith('"')) {
+    etag = etag.substring(1, etag.length - 1);
+  }
+  return etag;
+}
+async function verifyEtag(filename, quotedExpectedEtag) {
   try {
+    const expectedEtag = cleanEtag(quotedExpectedEtag);
     const parsedEtag = parseEtag(expectedEtag);
     if (parsedEtag === void 0) {
       actionsCore7.info(
