@@ -56,6 +56,8 @@ export async function verifyEtag(
       actualEtag = await calculateS3ChunkedEtag(fd, parsedEtag.chunks);
     }
 
+    await fd.close();
+
     if (expectedEtag === actualEtag) {
       return "valid";
     } else {

@@ -853,6 +853,7 @@ async function verifyEtag(filename, expectedEtag) {
     } else {
       actualEtag = await calculateS3ChunkedEtag(fd, parsedEtag.chunks);
     }
+    await fd.close();
     if (expectedEtag === actualEtag) {
       return "valid";
     } else {
