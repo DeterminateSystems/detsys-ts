@@ -8,7 +8,7 @@ import { collectBacktraces } from "./backtrace.js";
 import { CheckIn, Feature } from "./check-in.js";
 import * as correlation from "./correlation.js";
 import { IdsHost } from "./ids-host.js";
-import { getBool, getStringOrNull } from "./inputs.js";
+import { getBool, getBoolOrUndefined, getStringOrNull } from "./inputs.js";
 import * as platform from "./platform.js";
 import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
@@ -199,6 +199,15 @@ export abstract class DetSysAction {
     this.exceptionAttachments = new Map();
     this.nixStoreTrust = "unknown";
     this.strictMode = getBool("_internal-strict-mode");
+
+    if (
+      getBoolOrUndefined(
+        "_internal-obliterate-actions-id-token-request-variables",
+      ) === true
+    ) {
+      process.env["ACTIONS_ID_TOKEN_REQUEST_URL"] = undefined;
+      process.env["ACTIONS_ID_TOKEN_REQUEST_TOKEN"] = undefined;
+    }
 
     this.features = {};
     this.featureEventMetadata = {};

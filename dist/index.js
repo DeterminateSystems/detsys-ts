@@ -706,6 +706,7 @@ __export(inputs_exports, {
   getArrayOfStrings: () => getArrayOfStrings,
   getArrayOfStringsOrNull: () => getArrayOfStringsOrNull,
   getBool: () => getBool,
+  getBoolOrUndefined: () => getBoolOrUndefined,
   getMultilineStringOrNull: () => getMultilineStringOrNull,
   getNumberOrNull: () => getNumberOrNull,
   getString: () => getString,
@@ -715,6 +716,12 @@ __export(inputs_exports, {
 });
 import * as actionsCore5 from "@actions/core";
 var getBool = (name) => {
+  return actionsCore5.getBooleanInput(name);
+};
+var getBoolOrUndefined = (name) => {
+  if (getStringOrUndefined(name) === void 0) {
+    return void 0;
+  }
   return actionsCore5.getBooleanInput(name);
 };
 var getArrayOfStrings = (name, separator) => {
@@ -909,6 +916,12 @@ var DetSysAction = class {
     this.exceptionAttachments = /* @__PURE__ */ new Map();
     this.nixStoreTrust = "unknown";
     this.strictMode = getBool("_internal-strict-mode");
+    if (getBoolOrUndefined(
+      "_internal-obliterate-actions-id-token-request-variables"
+    ) === true) {
+      process.env["ACTIONS_ID_TOKEN_REQUEST_URL"] = void 0;
+      process.env["ACTIONS_ID_TOKEN_REQUEST_TOKEN"] = void 0;
+    }
     this.features = {};
     this.featureEventMetadata = {};
     this.events = [];

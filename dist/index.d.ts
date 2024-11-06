@@ -86,6 +86,10 @@ type SourceDef = {
  */
 declare const getBool: (name: string) => boolean;
 /**
+ * Get a Boolean input from the Action's configuration by name, or undefined if it is unset.
+ */
+declare const getBoolOrUndefined: (name: string) => boolean | undefined;
+/**
  * The character used to separate values in the input string.
  */
 type Separator = "space" | "comma";
@@ -124,6 +128,7 @@ type inputs_Separator = Separator;
 declare const inputs_getArrayOfStrings: typeof getArrayOfStrings;
 declare const inputs_getArrayOfStringsOrNull: typeof getArrayOfStringsOrNull;
 declare const inputs_getBool: typeof getBool;
+declare const inputs_getBoolOrUndefined: typeof getBoolOrUndefined;
 declare const inputs_getMultilineStringOrNull: typeof getMultilineStringOrNull;
 declare const inputs_getNumberOrNull: typeof getNumberOrNull;
 declare const inputs_getString: typeof getString;
@@ -131,7 +136,7 @@ declare const inputs_getStringOrNull: typeof getStringOrNull;
 declare const inputs_getStringOrUndefined: typeof getStringOrUndefined;
 declare const inputs_handleString: typeof handleString;
 declare namespace inputs {
-  export { type inputs_Separator as Separator, inputs_getArrayOfStrings as getArrayOfStrings, inputs_getArrayOfStringsOrNull as getArrayOfStringsOrNull, inputs_getBool as getBool, inputs_getMultilineStringOrNull as getMultilineStringOrNull, inputs_getNumberOrNull as getNumberOrNull, inputs_getString as getString, inputs_getStringOrNull as getStringOrNull, inputs_getStringOrUndefined as getStringOrUndefined, inputs_handleString as handleString };
+  export { type inputs_Separator as Separator, inputs_getArrayOfStrings as getArrayOfStrings, inputs_getArrayOfStringsOrNull as getArrayOfStringsOrNull, inputs_getBool as getBool, inputs_getBoolOrUndefined as getBoolOrUndefined, inputs_getMultilineStringOrNull as getMultilineStringOrNull, inputs_getNumberOrNull as getNumberOrNull, inputs_getString as getString, inputs_getStringOrNull as getStringOrNull, inputs_getStringOrUndefined as getStringOrUndefined, inputs_handleString as handleString };
 }
 
 /**

@@ -12,6 +12,17 @@ const getBool = (name: string): boolean => {
 };
 
 /**
+ * Get a Boolean input from the Action's configuration by name, or undefined if it is unset.
+ */
+const getBoolOrUndefined = (name: string): boolean | undefined => {
+  if (getStringOrUndefined(name) === undefined) {
+    return undefined;
+  }
+
+  return actionsCore.getBooleanInput(name);
+};
+
+/**
  * The character used to separate values in the input string.
  */
 export type Separator = "space" | "comma";
@@ -108,6 +119,7 @@ const getStringOrUndefined = (name: string): string | undefined => {
 
 export {
   getBool,
+  getBoolOrUndefined,
   getArrayOfStrings,
   getArrayOfStringsOrNull,
   getMultilineStringOrNull,
