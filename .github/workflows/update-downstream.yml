@@ -79,7 +79,7 @@ jobs:
       - name: Update `detsys-ts` dependency for ${{ env.TARGET_REPO }} to ref `${{ env.REF }}`
         working-directory: target
         run: |
-          nix develop --command pnpm update detsys-ts
+          nix develop --command pnpm update
           nix develop --command pnpm all
 
       - name: Create Pull Request
