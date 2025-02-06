@@ -4,9 +4,6 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
-// package.json
-var version = "1.0.0";
-
 // src/linux-release-info.ts
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -124,7 +121,7 @@ import * as actionsCore from "@actions/core";
 import * as exec from "@actions/exec";
 import os2 from "os";
 var getWindowsInfo = async () => {
-  const { stdout: version2 } = await exec.getExecOutput(
+  const { stdout: version } = await exec.getExecOutput(
     'powershell -command "(Get-CimInstance -ClassName Win32_OperatingSystem).Version"',
     void 0,
     {
@@ -140,18 +137,18 @@ var getWindowsInfo = async () => {
   );
   return {
     name: name.trim(),
-    version: version2.trim()
+    version: version.trim()
   };
 };
 var getMacOsInfo = async () => {
   const { stdout } = await exec.getExecOutput("sw_vers", void 0, {
     silent: true
   });
-  const version2 = stdout.match(/ProductVersion:\s*(.+)/)?.[1] ?? "";
+  const version = stdout.match(/ProductVersion:\s*(.+)/)?.[1] ?? "";
   const name = stdout.match(/ProductName:\s*(.+)/)?.[1] ?? "";
   return {
     name,
-    version: version2
+    version
   };
 };
 var getLinuxInfo = async () => {
@@ -869,6 +866,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { promisify as promisify3 } from "node:util";
 import { gzip as gzip2 } from "node:zlib";
+var pkgVersion = "1.0";
 var EVENT_BACKTRACES = "backtrace";
 var EVENT_EXCEPTION = "exception";
 var EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
@@ -929,7 +927,7 @@ var DetSysAction = class {
     this.collectBacktraceSetup();
     this.facts = {
       $lib: "idslib",
-      $lib_version: version,
+      $lib_version: pkgVersion,
       project: this.actionOptions.name,
       ids_project: this.actionOptions.idsProjectName
     };
@@ -1373,11 +1371,11 @@ var DetSysAction = class {
     this.addFact(FACT_SOURCE_URL, fetchUrl.toString());
     return fetchUrl;
   }
-  cacheKey(version2) {
-    const cleanedVersion = version2.replace(/[^a-zA-Z0-9-+.]/g, "");
+  cacheKey(version) {
+    const cleanedVersion = version.replace(/[^a-zA-Z0-9-+.]/g, "");
     return `determinatesystem-${this.actionOptions.name}-${this.architectureFetchSuffix}-${cleanedVersion}`;
   }
-  async getCachedVersion(version2) {
+  async getCachedVersion(version) {
     const startCwd = process.cwd();
     try {
       const tempDir = this.getTemporaryName();
@@ -1387,7 +1385,7 @@ var DetSysAction = class {
       delete process.env.GITHUB_WORKSPACE;
       if (await actionsCache.restoreCache(
         [this.actionOptions.name],
-        this.cacheKey(version2),
+        this.cacheKey(version),
         [],
         void 0,
         true
@@ -1403,7 +1401,7 @@ var DetSysAction = class {
       process.chdir(startCwd);
     }
   }
-  async saveCachedVersion(version2, toolPath) {
+  async saveCachedVersion(version, toolPath) {
     const startCwd = process.cwd();
     try {
       const tempDir = this.getTemporaryName();
@@ -1414,7 +1412,7 @@ var DetSysAction = class {
       delete process.env.GITHUB_WORKSPACE;
       await actionsCache.saveCache(
         [this.actionOptions.name],
-        this.cacheKey(version2),
+        this.cacheKey(version),
         void 0,
         true
       );

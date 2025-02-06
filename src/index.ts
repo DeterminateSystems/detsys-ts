@@ -2,7 +2,7 @@
  * @packageDocumentation
  * Determinate Systems' TypeScript library for creating GitHub Actions logic.
  */
-import { version as pkgVersion } from "../package.json";
+// import { version as pkgVersion } from "../package.json";
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import { collectBacktraces } from "./backtrace.js";
 import { CheckIn, Feature } from "./check-in.js";
@@ -29,6 +29,8 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
+
+const pkgVersion = "1.0";
 
 const EVENT_BACKTRACES = "backtrace";
 const EVENT_EXCEPTION = "exception";
