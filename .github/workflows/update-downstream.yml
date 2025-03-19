@@ -18,6 +18,7 @@ jobs:
         repo:
           - flake-checker-action
           - magic-nix-cache-action
+          - flakehub-cache-action
           - flakehub-push
           - flakehub-mirror
           - nix-installer-action
@@ -83,7 +84,7 @@ jobs:
           nix develop --command pnpm all
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v7
         env:
           COMMIT_MSG: ${{ steps.commit-msg.outputs.msg }}
         with:
