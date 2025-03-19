@@ -61,7 +61,7 @@ export async function collectBacktracesMacOS(
         new Promise((resolve) => setTimeout(resolve, ms));
       await delay(5000);
     }
-  } catch (e: unknown) {
+  } catch {
     actionsCore.debug(
       "Failed to check logs for in-progress crash dumps; now proceeding with the assumption that all crash dumps completed.",
     );
