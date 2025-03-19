@@ -263,7 +263,7 @@ async function collectBacktracesMacOS(prefixes, startTimestampMs) {
       const delay = async (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       await delay(5e3);
     }
-  } catch (e) {
+  } catch {
     actionsCore2.debug(
       "Failed to check logs for in-progress crash dumps; now proceeding with the assumption that all crash dumps completed."
     );
@@ -459,7 +459,7 @@ function hashEnvironmentVariables(prefix, variables) {
 
 // src/ids-host.ts
 import * as actionsCore4 from "@actions/core";
-import got from "got";
+import { got } from "got";
 import { resolveSrv } from "node:dns/promises";
 var DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
 var ALLOWED_SUFFIXES = [
