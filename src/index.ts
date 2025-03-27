@@ -875,7 +875,7 @@ export abstract class DetSysAction {
   }
 
   private collectBacktraceSetup(): void {
-    if (process.env.DETSYS_BACKTRACE_COLLECTOR === "") {
+    if (!process.env.DETSYS_BACKTRACE_COLLECTOR) {
       actionsCore.exportVariable(
         "DETSYS_BACKTRACE_COLLECTOR",
         this.getCrossPhaseId(),
