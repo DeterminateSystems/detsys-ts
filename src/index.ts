@@ -61,6 +61,7 @@ const STATE_BACKTRACE_START_TIMESTAMP = "detsys_backtrace_start_timestamp";
 
 const DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 10_000; // 10 seconds in ms
 const CHECK_IN_ENDPOINT_TIMEOUT_MS = 1_000; // 1 second in ms
+const PROGRAM_NAME_CRASH_DENY_LIST = ["nix-expr-tests"];
 
 /**
  * An enum for describing different "fetch suffixes" for i.d.s.
@@ -1073,7 +1074,8 @@ function makeOptionsConfident(
       "determinate-nixd",
       actionOptions.name,
     ],
-    binaryNamesDenyList: actionOptions.binaryNamePrefixes ?? ["nix-expr-tests"],
+    binaryNamesDenyList:
+      actionOptions.binaryNamePrefixes ?? PROGRAM_NAME_CRASH_DENY_LIST,
   };
 
   actionsCore.debug("idslib options:");

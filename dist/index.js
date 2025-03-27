@@ -905,6 +905,7 @@ var STATE_KEY_CROSS_PHASE_ID = "detsys_cross_phase_id";
 var STATE_BACKTRACE_START_TIMESTAMP = "detsys_backtrace_start_timestamp";
 var DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 1e4;
 var CHECK_IN_ENDPOINT_TIMEOUT_MS = 1e3;
+var PROGRAM_NAME_CRASH_DENY_LIST = ["nix-expr-tests"];
 var DetSysAction = class {
   determineExecutionPhase() {
     const currentPhase = actionsCore8.getState(STATE_KEY_EXECUTION_PHASE);
@@ -1598,7 +1599,7 @@ function makeOptionsConfident(actionOptions) {
       "determinate-nixd",
       actionOptions.name
     ],
-    binaryNamesDenyList: actionOptions.binaryNamePrefixes ?? ["nix-expr-tests"]
+    binaryNamesDenyList: actionOptions.binaryNamePrefixes ?? PROGRAM_NAME_CRASH_DENY_LIST
   };
   actionsCore8.debug("idslib options:");
   actionsCore8.debug(JSON.stringify(finalOpts, void 0, 2));
