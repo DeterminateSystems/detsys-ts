@@ -10,6 +10,9 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
 
+// Give a few seconds buffer, capturing traces that happened a few seconds earlier.
+const START_SLOP_SECONDS = 5;
+
 export async function collectBacktraces(
   prefixes: string[],
   startTimestampMs: number,
@@ -116,7 +119,8 @@ export async function collectBacktracesSystemd(
   prefixes: string[],
   startTimestampMs: number,
 ): Promise<Map<string, string>> {
-  const sinceSeconds = Math.ceil((Date.now() - startTimestampMs) / 1000);
+  const sinceSeconds =
+    Math.ceil((Date.now() - startTimestampMs) / 1000) + START_SLOP_SECONDS;
   const backtraces: Map<string, string> = new Map();
 
   const coredumps: SystemdCoreDumpInfo[] = [];

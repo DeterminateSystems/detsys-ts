@@ -224,6 +224,7 @@ import * as exec2 from "@actions/exec";
 import { readFile as readFile2, readdir, stat } from "node:fs/promises";
 import { promisify as promisify2 } from "node:util";
 import { gzip } from "node:zlib";
+var START_SLOP_SECONDS = 5;
 async function collectBacktraces(prefixes, startTimestampMs) {
   if (isMacOS) {
     return await collectBacktracesMacOS(prefixes, startTimestampMs);
@@ -300,7 +301,7 @@ async function collectBacktracesMacOS(prefixes, startTimestampMs) {
   return backtraces;
 }
 async function collectBacktracesSystemd(prefixes, startTimestampMs) {
-  const sinceSeconds = Math.ceil((Date.now() - startTimestampMs) / 1e3);
+  const sinceSeconds = Math.ceil((Date.now() - startTimestampMs) / 1e3) + START_SLOP_SECONDS;
   const backtraces = /* @__PURE__ */ new Map();
   const coredumps = [];
   try {
@@ -1424,7 +1425,7 @@ var DetSysAction = class {
     }
   }
   collectBacktraceSetup() {
-    if (process.env.DETSYS_BACKTRACE_COLLECTOR === "") {
+    if (!process.env.DETSYS_BACKTRACE_COLLECTOR) {
       actionsCore8.exportVariable(
         "DETSYS_BACKTRACE_COLLECTOR",
         this.getCrossPhaseId()
