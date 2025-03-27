@@ -130,6 +130,11 @@ export type ActionOptions = {
   //
   // Default: `[ "nix", "determinate-nixd", ActionOptions.name ]`.
   binaryNamePrefixes?: string[];
+
+  // Do NOT collect backtraces from segfaults and other failures from binaries with exact these names.
+  //
+  // Default: `[ "nix-expr-tests" ]`.
+  binaryNamesDenyList?: string[];
 };
 
 /**
@@ -144,6 +149,7 @@ export type ConfidentActionOptions = {
   requireNix: NixRequirementHandling;
   providedDiagnosticsUrl?: URL;
   binaryNamePrefixes: string[];
+  binaryNamesDenyList: string[];
 };
 
 /**
@@ -893,6 +899,7 @@ export abstract class DetSysAction {
 
       const backtraces = await collectBacktraces(
         this.actionOptions.binaryNamePrefixes,
+        this.actionOptions.binaryNamesDenyList,
         parseInt(actionsCore.getState(STATE_BACKTRACE_START_TIMESTAMP)),
       );
       actionsCore.debug(`Backtraces identified: ${backtraces.size}`);
@@ -1066,6 +1073,7 @@ function makeOptionsConfident(
       "determinate-nixd",
       actionOptions.name,
     ],
+    binaryNamesDenyList: actionOptions.binaryNamePrefixes ?? ["nix-expr-tests"],
   };
 
   actionsCore.debug("idslib options:");

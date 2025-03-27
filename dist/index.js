@@ -225,16 +225,24 @@ import { readFile as readFile2, readdir, stat } from "node:fs/promises";
 import { promisify as promisify2 } from "node:util";
 import { gzip } from "node:zlib";
 var START_SLOP_SECONDS = 5;
-async function collectBacktraces(prefixes, startTimestampMs) {
+async function collectBacktraces(prefixes, programNameDenyList, startTimestampMs) {
   if (isMacOS) {
-    return await collectBacktracesMacOS(prefixes, startTimestampMs);
+    return await collectBacktracesMacOS(
+      prefixes,
+      programNameDenyList,
+      startTimestampMs
+    );
   }
   if (isLinux) {
-    return await collectBacktracesSystemd(prefixes, startTimestampMs);
+    return await collectBacktracesSystemd(
+      prefixes,
+      programNameDenyList,
+      startTimestampMs
+    );
   }
   return /* @__PURE__ */ new Map();
 }
-async function collectBacktracesMacOS(prefixes, startTimestampMs) {
+async function collectBacktracesMacOS(prefixes, programNameDenyList, startTimestampMs) {
   const backtraces = /* @__PURE__ */ new Map();
   try {
     const { stdout: logJson } = await exec2.getExecOutput(
@@ -277,6 +285,10 @@ async function collectBacktracesMacOS(prefixes, startTimestampMs) {
     const fileNames = (await readdir(dir)).filter((fileName) => {
       return prefixes.some((prefix) => fileName.startsWith(prefix));
     }).filter((fileName) => {
+      return !programNameDenyList.some(
+        (programName) => fileName.startsWith(`${programName}_${(/* @__PURE__ */ new Date()).getFullYear()}`)
+      );
+    }).filter((fileName) => {
       return !fileName.endsWith(".diag");
     });
     const doGzip = promisify2(gzip);
@@ -300,7 +312,7 @@ async function collectBacktracesMacOS(prefixes, startTimestampMs) {
   }
   return backtraces;
 }
-async function collectBacktracesSystemd(prefixes, startTimestampMs) {
+async function collectBacktracesSystemd(prefixes, programNameDenyList, startTimestampMs) {
   const sinceSeconds = Math.ceil((Date.now() - startTimestampMs) / 1e3) + START_SLOP_SECONDS;
   const backtraces = /* @__PURE__ */ new Map();
   const coredumps = [];
@@ -322,7 +334,7 @@ async function collectBacktracesSystemd(prefixes, startTimestampMs) {
         if (typeof sussyObject.exe == "string" && typeof sussyObject.pid == "number") {
           const execParts = sussyObject.exe.split("/");
           const binaryName = execParts[execParts.length - 1];
-          if (prefixes.some((prefix) => binaryName.startsWith(prefix))) {
+          if (prefixes.some((prefix) => binaryName.startsWith(prefix)) && !programNameDenyList.includes(binaryName)) {
             coredumps.push({
               exe: sussyObject.exe,
               pid: sussyObject.pid
@@ -1440,6 +1452,7 @@ var DetSysAction = class {
       }
       const backtraces = await collectBacktraces(
         this.actionOptions.binaryNamePrefixes,
+        this.actionOptions.binaryNamesDenyList,
         parseInt(actionsCore8.getState(STATE_BACKTRACE_START_TIMESTAMP))
       );
       actionsCore8.debug(`Backtraces identified: ${backtraces.size}`);
@@ -1584,7 +1597,8 @@ function makeOptionsConfident(actionOptions) {
       "nix",
       "determinate-nixd",
       actionOptions.name
-    ]
+    ],
+    binaryNamesDenyList: actionOptions.binaryNamePrefixes ?? ["nix-expr-tests"]
   };
   actionsCore8.debug("idslib options:");
   actionsCore8.debug(JSON.stringify(finalOpts, void 0, 2));

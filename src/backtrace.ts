@@ -15,13 +15,22 @@ const START_SLOP_SECONDS = 5;
 
 export async function collectBacktraces(
   prefixes: string[],
+  programNameDenyList: string[],
   startTimestampMs: number,
 ): Promise<Map<string, string>> {
   if (isMacOS) {
-    return await collectBacktracesMacOS(prefixes, startTimestampMs);
+    return await collectBacktracesMacOS(
+      prefixes,
+      programNameDenyList,
+      startTimestampMs,
+    );
   }
   if (isLinux) {
-    return await collectBacktracesSystemd(prefixes, startTimestampMs);
+    return await collectBacktracesSystemd(
+      prefixes,
+      programNameDenyList,
+      startTimestampMs,
+    );
   }
 
   return new Map();
@@ -29,6 +38,7 @@ export async function collectBacktraces(
 
 export async function collectBacktracesMacOS(
   prefixes: string[],
+  programNameDenyList: string[],
   startTimestampMs: number,
 ): Promise<Map<string, string>> {
   const backtraces: Map<string, string> = new Map();
@@ -81,6 +91,11 @@ export async function collectBacktracesMacOS(
         return prefixes.some((prefix) => fileName.startsWith(prefix));
       })
       .filter((fileName) => {
+        return !programNameDenyList.some((programName) =>
+          fileName.startsWith(`${programName}_${new Date().getFullYear()}`),
+        );
+      })
+      .filter((fileName) => {
         // macOS creates .diag files periodically, which are called "microstackshots".
         // We don't necessarily want those, and they're definitely not crashes.
         // See: https://patents.google.com/patent/US20140237219A1/en
@@ -117,6 +132,7 @@ type SystemdCoreDumpInfo = {
 
 export async function collectBacktracesSystemd(
   prefixes: string[],
+  programNameDenyList: string[],
   startTimestampMs: number,
 ): Promise<Map<string, string>> {
   const sinceSeconds =
@@ -150,7 +166,10 @@ export async function collectBacktracesSystemd(
           const execParts = sussyObject.exe.split("/");
           const binaryName = execParts[execParts.length - 1];
 
-          if (prefixes.some((prefix) => binaryName.startsWith(prefix))) {
+          if (
+            prefixes.some((prefix) => binaryName.startsWith(prefix)) &&
+            !programNameDenyList.includes(binaryName)
+          ) {
             coredumps.push({
               exe: sussyObject.exe,
               pid: sussyObject.pid,
