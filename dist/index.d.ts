@@ -193,6 +193,7 @@ type ActionOptions = {
     requireNix: NixRequirementHandling;
     diagnosticsSuffix?: string;
     binaryNamePrefixes?: string[];
+    binaryNamesDenyList?: string[];
 };
 /**
  * A confident version of Options, where defaults have been resolved into final values.
@@ -206,6 +207,7 @@ type ConfidentActionOptions = {
     requireNix: NixRequirementHandling;
     providedDiagnosticsUrl?: URL;
     binaryNamePrefixes: string[];
+    binaryNamesDenyList: string[];
 };
 /**
  * An event to send to the diagnostic endpoint of i.d.s.
