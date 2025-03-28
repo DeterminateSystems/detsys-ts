@@ -286,7 +286,17 @@ async function collectBacktracesMacOS(prefixes, programNameDenyList, startTimest
       return prefixes.some((prefix) => fileName.startsWith(prefix));
     }).filter((fileName) => {
       return !programNameDenyList.some(
-        (programName) => fileName.startsWith(`${programName}_${(/* @__PURE__ */ new Date()).getFullYear()}`)
+        (programName) => (
+          // Sometimes the files are like `nix-expr-tests_Y-m-d`
+          fileName.startsWith(`${programName}_${(/* @__PURE__ */ new Date()).getFullYear()}`)
+        )
+      );
+    }).filter((fileName) => {
+      return !programNameDenyList.some(
+        (programName) => (
+          // Sometimes the files are like `nix-expr-tests-Y-m-d`
+          fileName.startsWith(`${programName}-${(/* @__PURE__ */ new Date()).getFullYear()}`)
+        )
       );
     }).filter((fileName) => {
       return !fileName.endsWith(".diag");
