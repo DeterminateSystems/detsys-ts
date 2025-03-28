@@ -92,7 +92,7 @@ export async function collectBacktracesMacOS(
       })
       .filter((fileName) => {
         return !programNameDenyList.some((programName) =>
-          fileName.startsWith(`${programName}_${new Date().getFullYear()}`),
+          fileName.startsWith(programName),
         );
       })
       .filter((fileName) => {

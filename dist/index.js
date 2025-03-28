@@ -286,7 +286,7 @@ async function collectBacktracesMacOS(prefixes, programNameDenyList, startTimest
       return prefixes.some((prefix) => fileName.startsWith(prefix));
     }).filter((fileName) => {
       return !programNameDenyList.some(
-        (programName) => fileName.startsWith(`${programName}_${(/* @__PURE__ */ new Date()).getFullYear()}`)
+        (programName) => fileName.startsWith(programName)
       );
     }).filter((fileName) => {
       return !fileName.endsWith(".diag");
