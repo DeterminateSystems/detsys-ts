@@ -1501,7 +1501,7 @@ var DetSysAction = class {
         actionsCore8.setFailed(
           [
             "This action can only be used when Nix is installed.",
-            "Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
+            "Add `- uses: DeterminateSystems/determinate-nix-action@v3` earlier in your workflow."
           ].join(" ")
         );
         break;
@@ -1509,7 +1509,7 @@ var DetSysAction = class {
         actionsCore8.warning(
           [
             "This action is in no-op mode because Nix is not installed.",
-            "Add `- uses: DeterminateSystems/nix-installer-action@main` earlier in your workflow."
+            "Add `- uses: DeterminateSystems/determinate-nix-action@v3` earlier in your workflow."
           ].join(" ")
         );
         break;
