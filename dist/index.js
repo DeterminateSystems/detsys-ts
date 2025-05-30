@@ -5,18 +5,18 @@ var __export = (target, all) => {
 };
 
 // src/index.ts
-import { exec as exec3 } from "child_process";
-import { randomUUID } from "crypto";
+import { exec as exec3 } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   createWriteStream,
   readFileSync as readFileSync2
-} from "fs";
-import fs2, { chmod, copyFile, mkdir } from "fs/promises";
-import * as os3 from "os";
-import { tmpdir } from "os";
-import * as path from "path";
-import { promisify as promisify3 } from "util";
-import { gzip as gzip2 } from "zlib";
+} from "node:fs";
+import fs2, { chmod, copyFile, mkdir } from "node:fs/promises";
+import * as os3 from "node:os";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
+import { promisify as promisify3 } from "node:util";
+import { gzip as gzip2 } from "node:zlib";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore9 from "@actions/core";
 import * as actionsExec from "@actions/exec";
@@ -28,9 +28,9 @@ import * as actionsCore2 from "@actions/core";
 import * as exec from "@actions/exec";
 
 // src/linux-release-info.ts
-import * as fs from "fs";
-import * as os from "os";
-import { promisify } from "util";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { promisify } from "node:util";
 import * as actionsCore from "@actions/core";
 
 // src/errors.ts
@@ -242,9 +242,9 @@ async function getDetails() {
 }
 
 // src/backtrace.ts
-import { readFile as readFile2, readdir, stat } from "fs/promises";
-import { promisify as promisify2 } from "util";
-import { gzip } from "zlib";
+import { readFile as readFile2, readdir, stat } from "node:fs/promises";
+import { promisify as promisify2 } from "node:util";
+import { gzip } from "node:zlib";
 import * as actionsCore3 from "@actions/core";
 import * as exec2 from "@actions/exec";
 var START_SLOP_SECONDS = 5;
@@ -403,7 +403,7 @@ async function collectBacktracesSystemd(prefixes, programNameDenyList, startTime
 }
 
 // src/correlation.ts
-import { createHash } from "crypto";
+import { createHash } from "node:crypto";
 import * as actionsCore4 from "@actions/core";
 var OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 function identify(projectName) {
@@ -497,7 +497,7 @@ function hashEnvironmentVariables(prefix, variables) {
 }
 
 // src/ids-host.ts
-import { resolveSrv } from "dns/promises";
+import { resolveSrv } from "node:dns/promises";
 import * as actionsCore5 from "@actions/core";
 import { got } from "got";
 var DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
