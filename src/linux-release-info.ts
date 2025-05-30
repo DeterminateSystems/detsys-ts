@@ -15,6 +15,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { promisify } from "node:util";
+import * as actionsCore from "@actions/core";
+import { stringifyError } from "./errors.js";
 
 const readFileAsync = promisify(fs.readFile);
 
@@ -112,10 +114,10 @@ function formatFileData(sourceData: OsInfo, srcParseData: string): OsInfo {
  * @returns {array} list of os-release files
  */
 function osReleaseFileList(customFile: string | null | undefined): string[] {
-  const DEFAULT_OS_RELEASE_FILES = ["/etc/os-release", "/usr/lib/os-release"];
+  const DefaultOsReleaseFiles = ["/etc/os-release", "/usr/lib/os-release"];
 
   if (!customFile) {
-    return DEFAULT_OS_RELEASE_FILES;
+    return DefaultOsReleaseFiles;
   } else {
     return Array(customFile);
   }
@@ -159,20 +161,19 @@ async function readAsyncOsReleaseFile(
   for (const osReleaseFile of fileList) {
     try {
       if (options.debug) {
-        /* eslint-disable no-console */
-        console.log(`Trying to read '${osReleaseFile}'...`);
+        actionsCore.info(`Trying to read '${osReleaseFile}'...`);
       }
 
       fileData = await readFileAsync(osReleaseFile, "binary");
 
       if (options.debug) {
-        console.log(`Read data:\n${fileData}`);
+        actionsCore.info(`Read data:\n${fileData}`);
       }
 
       break;
     } catch (error) {
       if (options.debug) {
-        console.error(error);
+        actionsCore.error(stringifyError(error));
       }
     }
   }
@@ -194,19 +195,19 @@ function readSyncOsreleaseFile(
   for (const osReleaseFile of releaseFileList) {
     try {
       if (options.debug) {
-        console.log(`Trying to read '${osReleaseFile}'...`);
+        actionsCore.info(`Trying to read '${osReleaseFile}'...`);
       }
 
       fileData = fs.readFileSync(osReleaseFile, "binary");
 
       if (options.debug) {
-        console.log(`Read data:\n${fileData}`);
+        actionsCore.info(`Read data:\n${fileData}`);
       }
 
       break;
-    } catch (error) {
+    } catch (error: unknown) {
       if (options.debug) {
-        console.error(error);
+        actionsCore.error(stringifyError(error));
       }
     }
   }

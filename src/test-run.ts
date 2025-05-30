@@ -22,6 +22,7 @@ class NixInstallerAction extends DetSysAction {
     await this.fetchExecutable();
   }
 
+  // biome-ignore lint/suspicious/noEmptyBlockStatements: testing
   async post(): Promise<void> {}
 }
 
@@ -31,6 +32,7 @@ class MagicNixCacheAction extends DetSysAction {
     this.recordEvent("cache_miss");
   }
 
+  // biome-ignore lint/suspicious/noEmptyBlockStatements: testing
   async post(): Promise<void> {}
 }
 

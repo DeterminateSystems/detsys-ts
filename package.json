@@ -7,9 +7,9 @@
   "type": "module",
   "scripts": {
     "build": "tsup",
-    "check-fmt": "prettier --check .",
-    "format": "prettier --write .",
-    "lint": "eslint src/**/*.ts",
+    "check-fmt": "biome format",
+    "format": "biome format --write",
+    "lint": "biome lint",
     "docs": "typedoc",
     "test": "vitest --watch false",
     "test-dev": "vitest",

@@ -1,16 +1,17 @@
-import * as actionsCore from "@actions/core";
 import { createHash } from "node:crypto";
+import * as actionsCore from "@actions/core";
 
 const OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 
-/* eslint-disable camelcase */
 /**
  * JSON sent to server.
  */
 export type AnonymizedCorrelationHashes = {
+  // biome-ignore lint/style/useNamingConvention: API JSON field
   correlation_source: string;
   repository?: string;
   run?: string;
+  // biome-ignore lint/style/useNamingConvention: API JSON field
   run_differentiator?: string;
   workflow?: string;
   groups: Record<string, string | undefined>;
@@ -18,6 +19,7 @@ export type AnonymizedCorrelationHashes = {
 
 export function identify(projectName: string): AnonymizedCorrelationHashes {
   const ident = {
+    // biome-ignore lint/style/useNamingConvention: API JSON field
     correlation_source: "github-actions",
 
     repository: hashEnvironmentVariables("GHR", [
@@ -54,6 +56,7 @@ export function identify(projectName: string): AnonymizedCorrelationHashes {
       "GITHUB_JOB",
       "GITHUB_RUN_ID",
     ]),
+    // biome-ignore lint/style/useNamingConvention: API JSON field
     run_differentiator: hashEnvironmentVariables("GHWJA", [
       "GITHUB_SERVER_URL",
       "GITHUB_REPOSITORY_OWNER",
@@ -70,6 +73,7 @@ export function identify(projectName: string): AnonymizedCorrelationHashes {
     groups: {
       ci: "github-actions",
       project: projectName,
+      // biome-ignore lint/style/useNamingConvention: API JSON field
       github_organization: hashEnvironmentVariables("GHO", [
         "GITHUB_SERVER_URL",
         "GITHUB_REPOSITORY_OWNER",

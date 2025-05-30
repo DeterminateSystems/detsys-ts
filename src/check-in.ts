@@ -6,6 +6,7 @@ export type CheckIn = {
 export type StatusSummary = {
   page: Page;
   incidents: Incident[];
+  // biome-ignore lint/style/useNamingConvention: API JSON field
   scheduled_maintenances: Maintenance[];
 };
 
@@ -26,7 +27,9 @@ export type Maintenance = {
   status: string;
   impact: string;
   shortlink: string;
+  // biome-ignore lint/style/useNamingConvention: API JSON field
   scheduled_for: string;
+  // biome-ignore lint/style/useNamingConvention: API JSON field
   scheduled_until: string;
 };
 

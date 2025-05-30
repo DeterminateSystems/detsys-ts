@@ -4,10 +4,47 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
+// src/index.ts
+import { exec as exec3 } from "child_process";
+import { randomUUID } from "crypto";
+import {
+  createWriteStream,
+  readFileSync as readFileSync2
+} from "fs";
+import fs2, { chmod, copyFile, mkdir } from "fs/promises";
+import * as os3 from "os";
+import { tmpdir } from "os";
+import * as path from "path";
+import { promisify as promisify3 } from "util";
+import { gzip as gzip2 } from "zlib";
+import * as actionsCache from "@actions/cache";
+import * as actionsCore9 from "@actions/core";
+import * as actionsExec from "@actions/exec";
+import { TimeoutError } from "got";
+
+// src/actions-core-platform.ts
+import os2 from "os";
+import * as actionsCore2 from "@actions/core";
+import * as exec from "@actions/exec";
+
 // src/linux-release-info.ts
-import * as fs from "node:fs";
-import * as os from "node:os";
-import { promisify } from "node:util";
+import * as fs from "fs";
+import * as os from "os";
+import { promisify } from "util";
+import * as actionsCore from "@actions/core";
+
+// src/errors.ts
+function stringifyError(e) {
+  if (e instanceof Error) {
+    return e.message;
+  } else if (typeof e === "string") {
+    return e;
+  } else {
+    return JSON.stringify(e);
+  }
+}
+
+// src/linux-release-info.ts
 var readFileAsync = promisify(fs.readFile);
 var linuxReleaseInfoOptionsDefaults = {
   mode: "async",
@@ -51,9 +88,9 @@ function formatFileData(sourceData, srcParseData) {
   return sourceData;
 }
 function osReleaseFileList(customFile) {
-  const DEFAULT_OS_RELEASE_FILES = ["/etc/os-release", "/usr/lib/os-release"];
+  const DefaultOsReleaseFiles = ["/etc/os-release", "/usr/lib/os-release"];
   if (!customFile) {
-    return DEFAULT_OS_RELEASE_FILES;
+    return DefaultOsReleaseFiles;
   } else {
     return Array(customFile);
   }
@@ -72,17 +109,17 @@ async function readAsyncOsReleaseFile(fileList, options) {
   for (const osReleaseFile of fileList) {
     try {
       if (options.debug) {
-        console.log(`Trying to read '${osReleaseFile}'...`);
+        actionsCore.info(`Trying to read '${osReleaseFile}'...`);
       }
       fileData = await readFileAsync(osReleaseFile, "binary");
       if (options.debug) {
-        console.log(`Read data:
+        actionsCore.info(`Read data:
 ${fileData}`);
       }
       break;
-    } catch (error3) {
+    } catch (error5) {
       if (options.debug) {
-        console.error(error3);
+        actionsCore.error(stringifyError(error5));
       }
     }
   }
@@ -96,17 +133,17 @@ function readSyncOsreleaseFile(releaseFileList, options) {
   for (const osReleaseFile of releaseFileList) {
     try {
       if (options.debug) {
-        console.log(`Trying to read '${osReleaseFile}'...`);
+        actionsCore.info(`Trying to read '${osReleaseFile}'...`);
       }
       fileData = fs.readFileSync(osReleaseFile, "binary");
       if (options.debug) {
-        console.log(`Read data:
+        actionsCore.info(`Read data:
 ${fileData}`);
       }
       break;
-    } catch (error3) {
+    } catch (error5) {
       if (options.debug) {
-        console.error(error3);
+        actionsCore.error(stringifyError(error5));
       }
     }
   }
@@ -117,9 +154,6 @@ ${fileData}`);
 }
 
 // src/actions-core-platform.ts
-import * as actionsCore from "@actions/core";
-import * as exec from "@actions/exec";
-import os2 from "os";
 var getWindowsInfo = async () => {
   const { stdout: version } = await exec.getExecOutput(
     'powershell -command "(Get-CimInstance -ClassName Win32_OperatingSystem).Version"',
@@ -155,9 +189,9 @@ var getLinuxInfo = async () => {
   let data = {};
   try {
     data = releaseInfo({ mode: "sync" });
-    actionsCore.debug(`Identified release info: ${JSON.stringify(data)}`);
+    actionsCore2.debug(`Identified release info: ${JSON.stringify(data)}`);
   } catch (e) {
-    actionsCore.debug(`Error collecting release info: ${e}`);
+    actionsCore2.debug(`Error collecting release info: ${e}`);
   }
   return {
     name: getPropertyViaWithDefault(
@@ -194,40 +228,29 @@ function getPropertyWithDefault(data, name, defaultValue) {
 var platform2 = os2.platform();
 var arch2 = os2.arch();
 var isWindows = platform2 === "win32";
-var isMacOS = platform2 === "darwin";
+var isMacOs = platform2 === "darwin";
 var isLinux = platform2 === "linux";
 async function getDetails() {
   return {
-    ...await (isWindows ? getWindowsInfo() : isMacOS ? getMacOsInfo() : getLinuxInfo()),
+    ...await (isWindows ? getWindowsInfo() : isMacOs ? getMacOsInfo() : getLinuxInfo()),
     platform: platform2,
     arch: arch2,
     isWindows,
-    isMacOS,
+    isMacOs,
     isLinux
   };
 }
 
-// src/errors.ts
-function stringifyError(e) {
-  if (e instanceof Error) {
-    return e.message;
-  } else if (typeof e === "string") {
-    return e;
-  } else {
-    return JSON.stringify(e);
-  }
-}
-
 // src/backtrace.ts
-import * as actionsCore2 from "@actions/core";
+import { readFile as readFile2, readdir, stat } from "fs/promises";
+import { promisify as promisify2 } from "util";
+import { gzip } from "zlib";
+import * as actionsCore3 from "@actions/core";
 import * as exec2 from "@actions/exec";
-import { readFile as readFile2, readdir, stat } from "node:fs/promises";
-import { promisify as promisify2 } from "node:util";
-import { gzip } from "node:zlib";
 var START_SLOP_SECONDS = 5;
 async function collectBacktraces(prefixes, programNameDenyList, startTimestampMs) {
-  if (isMacOS) {
-    return await collectBacktracesMacOS(
+  if (isMacOs) {
+    return await collectBacktracesMacOs(
       prefixes,
       programNameDenyList,
       startTimestampMs
@@ -242,7 +265,7 @@ async function collectBacktraces(prefixes, programNameDenyList, startTimestampMs
   }
   return /* @__PURE__ */ new Map();
 }
-async function collectBacktracesMacOS(prefixes, programNameDenyList, startTimestampMs) {
+async function collectBacktracesMacOs(prefixes, programNameDenyList, startTimestampMs) {
   const backtraces = /* @__PURE__ */ new Map();
   try {
     const { stdout: logJson } = await exec2.getExecOutput(
@@ -268,12 +291,12 @@ async function collectBacktracesMacOS(prefixes, programNameDenyList, startTimest
       throw new Error(`Log json isn't an array: ${logJson}`);
     }
     if (sussyArray.length > 0) {
-      actionsCore2.info(`Collecting crash data...`);
+      actionsCore3.info(`Collecting crash data...`);
       const delay = async (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       await delay(5e3);
     }
   } catch {
-    actionsCore2.debug(
+    actionsCore3.debug(
       "Failed to check logs for in-progress crash dumps; now proceeding with the assumption that all crash dumps completed."
     );
   }
@@ -331,7 +354,7 @@ async function collectBacktracesSystemd(prefixes, programNameDenyList, startTime
     for (const sussyObject of sussyArray) {
       const keys = Object.keys(sussyObject);
       if (keys.includes("exe") && keys.includes("pid")) {
-        if (typeof sussyObject.exe == "string" && typeof sussyObject.pid == "number") {
+        if (typeof sussyObject.exe === "string" && typeof sussyObject.pid === "number") {
           const execParts = sussyObject.exe.split("/");
           const binaryName = execParts[execParts.length - 1];
           if (prefixes.some((prefix) => binaryName.startsWith(prefix)) && !programNameDenyList.includes(binaryName)) {
@@ -341,18 +364,18 @@ async function collectBacktracesSystemd(prefixes, programNameDenyList, startTime
             });
           }
         } else {
-          actionsCore2.debug(
+          actionsCore3.debug(
             `Mysterious coredump entry missing exe string and/or pid number: ${JSON.stringify(sussyObject)}`
           );
         }
       } else {
-        actionsCore2.debug(
+        actionsCore3.debug(
           `Mysterious coredump entry missing exe value and/or pid value: ${JSON.stringify(sussyObject)}`
         );
       }
     }
   } catch (innerError) {
-    actionsCore2.debug(
+    actionsCore3.debug(
       `Cannot collect backtraces: ${stringifyError(innerError)}`
     );
     return backtraces;
@@ -380,11 +403,12 @@ async function collectBacktracesSystemd(prefixes, programNameDenyList, startTime
 }
 
 // src/correlation.ts
-import * as actionsCore3 from "@actions/core";
-import { createHash } from "node:crypto";
+import { createHash } from "crypto";
+import * as actionsCore4 from "@actions/core";
 var OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 function identify(projectName) {
   const ident = {
+    // biome-ignore lint/style/useNamingConvention: API JSON field
     correlation_source: "github-actions",
     repository: hashEnvironmentVariables("GHR", [
       "GITHUB_SERVER_URL",
@@ -420,6 +444,7 @@ function identify(projectName) {
       "GITHUB_JOB",
       "GITHUB_RUN_ID"
     ]),
+    // biome-ignore lint/style/useNamingConvention: API JSON field
     run_differentiator: hashEnvironmentVariables("GHWJA", [
       "GITHUB_SERVER_URL",
       "GITHUB_REPOSITORY_OWNER",
@@ -436,6 +461,7 @@ function identify(projectName) {
     groups: {
       ci: "github-actions",
       project: projectName,
+      // biome-ignore lint/style/useNamingConvention: API JSON field
       github_organization: hashEnvironmentVariables("GHO", [
         "GITHUB_SERVER_URL",
         "GITHUB_REPOSITORY_OWNER",
@@ -443,8 +469,8 @@ function identify(projectName) {
       ])
     }
   };
-  actionsCore3.debug("Correlation data:");
-  actionsCore3.debug(JSON.stringify(ident, null, 2));
+  actionsCore4.debug("Correlation data:");
+  actionsCore4.debug(JSON.stringify(ident, null, 2));
   return ident;
 }
 function hashEnvironmentVariables(prefix, variables) {
@@ -453,12 +479,12 @@ function hashEnvironmentVariables(prefix, variables) {
     let value = process.env[varName];
     if (value === void 0) {
       if (OPTIONAL_VARIABLES.includes(varName)) {
-        actionsCore3.debug(
+        actionsCore4.debug(
           `Optional environment variable not set: ${varName} -- substituting with the variable name`
         );
         value = varName;
       } else {
-        actionsCore3.debug(
+        actionsCore4.debug(
           `Environment variable not set: ${varName} -- can't generate the requested identity`
         );
         return void 0;
@@ -471,9 +497,9 @@ function hashEnvironmentVariables(prefix, variables) {
 }
 
 // src/ids-host.ts
-import * as actionsCore4 from "@actions/core";
+import { resolveSrv } from "dns/promises";
+import * as actionsCore5 from "@actions/core";
 import { got } from "got";
-import { resolveSrv } from "node:dns/promises";
 var DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
 var ALLOWED_SUFFIXES = [
   ".install.determinate.systems",
@@ -501,15 +527,15 @@ var IdsHost = class {
         },
         hooks: {
           beforeRetry: [
-            async (error3, retryCount) => {
+            async (error5, retryCount) => {
               const prevUrl = await this.getRootUrl();
               this.markCurrentHostBroken();
               const nextUrl = await this.getRootUrl();
               if (recordFailoverCallback !== void 0) {
-                recordFailoverCallback(error3, prevUrl, nextUrl);
+                recordFailoverCallback(error5, prevUrl, nextUrl);
               }
-              actionsCore4.info(
-                `Retrying after error ${error3.code}, retry #: ${retryCount}`
+              actionsCore5.info(
+                `Retrying after error ${error5.code}, retry #: ${retryCount}`
               );
             }
           ],
@@ -521,9 +547,9 @@ var IdsHost = class {
                 const url = await this.getRootUrl();
                 newUrl.host = url.host;
                 options.url = newUrl;
-                actionsCore4.debug(`Transmuted ${currentUrl} into ${newUrl}`);
+                actionsCore5.debug(`Transmuted ${currentUrl} into ${newUrl}`);
               } else {
-                actionsCore4.debug(`No transmutations on ${currentUrl}`);
+                actionsCore5.debug(`No transmutations on ${currentUrl}`);
               }
             }
           ]
@@ -533,10 +559,10 @@ var IdsHost = class {
     return this.client;
   }
   markCurrentHostBroken() {
-    this.prioritizedURLs?.shift();
+    this.prioritizedUrls?.shift();
   }
   setPrioritizedUrls(urls) {
-    this.prioritizedURLs = urls;
+    this.prioritizedUrls = urls;
   }
   isUrlSubjectToDynamicUrls(url) {
     if (url.origin === DEFAULT_IDS_HOST) {
@@ -555,7 +581,7 @@ var IdsHost = class {
       try {
         return new URL(idsHost);
       } catch (err) {
-        actionsCore4.error(
+        actionsCore5.error(
           `IDS_HOST environment variable is not a valid URL. Ignoring. ${stringifyError(err)}`
         );
       }
@@ -565,7 +591,7 @@ var IdsHost = class {
       const urls = await this.getUrlsByPreference();
       url = urls[0];
     } catch (err) {
-      actionsCore4.error(
+      actionsCore5.error(
         `Error collecting IDS URLs by preference: ${stringifyError(err)}`
       );
     }
@@ -590,7 +616,7 @@ var IdsHost = class {
       try {
         return new URL(this.runtimeDiagnosticsUrl);
       } catch (err) {
-        actionsCore4.info(
+        actionsCore5.info(
           `User-provided diagnostic endpoint ignored: not a valid URL: ${stringifyError(err)}`
         );
       }
@@ -602,19 +628,19 @@ var IdsHost = class {
       diagnosticUrl.pathname += this.diagnosticsSuffix || "diagnostics";
       return diagnosticUrl;
     } catch (err) {
-      actionsCore4.info(
+      actionsCore5.info(
         `Generated diagnostic endpoint ignored, and diagnostics are disabled: not a valid URL: ${stringifyError(err)}`
       );
       return void 0;
     }
   }
   async getUrlsByPreference() {
-    if (this.prioritizedURLs === void 0) {
-      this.prioritizedURLs = orderRecordsByPriorityWeight(
+    if (this.prioritizedUrls === void 0) {
+      this.prioritizedUrls = orderRecordsByPriorityWeight(
         await discoverServiceRecords()
       ).flatMap((record) => recordToUrl(record) || []);
     }
-    return this.prioritizedURLs;
+    return this.prioritizedUrls;
   }
 };
 function recordToUrl(record) {
@@ -622,7 +648,7 @@ function recordToUrl(record) {
   try {
     return new URL(urlStr);
   } catch (err) {
-    actionsCore4.debug(
+    actionsCore5.debug(
       `Record ${JSON.stringify(record)} produced an invalid URL: ${urlStr} (${err})`
     );
     return void 0;
@@ -641,7 +667,7 @@ async function discoverServicesStub(lookup, timeout) {
   try {
     records = await Promise.race([lookup, defaultFallback]);
   } catch (reason) {
-    actionsCore4.debug(`Error resolving SRV records: ${stringifyError(reason)}`);
+    actionsCore5.debug(`Error resolving SRV records: ${stringifyError(reason)}`);
     records = [];
   }
   const acceptableRecords = records.filter((record) => {
@@ -650,15 +676,15 @@ async function discoverServicesStub(lookup, timeout) {
         return true;
       }
     }
-    actionsCore4.debug(
+    actionsCore5.debug(
       `Unacceptable domain due to an invalid suffix: ${record.name}`
     );
     return false;
   });
   if (acceptableRecords.length === 0) {
-    actionsCore4.debug(`No records found for ${LOOKUP}`);
+    actionsCore5.debug(`No records found for ${LOOKUP}`);
   } else {
-    actionsCore4.debug(
+    actionsCore5.debug(
       `Resolved ${LOOKUP} to ${JSON.stringify(acceptableRecords)}`
     );
   }
@@ -724,15 +750,15 @@ __export(inputs_exports, {
   getStringOrUndefined: () => getStringOrUndefined,
   handleString: () => handleString
 });
-import * as actionsCore5 from "@actions/core";
+import * as actionsCore6 from "@actions/core";
 var getBool = (name) => {
-  return actionsCore5.getBooleanInput(name);
+  return actionsCore6.getBooleanInput(name);
 };
 var getBoolOrUndefined = (name) => {
   if (getStringOrUndefined(name) === void 0) {
     return void 0;
   }
-  return actionsCore5.getBooleanInput(name);
+  return actionsCore6.getBooleanInput(name);
 };
 var getArrayOfStrings = (name, separator) => {
   const original = getString(name);
@@ -755,7 +781,7 @@ var handleString = (input, separator) => {
   return trimmed.split(sepChar).map((s) => s.trim());
 };
 var getMultilineStringOrNull = (name) => {
-  const value = actionsCore5.getMultilineInput(name);
+  const value = actionsCore6.getMultilineInput(name);
   if (value.length === 0) {
     return null;
   } else {
@@ -763,7 +789,7 @@ var getMultilineStringOrNull = (name) => {
   }
 };
 var getNumberOrNull = (name) => {
-  const value = actionsCore5.getInput(name);
+  const value = actionsCore6.getInput(name);
   if (value === "") {
     return null;
   } else {
@@ -771,10 +797,10 @@ var getNumberOrNull = (name) => {
   }
 };
 var getString = (name) => {
-  return actionsCore5.getInput(name);
+  return actionsCore6.getInput(name);
 };
 var getStringOrNull = (name) => {
-  const value = actionsCore5.getInput(name);
+  const value = actionsCore6.getInput(name);
   if (value === "") {
     return null;
   } else {
@@ -782,7 +808,7 @@ var getStringOrNull = (name) => {
   }
 };
 var getStringOrUndefined = (name) => {
-  const value = actionsCore5.getInput(name);
+  const value = actionsCore6.getInput(name);
   if (value === "") {
     return void 0;
   } else {
@@ -796,14 +822,14 @@ __export(platform_exports, {
   getArchOs: () => getArchOs,
   getNixPlatform: () => getNixPlatform
 });
-import * as actionsCore6 from "@actions/core";
+import * as actionsCore7 from "@actions/core";
 function getArchOs() {
   const envArch = process.env.RUNNER_ARCH;
   const envOs = process.env.RUNNER_OS;
   if (envArch && envOs) {
     return `${envArch}-${envOs}`;
   } else {
-    actionsCore6.error(
+    actionsCore7.error(
       `Can't identify the platform: RUNNER_ARCH or RUNNER_OS undefined (${envArch}-${envOs})`
     );
     throw new Error("RUNNER_ARCH and/or RUNNER_OS is not defined");
@@ -820,7 +846,7 @@ function getNixPlatform(archOs) {
   if (mappedTo) {
     return mappedTo;
   } else {
-    actionsCore6.error(
+    actionsCore7.error(
       `ArchOs (${archOs}) doesn't map to a supported Nix platform.`
     );
     throw new Error(
@@ -830,7 +856,7 @@ function getNixPlatform(archOs) {
 }
 
 // src/sourcedef.ts
-import * as actionsCore7 from "@actions/core";
+import * as actionsCore8 from "@actions/core";
 function constructSourceParameters(legacyPrefix) {
   return {
     path: noisilyGetInput("path", legacyPrefix),
@@ -848,12 +874,12 @@ function noisilyGetInput(suffix, legacyPrefix) {
   }
   const legacyInput = getStringOrUndefined(`${legacyPrefix}-${suffix}`);
   if (preferredInput && legacyInput) {
-    actionsCore7.warning(
+    actionsCore8.warning(
       `The supported option source-${suffix} and the legacy option ${legacyPrefix}-${suffix} are both set. Preferring source-${suffix}. Please stop setting ${legacyPrefix}-${suffix}.`
     );
     return preferredInput;
   } else if (legacyInput) {
-    actionsCore7.warning(
+    actionsCore8.warning(
       `The legacy option ${legacyPrefix}-${suffix} is set. Please migrate to source-${suffix}.`
     );
     return legacyInput;
@@ -863,22 +889,6 @@ function noisilyGetInput(suffix, legacyPrefix) {
 }
 
 // src/index.ts
-import * as actionsCache from "@actions/cache";
-import * as actionsCore8 from "@actions/core";
-import * as actionsExec from "@actions/exec";
-import { TimeoutError } from "got";
-import { exec as exec4 } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import {
-  createWriteStream,
-  readFileSync as readFileSync2
-} from "node:fs";
-import fs2, { chmod, copyFile, mkdir } from "node:fs/promises";
-import * as os3 from "node:os";
-import { tmpdir } from "node:os";
-import * as path from "node:path";
-import { promisify as promisify3 } from "node:util";
-import { gzip as gzip2 } from "node:zlib";
 var pkgVersion = "1.0";
 var EVENT_BACKTRACES = "backtrace";
 var EVENT_EXCEPTION = "exception";
@@ -912,9 +922,9 @@ var PROGRAM_NAME_CRASH_DENY_LIST = [
 ];
 var DetSysAction = class {
   determineExecutionPhase() {
-    const currentPhase = actionsCore8.getState(STATE_KEY_EXECUTION_PHASE);
+    const currentPhase = actionsCore9.getState(STATE_KEY_EXECUTION_PHASE);
     if (currentPhase === "") {
-      actionsCore8.saveState(STATE_KEY_EXECUTION_PHASE, "post");
+      actionsCore9.saveState(STATE_KEY_EXECUTION_PHASE, "post");
       return "main";
     } else {
       return "post";
@@ -945,8 +955,10 @@ var DetSysAction = class {
     this.collectBacktraceSetup();
     this.facts = {
       $lib: "idslib",
+      // biome-ignore lint/style/useNamingConvention: API JSON field
       $lib_version: pkgVersion,
       project: this.actionOptions.name,
+      // biome-ignore lint/style/useNamingConvention: API JSON field
       ids_project: this.actionOptions.idsProjectName
     };
     const params = [
@@ -976,7 +988,7 @@ var DetSysAction = class {
           this.addFact(FACT_OS_VERSION, details.version);
         }
       }).catch((e) => {
-        actionsCore8.debug(
+        actionsCore9.debug(
           `Failure getting platform details: ${stringifyError2(e)}`
         );
       });
@@ -1014,8 +1026,8 @@ var DetSysAction = class {
    * Execute the Action as defined.
    */
   execute() {
-    this.executeAsync().catch((error3) => {
-      console.log(error3);
+    this.executeAsync().catch((error5) => {
+      actionsCore9.error(error5);
       process.exitCode = 1;
     });
   }
@@ -1034,10 +1046,10 @@ var DetSysAction = class {
   }
   // This ID will be saved in the action's state, to be persisted across phase steps
   getCrossPhaseId() {
-    let crossPhaseId = actionsCore8.getState(STATE_KEY_CROSS_PHASE_ID);
+    let crossPhaseId = actionsCore9.getState(STATE_KEY_CROSS_PHASE_ID);
     if (crossPhaseId === "") {
       crossPhaseId = randomUUID();
-      actionsCore8.saveState(STATE_KEY_CROSS_PHASE_ID, crossPhaseId);
+      actionsCore9.saveState(STATE_KEY_CROSS_PHASE_ID, crossPhaseId);
     }
     return crossPhaseId;
   }
@@ -1047,6 +1059,7 @@ var DetSysAction = class {
   recordEvent(eventName, context = {}) {
     const prefixedName = eventName === "$feature_flag_called" ? eventName : `${this.actionOptions.eventPrefix}${eventName}`;
     this.events.push({
+      // biome-ignore lint/style/useNamingConvention: API JSON field
       event_name: prefixedName,
       context,
       correlation: this.identity,
@@ -1063,7 +1076,7 @@ var DetSysAction = class {
    */
   async unpackClosure(bin) {
     const artifact = await this.fetchArtifact();
-    const { stdout } = await promisify3(exec4)(
+    const { stdout } = await promisify3(exec3)(
       `cat "${artifact}" | xz -d | nix-store --import`
     );
     const paths = stdout.split(os3.EOL);
@@ -1109,9 +1122,9 @@ var DetSysAction = class {
       const reportable = stringifyError2(e);
       this.addFact(FACT_FINAL_EXCEPTION, reportable);
       if (this.isPost) {
-        actionsCore8.warning(reportable);
+        actionsCore9.warning(reportable);
       } else {
-        actionsCore8.setFailed(reportable);
+        actionsCore9.setFailed(reportable);
       }
       const doGzip = promisify3(gzip2);
       const exceptionContext = /* @__PURE__ */ new Map();
@@ -1179,15 +1192,15 @@ var DetSysAction = class {
         );
       }
       if (summaries.length > 0) {
-        actionsCore8.info(
+        actionsCore9.info(
           // Bright red, Bold, Underline
           `${"\x1B[0;31m"}${"\x1B[1m"}${"\x1B[4m"}${checkin.status.page.name} Status`
         );
         for (const notice of summaries) {
-          actionsCore8.info(notice);
+          actionsCore9.info(notice);
         }
-        actionsCore8.info(`See: ${checkin.status.page.url}`);
-        actionsCore8.info(``);
+        actionsCore9.info(`See: ${checkin.status.page.url}`);
+        actionsCore9.info(``);
       }
     }
   }
@@ -1200,7 +1213,9 @@ var DetSysAction = class {
       return void 0;
     }
     this.recordEvent("$feature_flag_called", {
+      // biome-ignore lint/style/useNamingConvention: API JSON field
       $feature_flag: name,
+      // biome-ignore lint/style/useNamingConvention: API JSON field
       $feature_flag_response: result.variant
     });
     return result;
@@ -1219,7 +1234,7 @@ var DetSysAction = class {
         return void 0;
       }
       try {
-        actionsCore8.debug(`Preflighting via ${checkInUrl}`);
+        actionsCore9.debug(`Preflighting via ${checkInUrl}`);
         checkInUrl.searchParams.set("ci", "github");
         checkInUrl.searchParams.set(
           "correlation",
@@ -1232,7 +1247,7 @@ var DetSysAction = class {
         }).json();
       } catch (e) {
         this.recordPlausibleTimeout(e);
-        actionsCore8.debug(`Error checking in: ${stringifyError2(e)}`);
+        actionsCore9.debug(`Error checking in: ${stringifyError2(e)}`);
         this.idsHost.markCurrentHostBroken();
       }
     }
@@ -1242,6 +1257,7 @@ var DetSysAction = class {
     if (e instanceof TimeoutError && "timings" in e && "request" in e) {
       const reportContext = {
         url: e.request.requestUrl?.toString(),
+        // biome-ignore lint/style/useNamingConvention: API JSON field
         retry_count: e.request.retryCount
       };
       for (const [key, value] of Object.entries(e.timings.phases)) {
@@ -1262,14 +1278,14 @@ var DetSysAction = class {
   async fetchArtifact() {
     const sourceBinary = getStringOrNull("source-binary");
     if (sourceBinary !== null && sourceBinary !== "") {
-      actionsCore8.debug(`Using the provided source binary at ${sourceBinary}`);
+      actionsCore9.debug(`Using the provided source binary at ${sourceBinary}`);
       return sourceBinary;
     }
-    actionsCore8.startGroup(
+    actionsCore9.startGroup(
       `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`
     );
     try {
-      actionsCore8.info(`Fetching from ${await this.getSourceUrl()}`);
+      actionsCore9.info(`Fetching from ${await this.getSourceUrl()}`);
       const correlatedUrl = await this.getSourceUrl();
       correlatedUrl.searchParams.set("ci", "github");
       correlatedUrl.searchParams.set(
@@ -1280,18 +1296,18 @@ var DetSysAction = class {
       if (versionCheckup.headers.etag) {
         const v = versionCheckup.headers.etag;
         this.addFact(FACT_SOURCE_URL_ETAG, v);
-        actionsCore8.debug(
+        actionsCore9.debug(
           `Checking the tool cache for ${await this.getSourceUrl()} at ${v}`
         );
         const cached = await this.getCachedVersion(v);
         if (cached) {
           this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = true;
-          actionsCore8.debug(`Tool cache hit.`);
+          actionsCore9.debug(`Tool cache hit.`);
           return cached;
         }
       }
       this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = false;
-      actionsCore8.debug(
+      actionsCore9.debug(
         `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`
       );
       const destFile = this.getTemporaryName();
@@ -1304,7 +1320,7 @@ var DetSysAction = class {
         try {
           await this.saveCachedVersion(v, destFile);
         } catch (e) {
-          actionsCore8.debug(`Error caching the artifact: ${stringifyError2(e)}`);
+          actionsCore9.debug(`Error caching the artifact: ${stringifyError2(e)}`);
         }
       }
       return destFile;
@@ -1312,7 +1328,7 @@ var DetSysAction = class {
       this.recordPlausibleTimeout(e);
       throw e;
     } finally {
-      actionsCore8.endGroup();
+      actionsCore9.endGroup();
     }
   }
   /**
@@ -1321,7 +1337,7 @@ var DetSysAction = class {
    */
   failOnError(msg) {
     if (this.strictMode) {
-      actionsCore8.setFailed(`strict mode failure: ${msg}`);
+      actionsCore9.setFailed(`strict mode failure: ${msg}`);
     }
   }
   async downloadFile(url, destination) {
@@ -1337,9 +1353,9 @@ var DetSysAction = class {
           encoding: "binary",
           mode: 493
         });
-        writeStream.once("error", (error3) => {
+        writeStream.once("error", (error5) => {
           failed = true;
-          reject(error3);
+          reject(error5);
         });
         writeStream.on("finish", () => {
           if (!failed) {
@@ -1443,11 +1459,11 @@ var DetSysAction = class {
   }
   collectBacktraceSetup() {
     if (!process.env.DETSYS_BACKTRACE_COLLECTOR) {
-      actionsCore8.exportVariable(
+      actionsCore9.exportVariable(
         "DETSYS_BACKTRACE_COLLECTOR",
         this.getCrossPhaseId()
       );
-      actionsCore8.saveState(STATE_BACKTRACE_START_TIMESTAMP, Date.now());
+      actionsCore9.saveState(STATE_BACKTRACE_START_TIMESTAMP, Date.now());
     }
   }
   async collectBacktraces() {
@@ -1458,14 +1474,14 @@ var DetSysAction = class {
       const backtraces = await collectBacktraces(
         this.actionOptions.binaryNamePrefixes,
         this.actionOptions.binaryNamesDenyList,
-        parseInt(actionsCore8.getState(STATE_BACKTRACE_START_TIMESTAMP))
+        parseInt(actionsCore9.getState(STATE_BACKTRACE_START_TIMESTAMP))
       );
-      actionsCore8.debug(`Backtraces identified: ${backtraces.size}`);
+      actionsCore9.debug(`Backtraces identified: ${backtraces.size}`);
       if (backtraces.size > 0) {
         this.recordEvent(EVENT_BACKTRACES, Object.fromEntries(backtraces));
       }
     } catch (innerError) {
-      actionsCore8.debug(
+      actionsCore9.debug(
         `Error collecting backtraces: ${stringifyError2(innerError)}`
       );
     }
@@ -1477,28 +1493,28 @@ var DetSysAction = class {
       const candidateNix = path.join(location, "nix");
       try {
         await fs2.access(candidateNix, fs2.constants.X_OK);
-        actionsCore8.debug(`Found Nix at ${candidateNix}`);
+        actionsCore9.debug(`Found Nix at ${candidateNix}`);
         nixLocation = candidateNix;
         break;
       } catch {
-        actionsCore8.debug(`Nix not at ${candidateNix}`);
+        actionsCore9.debug(`Nix not at ${candidateNix}`);
       }
     }
     this.addFact(FACT_NIX_LOCATION, nixLocation || "");
     if (this.actionOptions.requireNix === "ignore") {
       return true;
     }
-    const currentNotFoundState = actionsCore8.getState(STATE_KEY_NIX_NOT_FOUND);
+    const currentNotFoundState = actionsCore9.getState(STATE_KEY_NIX_NOT_FOUND);
     if (currentNotFoundState === STATE_NOT_FOUND) {
       return false;
     }
     if (nixLocation !== void 0) {
       return true;
     }
-    actionsCore8.saveState(STATE_KEY_NIX_NOT_FOUND, STATE_NOT_FOUND);
+    actionsCore9.saveState(STATE_KEY_NIX_NOT_FOUND, STATE_NOT_FOUND);
     switch (this.actionOptions.requireNix) {
       case "fail":
-        actionsCore8.setFailed(
+        actionsCore9.setFailed(
           [
             "This action can only be used when Nix is installed.",
             "Add `- uses: DeterminateSystems/determinate-nix-action@v3` earlier in your workflow."
@@ -1506,7 +1522,7 @@ var DetSysAction = class {
         );
         break;
       case "warn":
-        actionsCore8.warning(
+        actionsCore9.warning(
           [
             "This action is in no-op mode because Nix is not installed.",
             "Add `- uses: DeterminateSystems/determinate-nix-action@v3` earlier in your workflow."
@@ -1559,14 +1575,15 @@ var DetSysAction = class {
   async submitEvents() {
     const diagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
     if (diagnosticsUrl === void 0) {
-      actionsCore8.debug(
+      actionsCore9.debug(
         "Diagnostics are disabled. Not sending the following events:"
       );
-      actionsCore8.debug(JSON.stringify(this.events, void 0, 2));
+      actionsCore9.debug(JSON.stringify(this.events, void 0, 2));
       return;
     }
     const batch = {
       type: "eventlog",
+      // biome-ignore lint/style/useNamingConvention: API JSON field
       sent_at: /* @__PURE__ */ new Date(),
       events: this.events
     };
@@ -1579,15 +1596,15 @@ var DetSysAction = class {
       });
     } catch (err) {
       this.recordPlausibleTimeout(err);
-      actionsCore8.debug(
+      actionsCore9.debug(
         `Error submitting diagnostics event to ${diagnosticsUrl}: ${stringifyError2(err)}`
       );
     }
     this.events = [];
   }
 };
-function stringifyError2(error3) {
-  return error3 instanceof Error || typeof error3 == "string" ? error3.toString() : JSON.stringify(error3);
+function stringifyError2(error5) {
+  return error5 instanceof Error || typeof error5 === "string" ? error5.toString() : JSON.stringify(error5);
 }
 function makeOptionsConfident(actionOptions) {
   const idsProjectName = actionOptions.idsProjectName ?? actionOptions.name;
@@ -1605,8 +1622,8 @@ function makeOptionsConfident(actionOptions) {
     ],
     binaryNamesDenyList: actionOptions.binaryNamePrefixes ?? PROGRAM_NAME_CRASH_DENY_LIST
   };
-  actionsCore8.debug("idslib options:");
-  actionsCore8.debug(JSON.stringify(finalOpts, void 0, 2));
+  actionsCore9.debug("idslib options:");
+  actionsCore9.debug(JSON.stringify(finalOpts, void 0, 2));
   return finalOpts;
 }
 export {

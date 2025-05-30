@@ -1,5 +1,5 @@
-import { Got } from 'got';
 import { UUID } from 'node:crypto';
+import { Got } from 'got';
 
 type CheckIn = {
     status: StatusSummary | null;
@@ -59,7 +59,7 @@ declare class IdsHost {
     private idsProjectName;
     private diagnosticsSuffix?;
     private runtimeDiagnosticsUrl?;
-    private prioritizedURLs?;
+    private prioritizedUrls?;
     private client?;
     constructor(idsProjectName: string, diagnosticsSuffix: string | undefined, runtimeDiagnosticsUrl: string | undefined);
     getGot(recordFailoverCallback?: (incitingError: unknown, prevUrl: URL, nextUrl: URL) => void): Promise<Got>;

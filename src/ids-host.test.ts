@@ -1,3 +1,5 @@
+import type { SrvRecord } from "node:dns";
+import { assert, describe, expect, test } from "vitest";
 import {
   IdsHost,
   discoverServicesStub,
@@ -5,8 +7,6 @@ import {
   recordToUrl,
   weightedRandom,
 } from "./ids-host.js";
-import type { SrvRecord } from "node:dns";
-import { assert, describe, expect, test } from "vitest";
 
 function mkRecord(
   weight: number,
@@ -334,16 +334,16 @@ test("weightedRandom orders records acceptably predictably", () => {
     const weighted = weightedRandom(records);
     counts.set(
       weighted[0].weight,
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      // biome-ignore lint/style/noNonNullAssertion: testing
       counts.get(weighted[0].weight)! + 1,
     );
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  // biome-ignore lint/style/noNonNullAssertion: testing
   const firstPlaceSum1 = counts.get(1)!;
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  // biome-ignore lint/style/noNonNullAssertion: testing
   const firstPlaceSum2 = counts.get(2)!;
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  // biome-ignore lint/style/noNonNullAssertion: testing
   const firstPlaceSum3 = counts.get(3)!;
 
   assert.equal(firstPlaceSum1 + firstPlaceSum2 + firstPlaceSum3, iterations);
