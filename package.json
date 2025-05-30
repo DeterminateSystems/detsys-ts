@@ -13,7 +13,7 @@
     "docs": "typedoc",
     "test": "vitest --watch false",
     "test-dev": "vitest",
-    "all": "rm -rf dist && pnpm run format && pnpm run lint && pnpm run build"
+    "all": "rm -rf dist && pnpm install && pnpm run format && pnpm run lint && pnpm run build"
   },
   "repository": {
     "type": "git",
