@@ -1,20 +1,3 @@
-/**
- * @packageDocumentation
- * Determinate Systems' TypeScript library for creating GitHub Actions logic.
- */
-// import { version as pkgVersion } from "../package.json";
-import * as ghActionsCorePlatform from "./actions-core-platform.js";
-import { collectBacktraces } from "./backtrace.js";
-import { CheckIn, Feature } from "./check-in.js";
-import * as correlation from "./correlation.js";
-import { IdsHost } from "./ids-host.js";
-import { getBool, getBoolOrUndefined, getStringOrNull } from "./inputs.js";
-import * as platform from "./platform.js";
-import { SourceDef, constructSourceParameters } from "./sourcedef.js";
-import * as actionsCache from "@actions/cache";
-import * as actionsCore from "@actions/core";
-import * as actionsExec from "@actions/exec";
-import { Got, Request, TimeoutError } from "got";
 import { exec } from "node:child_process";
 import { UUID, randomUUID } from "node:crypto";
 import {
@@ -29,6 +12,23 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
+import * as actionsCache from "@actions/cache";
+import * as actionsCore from "@actions/core";
+import * as actionsExec from "@actions/exec";
+import { Got, Request, TimeoutError } from "got";
+/**
+ * @packageDocumentation
+ * Determinate Systems' TypeScript library for creating GitHub Actions logic.
+ */
+// import { version as pkgVersion } from "../package.json";
+import * as ghActionsCorePlatform from "./actions-core-platform.js";
+import { collectBacktraces } from "./backtrace.js";
+import { CheckIn, Feature } from "./check-in.js";
+import * as correlation from "./correlation.js";
+import { IdsHost } from "./ids-host.js";
+import { getBool, getBoolOrUndefined, getStringOrNull } from "./inputs.js";
+import * as platform from "./platform.js";
+import { SourceDef, constructSourceParameters } from "./sourcedef.js";
 
 const pkgVersion = "1.0";
 
@@ -163,6 +163,7 @@ export type ConfidentActionOptions = {
 export type DiagnosticEvent = {
   // Note: putting a Map in here won't serialize to json properly.
   // It'll just be {} on serialization.
+  // biome-ignore lint/style/useNamingConvention: API JSON field
   event_name: string;
   context: Record<string, unknown>;
   correlation: correlation.AnonymizedCorrelationHashes;
@@ -230,11 +231,12 @@ export abstract class DetSysAction {
     this.collectBacktraceSetup();
 
     // JSON sent to server
-    /* eslint-disable camelcase */
     this.facts = {
       $lib: "idslib",
+      // biome-ignore lint/style/useNamingConvention: API JSON field
       $lib_version: pkgVersion,
       project: this.actionOptions.name,
+      // biome-ignore lint/style/useNamingConvention: API JSON field
       ids_project: this.actionOptions.idsProjectName,
     };
 
@@ -262,7 +264,6 @@ export abstract class DetSysAction {
     {
       ghActionsCorePlatform
         .getDetails()
-        // eslint-disable-next-line github/no-then
         .then((details) => {
           if (details.name !== "unknown") {
             this.addFact(FACT_OS, details.name);
@@ -271,7 +272,6 @@ export abstract class DetSysAction {
             this.addFact(FACT_OS_VERSION, details.version);
           }
         })
-        // eslint-disable-next-line github/no-then
         .catch((e: unknown) => {
           actionsCore.debug(
             `Failure getting platform details: ${stringifyError(e)}`,
@@ -327,10 +327,8 @@ export abstract class DetSysAction {
    * Execute the Action as defined.
    */
   execute(): void {
-    // eslint-disable-next-line github/no-then
     this.executeAsync().catch((error: Error) => {
-      // eslint-disable-next-line no-console
-      console.log(error);
+      actionsCore.error(error);
       process.exitCode = 1;
     });
   }
@@ -381,6 +379,7 @@ export abstract class DetSysAction {
         ? eventName
         : `${this.actionOptions.eventPrefix}${eventName}`;
     this.events.push({
+      // biome-ignore lint/style/useNamingConvention: API JSON field
       event_name: prefixedName,
       context,
       correlation: this.identity,
@@ -561,7 +560,9 @@ export abstract class DetSysAction {
     }
 
     this.recordEvent("$feature_flag_called", {
+      // biome-ignore lint/style/useNamingConvention: API JSON field
       $feature_flag: name,
+      // biome-ignore lint/style/useNamingConvention: API JSON field
       $feature_flag_response: result.variant,
     });
 
@@ -619,6 +620,7 @@ export abstract class DetSysAction {
         [index: string]: string | number | undefined;
       } = {
         url: e.request.requestUrl?.toString(),
+        // biome-ignore lint/style/useNamingConvention: API JSON field
         retry_count: e.request.retryCount,
       };
 
@@ -1031,14 +1033,13 @@ export abstract class DetSysAction {
 
     const batch = {
       type: "eventlog",
+      // biome-ignore lint/style/useNamingConvention: API JSON field
       sent_at: new Date(),
       events: this.events,
     };
 
     try {
-      await (
-        await this.getClient()
-      ).post(diagnosticsUrl, {
+      await (await this.getClient()).post(diagnosticsUrl, {
         json: batch,
         timeout: {
           request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS,
@@ -1056,7 +1057,7 @@ export abstract class DetSysAction {
 }
 
 function stringifyError(error: unknown): string {
-  return error instanceof Error || typeof error == "string"
+  return error instanceof Error || typeof error === "string"
     ? error.toString()
     : JSON.stringify(error);
 }

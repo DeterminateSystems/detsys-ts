@@ -1,5 +1,5 @@
-import { getStringOrUndefined } from "./inputs.js";
 import * as actionsCore from "@actions/core";
+import { getStringOrUndefined } from "./inputs.js";
 
 export type SourceDef = {
   path?: string;

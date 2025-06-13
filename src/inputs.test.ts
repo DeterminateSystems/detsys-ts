@@ -1,5 +1,5 @@
-import { Separator, handleString } from "./inputs.js";
 import { describe, expect, test } from "vitest";
+import { Separator, handleString } from "./inputs.js";
 
 describe("converting strings into arrays", () => {
   type TestCase = {

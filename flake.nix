@@ -2,8 +2,8 @@
   description = "Development environment for detsys-ts";
 
   inputs = {
-    flake-schemas.url = "https://flakehub.com/f/DeterminateSystems/flake-schemas/*.tar.gz";
-    nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1.0.tar.gz";
+    flake-schemas.url = "https://flakehub.com/f/DeterminateSystems/flake-schemas/0.1";
+    nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1";
   };
 
   outputs = { self, flake-schemas, nixpkgs }:
@@ -14,15 +14,14 @@
       });
     in
     {
-      schemas = flake-schemas.schemas;
+      inherit (flake-schemas) schemas;
 
       devShells = forEachSupportedSystem ({ pkgs }: {
         default = pkgs.mkShell {
           packages = with pkgs; [
             nodejs_latest
-            nodePackages.typescript-language-server
-            nodePackages.vscode-langservers-extracted
             nodePackages_latest.pnpm
+            biome
             nixpkgs-fmt
           ];
         };

@@ -1,12 +1,12 @@
+import type { SrvRecord } from "node:dns";
+import { resolveSrv } from "node:dns/promises";
+import * as actionsCore from "@actions/core";
+import { Got, got } from "got";
 /**
  * @packageDocumentation
  * Identifies and discovers backend servers for install.determinate.systems
  */
 import { stringifyError } from "./errors.js";
-import * as actionsCore from "@actions/core";
-import { Got, got } from "got";
-import type { SrvRecord } from "node:dns";
-import { resolveSrv } from "node:dns/promises";
 
 const DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
 const ALLOWED_SUFFIXES = [
@@ -26,7 +26,7 @@ export class IdsHost {
   private idsProjectName: string;
   private diagnosticsSuffix?: string;
   private runtimeDiagnosticsUrl?: string;
-  private prioritizedURLs?: URL[];
+  private prioritizedUrls?: URL[];
   private client?: Got;
 
   constructor(
@@ -101,11 +101,11 @@ export class IdsHost {
   }
 
   markCurrentHostBroken(): void {
-    this.prioritizedURLs?.shift();
+    this.prioritizedUrls?.shift();
   }
 
   setPrioritizedUrls(urls: URL[]): void {
-    this.prioritizedURLs = urls;
+    this.prioritizedUrls = urls;
   }
 
   isUrlSubjectToDynamicUrls(url: URL): boolean {
@@ -199,13 +199,13 @@ export class IdsHost {
   }
 
   private async getUrlsByPreference(): Promise<URL[]> {
-    if (this.prioritizedURLs === undefined) {
-      this.prioritizedURLs = orderRecordsByPriorityWeight(
+    if (this.prioritizedUrls === undefined) {
+      this.prioritizedUrls = orderRecordsByPriorityWeight(
         await discoverServiceRecords(),
       ).flatMap((record) => recordToUrl(record) || []);
     }
 
-    return this.prioritizedURLs;
+    return this.prioritizedUrls;
   }
 }
 

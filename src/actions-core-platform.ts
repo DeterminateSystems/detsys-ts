@@ -1,10 +1,10 @@
+import os from "os";
+import * as actionsCore from "@actions/core";
+import * as exec from "@actions/exec";
 // MIT, mostly lifted from https://github.com/actions/toolkit/blob/5a736647a123ecf8582376bdaee833fbae5b3847/packages/core/src/platform.ts
 // since it isn't in @actions/core 1.10.1 which is their current release as 2024-04-19.
 // Changes: Replaced the lsb_release call in Linux with `linux-release-info` to parse the os-release file directly.
 import { releaseInfo } from "./linux-release-info.js";
-import * as actionsCore from "@actions/core";
-import * as exec from "@actions/exec";
-import os from "os";
 
 /**
  * The name and version of the Action runner's system.
@@ -137,7 +137,7 @@ export const isWindows = platform === "win32";
 /**
  * Whether the Action runner is a macOS system.
  */
-export const isMacOS = platform === "darwin";
+export const isMacOs = platform === "darwin";
 
 /**
  * Whether the Action runner is a Linux system.
@@ -153,7 +153,7 @@ type SystemDetails = {
   arch: string;
   version: string;
   isWindows: boolean;
-  isMacOS: boolean;
+  isMacOs: boolean;
   isLinux: boolean;
 };
 
@@ -164,13 +164,13 @@ export async function getDetails(): Promise<SystemDetails> {
   return {
     ...(await (isWindows
       ? getWindowsInfo()
-      : isMacOS
+      : isMacOs
         ? getMacOsInfo()
         : getLinuxInfo())),
     platform,
     arch,
     isWindows,
-    isMacOS,
+    isMacOs: isMacOs,
     isLinux,
   };
 }

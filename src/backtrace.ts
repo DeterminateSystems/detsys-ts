@@ -1,14 +1,14 @@
+import { readFile, readdir, stat } from "node:fs/promises";
+import { promisify } from "node:util";
+import { gzip } from "node:zlib";
+import * as actionsCore from "@actions/core";
+import * as exec from "@actions/exec";
 /**
  * @packageDocumentation
  * Collects backtraces for executables for diagnostics
  */
-import { isLinux, isMacOS } from "./actions-core-platform.js";
+import { isLinux, isMacOs } from "./actions-core-platform.js";
 import { stringifyError } from "./errors.js";
-import * as actionsCore from "@actions/core";
-import * as exec from "@actions/exec";
-import { readFile, readdir, stat } from "node:fs/promises";
-import { promisify } from "node:util";
-import { gzip } from "node:zlib";
 
 // Give a few seconds buffer, capturing traces that happened a few seconds earlier.
 const START_SLOP_SECONDS = 5;
@@ -18,8 +18,8 @@ export async function collectBacktraces(
   programNameDenyList: string[],
   startTimestampMs: number,
 ): Promise<Map<string, string>> {
-  if (isMacOS) {
-    return await collectBacktracesMacOS(
+  if (isMacOs) {
+    return await collectBacktracesMacOs(
       prefixes,
       programNameDenyList,
       startTimestampMs,
@@ -36,7 +36,7 @@ export async function collectBacktraces(
   return new Map();
 }
 
-export async function collectBacktracesMacOS(
+export async function collectBacktracesMacOs(
   prefixes: string[],
   programNameDenyList: string[],
   startTimestampMs: number,
@@ -160,8 +160,8 @@ export async function collectBacktracesSystemd(
 
       if (keys.includes("exe") && keys.includes("pid")) {
         if (
-          typeof sussyObject.exe == "string" &&
-          typeof sussyObject.pid == "number"
+          typeof sussyObject.exe === "string" &&
+          typeof sussyObject.pid === "number"
         ) {
           const execParts = sussyObject.exe.split("/");
           const binaryName = execParts[execParts.length - 1];
