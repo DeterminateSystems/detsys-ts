@@ -5,9 +5,9 @@ var __export = (target, all) => {
 };
 
 // src/linux-release-info.ts
-import * as fs from "fs";
-import * as os from "os";
-import { promisify } from "util";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { promisify } from "node:util";
 var readFileAsync = promisify(fs.readFile);
 var linuxReleaseInfoOptionsDefaults = {
   mode: "async",
@@ -221,9 +221,9 @@ function stringifyError(e) {
 // src/backtrace.ts
 import * as actionsCore2 from "@actions/core";
 import * as exec2 from "@actions/exec";
-import { readFile as readFile2, readdir, stat } from "fs/promises";
-import { promisify as promisify2 } from "util";
-import { gzip } from "zlib";
+import { readFile as readFile2, readdir, stat } from "node:fs/promises";
+import { promisify as promisify2 } from "node:util";
+import { gzip } from "node:zlib";
 var START_SLOP_SECONDS = 5;
 async function collectBacktraces(prefixes, programNameDenyList, startTimestampMs) {
   if (isMacOS) {
@@ -381,7 +381,7 @@ async function collectBacktracesSystemd(prefixes, programNameDenyList, startTime
 
 // src/correlation.ts
 import * as actionsCore3 from "@actions/core";
-import { createHash } from "crypto";
+import { createHash } from "node:crypto";
 var OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 function identify(projectName) {
   const ident = {
@@ -473,7 +473,7 @@ function hashEnvironmentVariables(prefix, variables) {
 // src/ids-host.ts
 import * as actionsCore4 from "@actions/core";
 import { got } from "got";
-import { resolveSrv } from "dns/promises";
+import { resolveSrv } from "node:dns/promises";
 var DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
 var ALLOWED_SUFFIXES = [
   ".install.determinate.systems",
@@ -867,18 +867,18 @@ import * as actionsCache from "@actions/cache";
 import * as actionsCore8 from "@actions/core";
 import * as actionsExec from "@actions/exec";
 import { TimeoutError } from "got";
-import { exec as exec4 } from "child_process";
-import { randomUUID } from "crypto";
+import { exec as exec4 } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   createWriteStream,
   readFileSync as readFileSync2
-} from "fs";
-import fs2, { chmod, copyFile, mkdir } from "fs/promises";
-import * as os3 from "os";
-import { tmpdir } from "os";
-import * as path from "path";
-import { promisify as promisify3 } from "util";
-import { gzip as gzip2 } from "zlib";
+} from "node:fs";
+import fs2, { chmod, copyFile, mkdir } from "node:fs/promises";
+import * as os3 from "node:os";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
+import { promisify as promisify3 } from "node:util";
+import { gzip as gzip2 } from "node:zlib";
 var pkgVersion = "1.0";
 var EVENT_BACKTRACES = "backtrace";
 var EVENT_EXCEPTION = "exception";
@@ -886,6 +886,7 @@ var EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
 var EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
 var EVENT_ARTIFACT_CACHE_PERSIST = "artifact_cache_persist";
 var EVENT_PREFLIGHT_REQUIRE_NIX_DENIED = "preflight-require-nix-denied";
+var EVENT_STORE_IDENTITY_FAILED = "store_identity_failed";
 var FACT_ARTIFACT_FETCHED_FROM_CACHE = "artifact_fetched_from_cache";
 var FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
 var FACT_FINAL_EXCEPTION = "final_exception";
@@ -910,6 +911,49 @@ var PROGRAM_NAME_CRASH_DENY_LIST = [
   "nix-store-tests",
   "nix-util-tests"
 ];
+var determinateStateDir = "/var/lib/determinate";
+var determinateIdentityFile = path.join(determinateStateDir, "identity.json");
+var isRoot = os3.userInfo().uid === 0;
+async function sudoEnsureDeterminateStateDir() {
+  const code = await actionsExec.exec("sudo", [
+    "mkdir",
+    "-p",
+    determinateStateDir
+  ]);
+  if (code !== 0) {
+    throw new Error(`sudo mkdir -p exit: ${code}`);
+  }
+}
+async function ensureDeterminateStateDir() {
+  if (isRoot) {
+    await mkdir(determinateStateDir, { recursive: true });
+  } else {
+    return sudoEnsureDeterminateStateDir();
+  }
+}
+async function sudoWriteCorrelationHashes(hashes) {
+  const buffer = Buffer.from(hashes);
+  const code = await actionsExec.exec(
+    "sudo",
+    ["tee", determinateIdentityFile],
+    {
+      input: buffer,
+      // Ignore output from tee
+      outStream: createWriteStream("/dev/null")
+    }
+  );
+  if (code !== 0) {
+    throw new Error(`sudo tee exit: ${code}`);
+  }
+}
+async function writeCorrelationHashes(hashes) {
+  await ensureDeterminateStateDir();
+  if (isRoot) {
+    await fs2.writeFile(determinateIdentityFile, hashes, "utf-8");
+  } else {
+    return sudoWriteCorrelationHashes(hashes);
+  }
+}
 var DetSysAction = class {
   determineExecutionPhase() {
     const currentPhase = actionsCore8.getState(STATE_KEY_EXECUTION_PHASE);
@@ -1088,9 +1132,13 @@ var DetSysAction = class {
   async executeAsync() {
     try {
       await this.checkIn();
-      process.env.DETSYS_CORRELATION = JSON.stringify(
-        this.getCorrelationHashes()
-      );
+      const correlationHashes = JSON.stringify(this.getCorrelationHashes());
+      process.env.DETSYS_CORRELATION = correlationHashes;
+      try {
+        await writeCorrelationHashes(correlationHashes);
+      } catch (error3) {
+        this.recordEvent(EVENT_STORE_IDENTITY_FAILED, { error: String(error3) });
+      }
       if (!await this.preflightRequireNix()) {
         this.recordEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
         return;
