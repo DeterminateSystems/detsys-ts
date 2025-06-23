@@ -18,7 +18,6 @@ jobs:
         repo:
           - flake-checker-action
           - magic-nix-cache-action
-          - flakehub-cache-action
           - flakehub-push
           - flakehub-mirror
           - nix-installer-action
