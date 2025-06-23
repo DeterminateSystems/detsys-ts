@@ -441,7 +441,8 @@ function identify(projectName) {
         "GITHUB_REPOSITORY_OWNER",
         "GITHUB_REPOSITORY_OWNER_ID"
       ])
-    }
+    },
+    is_ci: true
   };
   actionsCore3.debug("Correlation data:");
   actionsCore3.debug(JSON.stringify(ident, null, 2));
@@ -886,6 +887,7 @@ var EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
 var EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
 var EVENT_ARTIFACT_CACHE_PERSIST = "artifact_cache_persist";
 var EVENT_PREFLIGHT_REQUIRE_NIX_DENIED = "preflight-require-nix-denied";
+var EVENT_STORE_IDENTITY_FAILED = "store_identity_failed";
 var FACT_ARTIFACT_FETCHED_FROM_CACHE = "artifact_fetched_from_cache";
 var FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
 var FACT_FINAL_EXCEPTION = "final_exception";
@@ -910,6 +912,49 @@ var PROGRAM_NAME_CRASH_DENY_LIST = [
   "nix-store-tests",
   "nix-util-tests"
 ];
+var determinateStateDir = "/var/lib/determinate";
+var determinateIdentityFile = path.join(determinateStateDir, "identity.json");
+var isRoot = os3.userInfo().uid === 0;
+async function sudoEnsureDeterminateStateDir() {
+  const code = await actionsExec.exec("sudo", [
+    "mkdir",
+    "-p",
+    determinateStateDir
+  ]);
+  if (code !== 0) {
+    throw new Error(`sudo mkdir -p exit: ${code}`);
+  }
+}
+async function ensureDeterminateStateDir() {
+  if (isRoot) {
+    await mkdir(determinateStateDir, { recursive: true });
+  } else {
+    return sudoEnsureDeterminateStateDir();
+  }
+}
+async function sudoWriteCorrelationHashes(hashes) {
+  const buffer = Buffer.from(hashes);
+  const code = await actionsExec.exec(
+    "sudo",
+    ["tee", determinateIdentityFile],
+    {
+      input: buffer,
+      // Ignore output from tee
+      outStream: createWriteStream("/dev/null")
+    }
+  );
+  if (code !== 0) {
+    throw new Error(`sudo tee exit: ${code}`);
+  }
+}
+async function writeCorrelationHashes(hashes) {
+  await ensureDeterminateStateDir();
+  if (isRoot) {
+    await fs2.writeFile(determinateIdentityFile, hashes, "utf-8");
+  } else {
+    return sudoWriteCorrelationHashes(hashes);
+  }
+}
 var DetSysAction = class {
   determineExecutionPhase() {
     const currentPhase = actionsCore8.getState(STATE_KEY_EXECUTION_PHASE);
@@ -1088,9 +1133,13 @@ var DetSysAction = class {
   async executeAsync() {
     try {
       await this.checkIn();
-      process.env.DETSYS_CORRELATION = JSON.stringify(
-        this.getCorrelationHashes()
-      );
+      const correlationHashes = JSON.stringify(this.getCorrelationHashes());
+      process.env.DETSYS_CORRELATION = correlationHashes;
+      try {
+        await writeCorrelationHashes(correlationHashes);
+      } catch (error3) {
+        this.recordEvent(EVENT_STORE_IDENTITY_FAILED, { error: String(error3) });
+      }
       if (!await this.preflightRequireNix()) {
         this.recordEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
         return;

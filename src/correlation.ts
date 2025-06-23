@@ -13,11 +13,13 @@ export type AnonymizedCorrelationHashes = {
   run?: string;
   run_differentiator?: string;
   workflow?: string;
+  job?: string;
   groups: Record<string, string | undefined>;
+  is_ci: boolean;
 };
 
 export function identify(projectName: string): AnonymizedCorrelationHashes {
-  const ident = {
+  const ident: AnonymizedCorrelationHashes = {
     correlation_source: "github-actions",
 
     repository: hashEnvironmentVariables("GHR", [
@@ -76,6 +78,7 @@ export function identify(projectName: string): AnonymizedCorrelationHashes {
         "GITHUB_REPOSITORY_OWNER_ID",
       ]),
     },
+    is_ci: true,
   };
 
   actionsCore.debug("Correlation data:");
