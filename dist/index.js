@@ -441,7 +441,8 @@ function identify(projectName) {
         "GITHUB_REPOSITORY_OWNER",
         "GITHUB_REPOSITORY_OWNER_ID"
       ])
-    }
+    },
+    is_ci: true
   };
   actionsCore3.debug("Correlation data:");
   actionsCore3.debug(JSON.stringify(ident, null, 2));
