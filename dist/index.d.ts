@@ -44,7 +44,9 @@ type AnonymizedCorrelationHashes = {
     run?: string;
     run_differentiator?: string;
     workflow?: string;
+    job?: string;
     groups: Record<string, string | undefined>;
+    is_ci: boolean;
 };
 
 /**
