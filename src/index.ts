@@ -409,7 +409,7 @@ export abstract class DetSysAction {
 
   getUniqueId(): string {
     return (
-      this.identity.run_differentiator ||
+      this.identity.github_workflow_run_differentiator_hash ||
       process.env.RUNNER_TRACKING_ID ||
       randomUUID()
     );
@@ -440,18 +440,11 @@ export abstract class DetSysAction {
         ? eventName
         : `${this.actionOptions.eventPrefix}${eventName}`;
 
-    const identityProps = {
-      correlation_source: this.identity.correlation_source,
-      github_repository_hash: this.identity.repository,
-      github_workflow_hash: this.identity.workflow,
-      github_workflow_run_hash: this.identity.run,
-      github_workflow_run_differentiator_hash: this.identity.run_differentiator,
-      $session_id: this.identity.run_differentiator,
-      groups: this.identity.groups,
-    };
-
     this.events.push({
       name: prefixedName,
+
+      // Use the anon distinct ID as the distinct ID until we actually have a distinct ID in the future
+      distinct_id: this.identity.$anon_distinct_id,
 
       // distinct_id
       uuid: randomUUID(),
@@ -459,7 +452,7 @@ export abstract class DetSysAction {
 
       properties: {
         ...context,
-        ...identityProps,
+        ...this.identity,
         ...this.facts,
         ...Object.fromEntries(
           Object.entries(this.featureEventMetadata).map<
@@ -672,14 +665,22 @@ export abstract class DetSysAction {
       try {
         actionsCore.debug(`Preflighting via ${checkInUrl}`);
 
-        checkInUrl.searchParams.set("ci", "github");
-        checkInUrl.searchParams.set(
-          "correlation",
-          JSON.stringify(this.identity),
-        );
+        const props = {
+          // Use a distinct_id when we actually have one
+          distinct_id: this.identity.$anon_distinct_id,
+          anon_distinct_id: this.identity.$anon_distinct_id,
+          groups: this.identity.$groups,
+          person_properties: {
+            ci: "github",
+
+            ...this.identity,
+            ...this.facts,
+          },
+        };
 
         return (await this.getClient())
-          .get(checkInUrl, {
+          .post(checkInUrl, {
+            json: props,
             timeout: {
               request: CHECK_IN_ENDPOINT_TIMEOUT_MS,
             },
