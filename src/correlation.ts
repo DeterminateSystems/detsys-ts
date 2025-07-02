@@ -74,7 +74,8 @@ export function identify(): AnonymizedCorrelationHashes {
       "INVOCATION_ID",
     ]),
     groups: {
-      github_repository: repository,
+      flakehub_organization: "bogus",
+      // github_repository: repository,
       github_organization: hashEnvironmentVariables("GHO", [
         "GITHUB_SERVER_URL",
         "GITHUB_REPOSITORY_OWNER",
