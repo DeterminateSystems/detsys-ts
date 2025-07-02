@@ -39,6 +39,7 @@ type Feature = {
  * JSON sent to server.
  */
 type AnonymizedCorrelationHashes = {
+    $anon_distinct_id: string;
     correlation_source: string;
     repository?: string;
     run?: string;
@@ -215,15 +216,11 @@ type ConfidentActionOptions = {
  * An event to send to the diagnostic endpoint of i.d.s.
  */
 type DiagnosticEvent = {
-    event_name: string;
-    context: Record<string, unknown>;
-    correlation: AnonymizedCorrelationHashes;
-    facts: Record<string, string | boolean>;
-    features: {
-        [k: string]: string | boolean;
-    };
-    timestamp: Date;
+    name: string;
+    distinct_id?: string;
     uuid: UUID;
+    timestamp: Date;
+    properties: Record<string, unknown>;
 };
 declare abstract class DetSysAction {
     nixStoreTrust: NixStoreTrust;

@@ -381,7 +381,7 @@ async function collectBacktracesSystemd(prefixes, programNameDenyList, startTime
 
 // src/correlation.ts
 import * as actionsCore3 from "@actions/core";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 var OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 function identify() {
   const repository = hashEnvironmentVariables("GHR", [
@@ -392,6 +392,7 @@ function identify() {
     "GITHUB_REPOSITORY_ID"
   ]);
   const ident = {
+    $anon_distinct_id: process.env["RUNNER_TRACKING_ID"] || randomUUID(),
     correlation_source: "github-actions",
     repository,
     workflow: hashEnvironmentVariables("GHW", [
@@ -598,9 +599,7 @@ var IdsHost = class {
     }
     try {
       const diagnosticUrl = await this.getRootUrl();
-      diagnosticUrl.pathname += this.idsProjectName;
-      diagnosticUrl.pathname += "/";
-      diagnosticUrl.pathname += this.diagnosticsSuffix || "diagnostics";
+      diagnosticUrl.pathname += "events";
       return diagnosticUrl;
     } catch (err) {
       actionsCore4.info(
@@ -869,7 +868,7 @@ import * as actionsCore8 from "@actions/core";
 import * as actionsExec from "@actions/exec";
 import { TimeoutError } from "got";
 import { exec as exec4 } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomUUID as randomUUID2 } from "node:crypto";
 import {
   createWriteStream,
   readFileSync as readFileSync2
@@ -1067,7 +1066,7 @@ var DetSysAction = class {
   }
   getTemporaryName() {
     const tmpDir = process.env["RUNNER_TEMP"] || tmpdir();
-    return path.join(tmpDir, `${this.actionOptions.name}-${randomUUID()}`);
+    return path.join(tmpDir, `${this.actionOptions.name}-${randomUUID2()}`);
   }
   addFact(key, value) {
     this.facts[key] = value;
@@ -1076,13 +1075,13 @@ var DetSysAction = class {
     return await this.idsHost.getDiagnosticsUrl();
   }
   getUniqueId() {
-    return this.identity.run_differentiator || process.env.RUNNER_TRACKING_ID || randomUUID();
+    return this.identity.run_differentiator || process.env.RUNNER_TRACKING_ID || randomUUID2();
   }
   // This ID will be saved in the action's state, to be persisted across phase steps
   getCrossPhaseId() {
     let crossPhaseId = actionsCore8.getState(STATE_KEY_CROSS_PHASE_ID);
     if (crossPhaseId === "") {
-      crossPhaseId = randomUUID();
+      crossPhaseId = randomUUID2();
       actionsCore8.saveState(STATE_KEY_CROSS_PHASE_ID, crossPhaseId);
     }
     return crossPhaseId;
@@ -1092,16 +1091,28 @@ var DetSysAction = class {
   }
   recordEvent(eventName, context = {}) {
     const prefixedName = eventName === "$feature_flag_called" ? eventName : `${this.actionOptions.eventPrefix}${eventName}`;
+    const identityProps = {
+      correlation_source: this.identity.correlation_source,
+      github_repository_hash: this.identity.repository,
+      github_workflow_hash: this.identity.workflow,
+      github_workflow_run_hash: this.identity.run,
+      github_workflow_run_differentiator_hash: this.identity.run_differentiator,
+      $session_id: this.identity.run_differentiator,
+      groups: this.identity.groups
+    };
     this.events.push({
-      event_name: prefixedName,
-      context,
-      correlation: this.identity,
-      facts: this.facts,
-      features: Object.fromEntries(
-        Object.entries(this.featureEventMetadata).map(([name, variant]) => [`$feature/${name}`, variant])
-      ),
+      name: prefixedName,
+      // distinct_id
+      uuid: randomUUID2(),
       timestamp: /* @__PURE__ */ new Date(),
-      uuid: randomUUID()
+      properties: {
+        ...context,
+        ...identityProps,
+        ...this.facts,
+        ...Object.fromEntries(
+          Object.entries(this.featureEventMetadata).map(([name, variant]) => [`$feature/${name}`, variant])
+        )
+      }
     });
   }
   /**
@@ -1618,9 +1629,8 @@ var DetSysAction = class {
       return;
     }
     const batch = {
-      type: "eventlog",
       sent_at: /* @__PURE__ */ new Date(),
-      events: this.events
+      batch: this.events
     };
     try {
       await (await this.getClient()).post(diagnosticsUrl, {
