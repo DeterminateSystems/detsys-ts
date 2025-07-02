@@ -186,7 +186,7 @@ export class IdsHost {
 
     try {
       const diagnosticUrl = await this.getRootUrl();
-      diagnosticUrl.pathname += "events";
+      diagnosticUrl.pathname += "events/batch";
       return diagnosticUrl;
     } catch (err: unknown) {
       actionsCore.info(
