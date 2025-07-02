@@ -1,5 +1,5 @@
 import * as actionsCore from "@actions/core";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 const OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 
@@ -8,6 +8,7 @@ const OPTIONAL_VARIABLES = ["INVOCATION_ID"];
  * JSON sent to server.
  */
 export type AnonymizedCorrelationHashes = {
+  $anon_distinct_id: string;
   correlation_source: string;
   repository?: string;
   run?: string;
@@ -27,6 +28,8 @@ export function identify(): AnonymizedCorrelationHashes {
     "GITHUB_REPOSITORY_ID",
   ]);
   const ident: AnonymizedCorrelationHashes = {
+    $anon_distinct_id: process.env["RUNNER_TRACKING_ID"] || randomUUID(),
+
     correlation_source: "github-actions",
 
     repository,
