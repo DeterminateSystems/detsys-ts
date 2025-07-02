@@ -40,13 +40,14 @@ type Feature = {
  */
 type AnonymizedCorrelationHashes = {
     $anon_distinct_id: string;
+    $groups: Record<string, string | undefined>;
+    $session_id?: string;
     correlation_source: string;
-    repository?: string;
-    run?: string;
-    run_differentiator?: string;
-    workflow?: string;
-    job?: string;
-    groups: Record<string, string | undefined>;
+    github_repository_hash?: string;
+    github_workflow_hash?: string;
+    github_workflow_job_hash?: string;
+    github_workflow_run_differentiator_hash?: string;
+    github_workflow_run_hash?: string;
     is_ci: boolean;
 };
 

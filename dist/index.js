@@ -5,9 +5,9 @@ var __export = (target, all) => {
 };
 
 // src/linux-release-info.ts
-import * as fs from "node:fs";
-import * as os from "node:os";
-import { promisify } from "node:util";
+import * as fs from "fs";
+import * as os from "os";
+import { promisify } from "util";
 var readFileAsync = promisify(fs.readFile);
 var linuxReleaseInfoOptionsDefaults = {
   mode: "async",
@@ -221,9 +221,9 @@ function stringifyError(e) {
 // src/backtrace.ts
 import * as actionsCore2 from "@actions/core";
 import * as exec2 from "@actions/exec";
-import { readFile as readFile2, readdir, stat } from "node:fs/promises";
-import { promisify as promisify2 } from "node:util";
-import { gzip } from "node:zlib";
+import { readFile as readFile2, readdir, stat } from "fs/promises";
+import { promisify as promisify2 } from "util";
+import { gzip } from "zlib";
 var START_SLOP_SECONDS = 5;
 async function collectBacktraces(prefixes, programNameDenyList, startTimestampMs) {
   if (isMacOS) {
@@ -381,7 +381,7 @@ async function collectBacktracesSystemd(prefixes, programNameDenyList, startTime
 
 // src/correlation.ts
 import * as actionsCore3 from "@actions/core";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "crypto";
 var OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 function identify() {
   const repository = hashEnvironmentVariables("GHR", [
@@ -391,11 +391,24 @@ function identify() {
     "GITHUB_REPOSITORY",
     "GITHUB_REPOSITORY_ID"
   ]);
+  const run_differentiator = hashEnvironmentVariables("GHWJA", [
+    "GITHUB_SERVER_URL",
+    "GITHUB_REPOSITORY_OWNER",
+    "GITHUB_REPOSITORY_OWNER_ID",
+    "GITHUB_REPOSITORY",
+    "GITHUB_REPOSITORY_ID",
+    "GITHUB_WORKFLOW",
+    "GITHUB_JOB",
+    "GITHUB_RUN_ID",
+    "GITHUB_RUN_NUMBER",
+    "GITHUB_RUN_ATTEMPT",
+    "INVOCATION_ID"
+  ]);
   const ident = {
     $anon_distinct_id: process.env["RUNNER_TRACKING_ID"] || randomUUID(),
     correlation_source: "github-actions",
-    repository,
-    workflow: hashEnvironmentVariables("GHW", [
+    github_repository_hash: repository,
+    github_workflow_hash: hashEnvironmentVariables("GHW", [
       "GITHUB_SERVER_URL",
       "GITHUB_REPOSITORY_OWNER",
       "GITHUB_REPOSITORY_OWNER_ID",
@@ -403,7 +416,7 @@ function identify() {
       "GITHUB_REPOSITORY_ID",
       "GITHUB_WORKFLOW"
     ]),
-    job: hashEnvironmentVariables("GHWJ", [
+    github_workflow_job_hash: hashEnvironmentVariables("GHWJ", [
       "GITHUB_SERVER_URL",
       "GITHUB_REPOSITORY_OWNER",
       "GITHUB_REPOSITORY_OWNER_ID",
@@ -412,7 +425,7 @@ function identify() {
       "GITHUB_WORKFLOW",
       "GITHUB_JOB"
     ]),
-    run: hashEnvironmentVariables("GHWJR", [
+    github_workflow_run_hash: hashEnvironmentVariables("GHWJR", [
       "GITHUB_SERVER_URL",
       "GITHUB_REPOSITORY_OWNER",
       "GITHUB_REPOSITORY_OWNER_ID",
@@ -422,22 +435,10 @@ function identify() {
       "GITHUB_JOB",
       "GITHUB_RUN_ID"
     ]),
-    run_differentiator: hashEnvironmentVariables("GHWJA", [
-      "GITHUB_SERVER_URL",
-      "GITHUB_REPOSITORY_OWNER",
-      "GITHUB_REPOSITORY_OWNER_ID",
-      "GITHUB_REPOSITORY",
-      "GITHUB_REPOSITORY_ID",
-      "GITHUB_WORKFLOW",
-      "GITHUB_JOB",
-      "GITHUB_RUN_ID",
-      "GITHUB_RUN_NUMBER",
-      "GITHUB_RUN_ATTEMPT",
-      "INVOCATION_ID"
-    ]),
-    groups: {
-      flakehub_organization: "bogus",
-      // github_repository: repository,
+    github_workflow_run_differentiator_hash: run_differentiator,
+    $session_id: run_differentiator,
+    $groups: {
+      github_repository: repository,
       github_organization: hashEnvironmentVariables("GHO", [
         "GITHUB_SERVER_URL",
         "GITHUB_REPOSITORY_OWNER",
@@ -476,7 +477,7 @@ function hashEnvironmentVariables(prefix, variables) {
 // src/ids-host.ts
 import * as actionsCore4 from "@actions/core";
 import { got } from "got";
-import { resolveSrv } from "node:dns/promises";
+import { resolveSrv } from "dns/promises";
 var DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
 var ALLOWED_SUFFIXES = [
   ".install.determinate.systems",
@@ -868,18 +869,18 @@ import * as actionsCache from "@actions/cache";
 import * as actionsCore8 from "@actions/core";
 import * as actionsExec from "@actions/exec";
 import { TimeoutError } from "got";
-import { exec as exec4 } from "node:child_process";
-import { randomUUID as randomUUID2 } from "node:crypto";
+import { exec as exec4 } from "child_process";
+import { randomUUID as randomUUID2 } from "crypto";
 import {
   createWriteStream,
   readFileSync as readFileSync2
-} from "node:fs";
-import fs2, { chmod, copyFile, mkdir } from "node:fs/promises";
-import * as os3 from "node:os";
-import { tmpdir } from "node:os";
-import * as path from "node:path";
-import { promisify as promisify3 } from "node:util";
-import { gzip as gzip2 } from "node:zlib";
+} from "fs";
+import fs2, { chmod, copyFile, mkdir } from "fs/promises";
+import * as os3 from "os";
+import { tmpdir } from "os";
+import * as path from "path";
+import { promisify as promisify3 } from "util";
+import { gzip as gzip2 } from "zlib";
 var pkgVersion = "1.0";
 var EVENT_BACKTRACES = "backtrace";
 var EVENT_EXCEPTION = "exception";
@@ -1076,7 +1077,7 @@ var DetSysAction = class {
     return await this.idsHost.getDiagnosticsUrl();
   }
   getUniqueId() {
-    return this.identity.run_differentiator || process.env.RUNNER_TRACKING_ID || randomUUID2();
+    return this.identity.github_workflow_run_differentiator_hash || process.env.RUNNER_TRACKING_ID || randomUUID2();
   }
   // This ID will be saved in the action's state, to be persisted across phase steps
   getCrossPhaseId() {
@@ -1092,23 +1093,16 @@ var DetSysAction = class {
   }
   recordEvent(eventName, context = {}) {
     const prefixedName = eventName === "$feature_flag_called" ? eventName : `${this.actionOptions.eventPrefix}${eventName}`;
-    const identityProps = {
-      correlation_source: this.identity.correlation_source,
-      github_repository_hash: this.identity.repository,
-      github_workflow_hash: this.identity.workflow,
-      github_workflow_run_hash: this.identity.run,
-      github_workflow_run_differentiator_hash: this.identity.run_differentiator,
-      $session_id: this.identity.run_differentiator,
-      groups: this.identity.groups
-    };
     this.events.push({
       name: prefixedName,
+      // Use the anon distinct ID as the distinct ID until we actually have a distinct ID in the future
+      distinct_id: this.identity.$anon_distinct_id,
       // distinct_id
       uuid: randomUUID2(),
       timestamp: /* @__PURE__ */ new Date(),
       properties: {
         ...context,
-        ...identityProps,
+        ...this.identity,
         ...this.facts,
         ...Object.fromEntries(
           Object.entries(this.featureEventMetadata).map(([name, variant]) => [`$feature/${name}`, variant])
@@ -1284,12 +1278,19 @@ var DetSysAction = class {
       }
       try {
         actionsCore8.debug(`Preflighting via ${checkInUrl}`);
-        checkInUrl.searchParams.set("ci", "github");
-        checkInUrl.searchParams.set(
-          "correlation",
-          JSON.stringify(this.identity)
-        );
-        return (await this.getClient()).get(checkInUrl, {
+        const props = {
+          // Use a distinct_id when we actually have one
+          distinct_id: this.identity.$anon_distinct_id,
+          anon_distinct_id: this.identity.$anon_distinct_id,
+          groups: this.identity.$groups,
+          person_properties: {
+            ci: "github",
+            ...this.identity,
+            ...this.facts
+          }
+        };
+        return (await this.getClient()).post(checkInUrl, {
+          json: props,
           timeout: {
             request: CHECK_IN_ENDPOINT_TIMEOUT_MS
           }
