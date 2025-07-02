@@ -164,13 +164,12 @@ export type ConfidentActionOptions = {
 export type DiagnosticEvent = {
   // Note: putting a Map in here won't serialize to json properly.
   // It'll just be {} on serialization.
-  event_name: string;
-  context: Record<string, unknown>;
-  correlation: correlation.AnonymizedCorrelationHashes;
-  facts: Record<string, string | boolean>;
-  features: { [k: string]: string | boolean };
-  timestamp: Date;
+  name: string;
+  distinct_id?: string;
   uuid: UUID;
+  timestamp: Date;
+
+  properties: Record<string, unknown>;
 };
 
 const determinateStateDir = "/var/lib/determinate";
@@ -440,18 +439,34 @@ export abstract class DetSysAction {
       eventName === "$feature_flag_called"
         ? eventName
         : `${this.actionOptions.eventPrefix}${eventName}`;
+
+    const identityProps = {
+      correlation_source: this.identity.correlation_source,
+      github_repository_hash: this.identity.repository,
+      github_workflow_hash: this.identity.workflow,
+      github_workflow_run_hash: this.identity.run,
+      github_workflow_run_differentiator_hash: this.identity.run_differentiator,
+      $session_id: this.identity.run_differentiator,
+      groups: this.identity.groups,
+    };
+
     this.events.push({
-      event_name: prefixedName,
-      context,
-      correlation: this.identity,
-      facts: this.facts,
-      features: Object.fromEntries(
-        Object.entries(this.featureEventMetadata).map<
-          [string, string | boolean]
-        >(([name, variant]) => [`$feature/${name}`, variant]),
-      ),
-      timestamp: new Date(),
+      name: prefixedName,
+
+      // distinct_id
       uuid: randomUUID(),
+      timestamp: new Date(),
+
+      properties: {
+        ...context,
+        ...identityProps,
+        ...this.facts,
+        ...Object.fromEntries(
+          Object.entries(this.featureEventMetadata).map<
+            [string, string | boolean]
+          >(([name, variant]) => [`$feature/${name}`, variant]),
+        ),
+      },
     });
   }
 
@@ -1098,9 +1113,8 @@ export abstract class DetSysAction {
     }
 
     const batch = {
-      type: "eventlog",
       sent_at: new Date(),
-      events: this.events,
+      batch: this.events,
     };
 
     try {
