@@ -5,9 +5,9 @@ var __export = (target, all) => {
 };
 
 // src/linux-release-info.ts
-import * as fs from "fs";
-import * as os from "os";
-import { promisify } from "util";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { promisify } from "node:util";
 var readFileAsync = promisify(fs.readFile);
 var linuxReleaseInfoOptionsDefaults = {
   mode: "async",
@@ -221,9 +221,9 @@ function stringifyError(e) {
 // src/backtrace.ts
 import * as actionsCore2 from "@actions/core";
 import * as exec2 from "@actions/exec";
-import { readFile as readFile2, readdir, stat } from "fs/promises";
-import { promisify as promisify2 } from "util";
-import { gzip } from "zlib";
+import { readFile as readFile2, readdir, stat } from "node:fs/promises";
+import { promisify as promisify2 } from "node:util";
+import { gzip } from "node:zlib";
 var START_SLOP_SECONDS = 5;
 async function collectBacktraces(prefixes, programNameDenyList, startTimestampMs) {
   if (isMacOS) {
@@ -381,18 +381,19 @@ async function collectBacktracesSystemd(prefixes, programNameDenyList, startTime
 
 // src/correlation.ts
 import * as actionsCore3 from "@actions/core";
-import { createHash } from "crypto";
+import { createHash } from "node:crypto";
 var OPTIONAL_VARIABLES = ["INVOCATION_ID"];
-function identify(projectName) {
+function identify() {
+  const repository = hashEnvironmentVariables("GHR", [
+    "GITHUB_SERVER_URL",
+    "GITHUB_REPOSITORY_OWNER",
+    "GITHUB_REPOSITORY_OWNER_ID",
+    "GITHUB_REPOSITORY",
+    "GITHUB_REPOSITORY_ID"
+  ]);
   const ident = {
     correlation_source: "github-actions",
-    repository: hashEnvironmentVariables("GHR", [
-      "GITHUB_SERVER_URL",
-      "GITHUB_REPOSITORY_OWNER",
-      "GITHUB_REPOSITORY_OWNER_ID",
-      "GITHUB_REPOSITORY",
-      "GITHUB_REPOSITORY_ID"
-    ]),
+    repository,
     workflow: hashEnvironmentVariables("GHW", [
       "GITHUB_SERVER_URL",
       "GITHUB_REPOSITORY_OWNER",
@@ -434,8 +435,7 @@ function identify(projectName) {
       "INVOCATION_ID"
     ]),
     groups: {
-      ci: "github-actions",
-      project: projectName,
+      github_repository: repository,
       github_organization: hashEnvironmentVariables("GHO", [
         "GITHUB_SERVER_URL",
         "GITHUB_REPOSITORY_OWNER",
@@ -474,7 +474,7 @@ function hashEnvironmentVariables(prefix, variables) {
 // src/ids-host.ts
 import * as actionsCore4 from "@actions/core";
 import { got } from "got";
-import { resolveSrv } from "dns/promises";
+import { resolveSrv } from "node:dns/promises";
 var DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
 var ALLOWED_SUFFIXES = [
   ".install.determinate.systems",
@@ -868,18 +868,18 @@ import * as actionsCache from "@actions/cache";
 import * as actionsCore8 from "@actions/core";
 import * as actionsExec from "@actions/exec";
 import { TimeoutError } from "got";
-import { exec as exec4 } from "child_process";
-import { randomUUID } from "crypto";
+import { exec as exec4 } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   createWriteStream,
   readFileSync as readFileSync2
-} from "fs";
-import fs2, { chmod, copyFile, mkdir } from "fs/promises";
-import * as os3 from "os";
-import { tmpdir } from "os";
-import * as path from "path";
-import { promisify as promisify3 } from "util";
-import { gzip as gzip2 } from "zlib";
+} from "node:fs";
+import fs2, { chmod, copyFile, mkdir } from "node:fs/promises";
+import * as os3 from "node:os";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
+import { promisify as promisify3 } from "node:util";
+import { gzip as gzip2 } from "node:zlib";
 var pkgVersion = "1.0";
 var EVENT_BACKTRACES = "backtrace";
 var EVENT_EXCEPTION = "exception";
@@ -1007,9 +1007,10 @@ var DetSysAction = class {
         this.facts[target] = value;
       }
     }
-    this.identity = identify(this.actionOptions.name);
+    this.identity = identify();
     this.archOs = getArchOs();
     this.nixSystem = getNixPlatform(this.archOs);
+    this.facts["$app_name"] = this.actionOptions.name;
     this.facts.arch_os = this.archOs;
     this.facts.nix_system = this.nixSystem;
     {
@@ -1096,7 +1097,9 @@ var DetSysAction = class {
       context,
       correlation: this.identity,
       facts: this.facts,
-      features: this.featureEventMetadata,
+      features: Object.fromEntries(
+        Object.entries(this.featureEventMetadata).map(([name, variant]) => [`$feature/${name}`, variant])
+      ),
       timestamp: /* @__PURE__ */ new Date(),
       uuid: randomUUID()
     });

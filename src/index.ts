@@ -445,7 +445,11 @@ export abstract class DetSysAction {
       context,
       correlation: this.identity,
       facts: this.facts,
-      features: this.featureEventMetadata,
+      features: Object.fromEntries(
+        Object.entries(this.featureEventMetadata).map<
+          [string, string | boolean]
+        >(([name, variant]) => [`$feature/${name}`, variant]),
+      ),
       timestamp: new Date(),
       uuid: randomUUID(),
     });
