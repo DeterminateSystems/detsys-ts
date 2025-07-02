@@ -18,17 +18,18 @@ export type AnonymizedCorrelationHashes = {
   is_ci: boolean;
 };
 
-export function identify(projectName: string): AnonymizedCorrelationHashes {
+export function identify(): AnonymizedCorrelationHashes {
+  const repository = hashEnvironmentVariables("GHR", [
+    "GITHUB_SERVER_URL",
+    "GITHUB_REPOSITORY_OWNER",
+    "GITHUB_REPOSITORY_OWNER_ID",
+    "GITHUB_REPOSITORY",
+    "GITHUB_REPOSITORY_ID",
+  ]);
   const ident: AnonymizedCorrelationHashes = {
     correlation_source: "github-actions",
 
-    repository: hashEnvironmentVariables("GHR", [
-      "GITHUB_SERVER_URL",
-      "GITHUB_REPOSITORY_OWNER",
-      "GITHUB_REPOSITORY_OWNER_ID",
-      "GITHUB_REPOSITORY",
-      "GITHUB_REPOSITORY_ID",
-    ]),
+    repository,
     workflow: hashEnvironmentVariables("GHW", [
       "GITHUB_SERVER_URL",
       "GITHUB_REPOSITORY_OWNER",
@@ -70,8 +71,7 @@ export function identify(projectName: string): AnonymizedCorrelationHashes {
       "INVOCATION_ID",
     ]),
     groups: {
-      ci: "github-actions",
-      project: projectName,
+      github_repository: repository,
       github_organization: hashEnvironmentVariables("GHO", [
         "GITHUB_SERVER_URL",
         "GITHUB_REPOSITORY_OWNER",

@@ -311,7 +311,7 @@ export abstract class DetSysAction {
       }
     }
 
-    this.identity = correlation.identify(this.actionOptions.name);
+    this.identity = correlation.identify();
     this.archOs = platform.getArchOs();
     this.nixSystem = platform.getNixPlatform(this.archOs);
 
