@@ -146,7 +146,7 @@ describe("getDiagnosticsUrl", () => {
       idsProjectName: "project-name",
       suffix: "telemetry",
       runtimeDiagnosticsUrl: undefined,
-      expectedUrl: "https://install.determinate.systems/project-name/telemetry",
+      expectedUrl: "https://install.determinate.systems/events",
     },
 
     {
@@ -155,7 +155,7 @@ describe("getDiagnosticsUrl", () => {
       idsProjectName: "project-name",
       suffix: "telemetry",
       runtimeDiagnosticsUrl: "-",
-      expectedUrl: "https://install.determinate.systems/project-name/telemetry",
+      expectedUrl: "https://install.determinate.systems/events",
     },
 
     {
@@ -165,7 +165,7 @@ describe("getDiagnosticsUrl", () => {
       suffix: undefined,
       runtimeDiagnosticsUrl: undefined,
       expectedUrl:
-        "https://install.determinate.systems/project-name/diagnostics",
+        "https://install.determinate.systems/events",
     },
 
     {
@@ -174,7 +174,7 @@ describe("getDiagnosticsUrl", () => {
       idsProjectName: "project-name",
       runtimeDiagnosticsUrl: "http://hi:999999999999",
       expectedUrl:
-        "https://install.determinate.systems/project-name/diagnostics",
+        "https://install.determinate.systems/events",
     },
   ];
 
