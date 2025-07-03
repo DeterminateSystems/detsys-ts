@@ -314,7 +314,7 @@ export abstract class DetSysAction {
     this.archOs = platform.getArchOs();
     this.nixSystem = platform.getNixPlatform(this.archOs);
 
-    this.facts["$app_name"] = `${this.actionOptions.name}/action`;
+    this.facts.$app_name = `${this.actionOptions.name}/action`;
     this.facts.arch_os = this.archOs;
     this.facts.nix_system = this.nixSystem;
 
