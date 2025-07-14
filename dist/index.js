@@ -1289,7 +1289,7 @@ var DetSysAction = class {
             ...this.facts
           }
         };
-        return (await this.getClient()).post(checkInUrl, {
+        return await (await this.getClient()).post(checkInUrl, {
           json: props,
           timeout: {
             request: CHECK_IN_ENDPOINT_TIMEOUT_MS

@@ -678,7 +678,9 @@ export abstract class DetSysAction {
           },
         };
 
-        return (await this.getClient())
+        return await (
+          await this.getClient()
+        )
           .post(checkInUrl, {
             json: props,
             timeout: {
