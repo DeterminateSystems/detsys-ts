@@ -47,6 +47,7 @@ const FACT_OS = "$os";
 const FACT_OS_VERSION = "$os_version";
 const FACT_SOURCE_URL = "source_url";
 const FACT_SOURCE_URL_ETAG = "source_url_etag";
+const FACT_NIX_VERSION = "nix_version";
 
 const FACT_NIX_LOCATION = "nix_location";
 const FACT_NIX_STORE_TRUST = "nix_store_trusted";
@@ -513,11 +514,15 @@ export abstract class DetSysAction {
         return;
       } else {
         await this.preflightNixStoreInfo();
+        await this.preflightNixVersion();
         this.addFact(FACT_NIX_STORE_TRUST, this.nixStoreTrust);
       }
 
       if (this.isMain) {
         await this.main();
+
+        // Run the preflight of the nix version a second time so our "shutdown" events have updated version info.
+        await this.preflightNixVersion();
       } else if (this.isPost) {
         await this.post();
       }
@@ -1103,6 +1108,25 @@ export abstract class DetSysAction {
     } catch (e: unknown) {
       this.addFact(FACT_NIX_STORE_CHECK_ERROR, stringifyError(e));
     }
+  }
+
+  private async preflightNixVersion(): Promise<void> {
+    let output = "unknown";
+
+    try {
+      ({ stdout: output } = await actionsExec.getExecOutput(
+        "nix",
+        ["--version"],
+        {
+          silent: true,
+        },
+      ));
+      output = output.trim() || "unknown";
+    } catch {
+      // That's fine.
+    }
+
+    this.addFact(FACT_NIX_VERSION, output);
   }
 
   private async submitEvents(): Promise<void> {

@@ -319,6 +319,7 @@ declare abstract class DetSysAction {
     private collectBacktraces;
     private preflightRequireNix;
     private preflightNixStoreInfo;
+    private preflightNixVersion;
     private submitEvents;
 }
 
