@@ -38,6 +38,7 @@ const EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
 const EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
 const EVENT_ARTIFACT_CACHE_PERSIST = "artifact_cache_persist";
 const EVENT_PREFLIGHT_REQUIRE_NIX_DENIED = "preflight-require-nix-denied";
+const EVENT_STORE_IDENTITY_FAILED = "store_identity_failed";
 
 const FACT_ARTIFACT_FETCHED_FROM_CACHE = "artifact_fetched_from_cache";
 const FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
@@ -163,14 +164,71 @@ export type ConfidentActionOptions = {
 export type DiagnosticEvent = {
   // Note: putting a Map in here won't serialize to json properly.
   // It'll just be {} on serialization.
-  event_name: string;
-  context: Record<string, unknown>;
-  correlation: correlation.AnonymizedCorrelationHashes;
-  facts: Record<string, string | boolean>;
-  features: { [k: string]: string | boolean };
-  timestamp: Date;
+  name: string;
+  distinct_id?: string;
   uuid: UUID;
+  timestamp: Date;
+
+  properties: Record<string, unknown>;
 };
+
+const determinateStateDir = "/var/lib/determinate";
+const determinateIdentityFile = path.join(determinateStateDir, "identity.json");
+
+const isRoot = os.userInfo().uid === 0;
+
+/** Create the Determinate state directory by escalating via sudo */
+async function sudoEnsureDeterminateStateDir(): Promise<void> {
+  const code = await actionsExec.exec("sudo", [
+    "mkdir",
+    "-p",
+    determinateStateDir,
+  ]);
+
+  if (code !== 0) {
+    throw new Error(`sudo mkdir -p exit: ${code}`);
+  }
+}
+
+/** Ensures the Determinate state directory exists, escalating if necessary */
+async function ensureDeterminateStateDir(): Promise<void> {
+  if (isRoot) {
+    await mkdir(determinateStateDir, { recursive: true });
+  } else {
+    return sudoEnsureDeterminateStateDir();
+  }
+}
+
+/** Writes correlation hashes to the Determinate state directory by writing to a `sudo tee` pipe */
+async function sudoWriteCorrelationHashes(hashes: string): Promise<void> {
+  const buffer = Buffer.from(hashes);
+
+  const code = await actionsExec.exec(
+    "sudo",
+    ["tee", determinateIdentityFile],
+    {
+      input: buffer,
+
+      // Ignore output from tee
+      outStream: createWriteStream("/dev/null"),
+    },
+  );
+
+  if (code !== 0) {
+    throw new Error(`sudo tee exit: ${code}`);
+  }
+}
+
+/** Writes correlation hashes to the Determinate state directory, escalating if necessary */
+async function writeCorrelationHashes(hashes: string): Promise<void> {
+  await ensureDeterminateStateDir();
+
+  if (isRoot) {
+    await fs.writeFile(determinateIdentityFile, hashes, "utf-8");
+  } else {
+    return sudoWriteCorrelationHashes(hashes);
+  }
+}
 
 export abstract class DetSysAction {
   nixStoreTrust: NixStoreTrust;
@@ -252,10 +310,11 @@ export abstract class DetSysAction {
       }
     }
 
-    this.identity = correlation.identify(this.actionOptions.name);
+    this.identity = correlation.identify();
     this.archOs = platform.getArchOs();
     this.nixSystem = platform.getNixPlatform(this.archOs);
 
+    this.facts.$app_name = `${this.actionOptions.name}/action`;
     this.facts.arch_os = this.archOs;
     this.facts.nix_system = this.nixSystem;
 
@@ -350,7 +409,7 @@ export abstract class DetSysAction {
 
   getUniqueId(): string {
     return (
-      this.identity.run_differentiator ||
+      this.identity.github_workflow_run_differentiator_hash ||
       process.env.RUNNER_TRACKING_ID ||
       randomUUID()
     );
@@ -380,14 +439,27 @@ export abstract class DetSysAction {
       eventName === "$feature_flag_called"
         ? eventName
         : `${this.actionOptions.eventPrefix}${eventName}`;
+
     this.events.push({
-      event_name: prefixedName,
-      context,
-      correlation: this.identity,
-      facts: this.facts,
-      features: this.featureEventMetadata,
-      timestamp: new Date(),
+      name: prefixedName,
+
+      // Use the anon distinct ID as the distinct ID until we actually have a distinct ID in the future
+      distinct_id: this.identity.$anon_distinct_id,
+
+      // distinct_id
       uuid: randomUUID(),
+      timestamp: new Date(),
+
+      properties: {
+        ...context,
+        ...this.identity,
+        ...this.facts,
+        ...Object.fromEntries(
+          Object.entries(this.featureEventMetadata).map<
+            [string, string | boolean]
+          >(([name, variant]) => [`$feature/${name}`, variant]),
+        ),
+      },
     });
   }
 
@@ -428,9 +500,13 @@ export abstract class DetSysAction {
     try {
       await this.checkIn();
 
-      process.env.DETSYS_CORRELATION = JSON.stringify(
-        this.getCorrelationHashes(),
-      );
+      const correlationHashes = JSON.stringify(this.getCorrelationHashes());
+      process.env.DETSYS_CORRELATION = correlationHashes;
+      try {
+        await writeCorrelationHashes(correlationHashes);
+      } catch (error) {
+        this.recordEvent(EVENT_STORE_IDENTITY_FAILED, { error: String(error) });
+      }
 
       if (!(await this.preflightRequireNix())) {
         this.recordEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
@@ -589,14 +665,24 @@ export abstract class DetSysAction {
       try {
         actionsCore.debug(`Preflighting via ${checkInUrl}`);
 
-        checkInUrl.searchParams.set("ci", "github");
-        checkInUrl.searchParams.set(
-          "correlation",
-          JSON.stringify(this.identity),
-        );
+        const props = {
+          // Use a distinct_id when we actually have one
+          distinct_id: this.identity.$anon_distinct_id,
+          anon_distinct_id: this.identity.$anon_distinct_id,
+          groups: this.identity.$groups,
+          person_properties: {
+            ci: "github",
 
-        return (await this.getClient())
-          .get(checkInUrl, {
+            ...this.identity,
+            ...this.facts,
+          },
+        };
+
+        return await (
+          await this.getClient()
+        )
+          .post(checkInUrl, {
+            json: props,
             timeout: {
               request: CHECK_IN_ENDPOINT_TIMEOUT_MS,
             },
@@ -1030,9 +1116,8 @@ export abstract class DetSysAction {
     }
 
     const batch = {
-      type: "eventlog",
       sent_at: new Date(),
-      events: this.events,
+      batch: this.events,
     };
 
     try {

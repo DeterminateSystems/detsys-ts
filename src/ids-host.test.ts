@@ -146,7 +146,7 @@ describe("getDiagnosticsUrl", () => {
       idsProjectName: "project-name",
       suffix: "telemetry",
       runtimeDiagnosticsUrl: undefined,
-      expectedUrl: "https://install.determinate.systems/project-name/telemetry",
+      expectedUrl: "https://install.determinate.systems/events/batch",
     },
 
     {
@@ -155,7 +155,7 @@ describe("getDiagnosticsUrl", () => {
       idsProjectName: "project-name",
       suffix: "telemetry",
       runtimeDiagnosticsUrl: "-",
-      expectedUrl: "https://install.determinate.systems/project-name/telemetry",
+      expectedUrl: "https://install.determinate.systems/events/batch",
     },
 
     {
@@ -164,8 +164,7 @@ describe("getDiagnosticsUrl", () => {
       idsProjectName: "project-name",
       suffix: undefined,
       runtimeDiagnosticsUrl: undefined,
-      expectedUrl:
-        "https://install.determinate.systems/project-name/diagnostics",
+      expectedUrl: "https://install.determinate.systems/events/batch",
     },
 
     {
@@ -173,8 +172,7 @@ describe("getDiagnosticsUrl", () => {
         "Invalid user-provided diagnostic URL might be a whitespace-only string or otherwise, so use the default",
       idsProjectName: "project-name",
       runtimeDiagnosticsUrl: "http://hi:999999999999",
-      expectedUrl:
-        "https://install.determinate.systems/project-name/diagnostics",
+      expectedUrl: "https://install.determinate.systems/events/batch",
     },
   ];
 

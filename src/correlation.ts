@@ -1,5 +1,5 @@
 import * as actionsCore from "@actions/core";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 const OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 
@@ -8,26 +8,48 @@ const OPTIONAL_VARIABLES = ["INVOCATION_ID"];
  * JSON sent to server.
  */
 export type AnonymizedCorrelationHashes = {
+  $anon_distinct_id: string;
+  $groups: Record<string, string | undefined>;
+  $session_id?: string;
   correlation_source: string;
-  repository?: string;
-  run?: string;
-  run_differentiator?: string;
-  workflow?: string;
-  groups: Record<string, string | undefined>;
+  github_repository_hash?: string;
+  github_workflow_hash?: string;
+  github_workflow_job_hash?: string;
+  github_workflow_run_differentiator_hash?: string;
+  github_workflow_run_hash?: string;
+  is_ci: boolean;
 };
 
-export function identify(projectName: string): AnonymizedCorrelationHashes {
-  const ident = {
+export function identify(): AnonymizedCorrelationHashes {
+  const repository = hashEnvironmentVariables("GHR", [
+    "GITHUB_SERVER_URL",
+    "GITHUB_REPOSITORY_OWNER",
+    "GITHUB_REPOSITORY_OWNER_ID",
+    "GITHUB_REPOSITORY",
+    "GITHUB_REPOSITORY_ID",
+  ]);
+
+  const run_differentiator = hashEnvironmentVariables("GHWJA", [
+    "GITHUB_SERVER_URL",
+    "GITHUB_REPOSITORY_OWNER",
+    "GITHUB_REPOSITORY_OWNER_ID",
+    "GITHUB_REPOSITORY",
+    "GITHUB_REPOSITORY_ID",
+    "GITHUB_WORKFLOW",
+    "GITHUB_JOB",
+    "GITHUB_RUN_ID",
+    "GITHUB_RUN_NUMBER",
+    "GITHUB_RUN_ATTEMPT",
+    "INVOCATION_ID",
+  ]);
+
+  const ident: AnonymizedCorrelationHashes = {
+    $anon_distinct_id: process.env["RUNNER_TRACKING_ID"] || randomUUID(),
+
     correlation_source: "github-actions",
 
-    repository: hashEnvironmentVariables("GHR", [
-      "GITHUB_SERVER_URL",
-      "GITHUB_REPOSITORY_OWNER",
-      "GITHUB_REPOSITORY_OWNER_ID",
-      "GITHUB_REPOSITORY",
-      "GITHUB_REPOSITORY_ID",
-    ]),
-    workflow: hashEnvironmentVariables("GHW", [
+    github_repository_hash: repository,
+    github_workflow_hash: hashEnvironmentVariables("GHW", [
       "GITHUB_SERVER_URL",
       "GITHUB_REPOSITORY_OWNER",
       "GITHUB_REPOSITORY_OWNER_ID",
@@ -35,7 +57,7 @@ export function identify(projectName: string): AnonymizedCorrelationHashes {
       "GITHUB_REPOSITORY_ID",
       "GITHUB_WORKFLOW",
     ]),
-    job: hashEnvironmentVariables("GHWJ", [
+    github_workflow_job_hash: hashEnvironmentVariables("GHWJ", [
       "GITHUB_SERVER_URL",
       "GITHUB_REPOSITORY_OWNER",
       "GITHUB_REPOSITORY_OWNER_ID",
@@ -44,7 +66,7 @@ export function identify(projectName: string): AnonymizedCorrelationHashes {
       "GITHUB_WORKFLOW",
       "GITHUB_JOB",
     ]),
-    run: hashEnvironmentVariables("GHWJR", [
+    github_workflow_run_hash: hashEnvironmentVariables("GHWJR", [
       "GITHUB_SERVER_URL",
       "GITHUB_REPOSITORY_OWNER",
       "GITHUB_REPOSITORY_OWNER_ID",
@@ -54,28 +76,17 @@ export function identify(projectName: string): AnonymizedCorrelationHashes {
       "GITHUB_JOB",
       "GITHUB_RUN_ID",
     ]),
-    run_differentiator: hashEnvironmentVariables("GHWJA", [
-      "GITHUB_SERVER_URL",
-      "GITHUB_REPOSITORY_OWNER",
-      "GITHUB_REPOSITORY_OWNER_ID",
-      "GITHUB_REPOSITORY",
-      "GITHUB_REPOSITORY_ID",
-      "GITHUB_WORKFLOW",
-      "GITHUB_JOB",
-      "GITHUB_RUN_ID",
-      "GITHUB_RUN_NUMBER",
-      "GITHUB_RUN_ATTEMPT",
-      "INVOCATION_ID",
-    ]),
-    groups: {
-      ci: "github-actions",
-      project: projectName,
+    github_workflow_run_differentiator_hash: run_differentiator,
+    $session_id: run_differentiator,
+    $groups: {
+      github_repository: repository,
       github_organization: hashEnvironmentVariables("GHO", [
         "GITHUB_SERVER_URL",
         "GITHUB_REPOSITORY_OWNER",
         "GITHUB_REPOSITORY_OWNER_ID",
       ]),
     },
+    is_ci: true,
   };
 
   actionsCore.debug("Correlation data:");
