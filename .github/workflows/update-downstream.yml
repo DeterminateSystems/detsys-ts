@@ -40,7 +40,7 @@ jobs:
       GH_TOKEN: ${{ secrets.detsys_pr_bot_token }} # for `gh pr create`
     steps:
       - name: Check out detsys-ts
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: current
           token: ${{ env.GH_TOKEN }}
@@ -53,7 +53,7 @@ jobs:
           echo "msg=${MSG}" >> $GITHUB_OUTPUT
 
       - name: Check out ${{ env.TARGET_REPO }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: target
           repository: ${{ env.TARGET_REPO }}
