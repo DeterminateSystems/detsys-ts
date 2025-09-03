@@ -896,6 +896,7 @@ var FACT_OS = "$os";
 var FACT_OS_VERSION = "$os_version";
 var FACT_SOURCE_URL = "source_url";
 var FACT_SOURCE_URL_ETAG = "source_url_etag";
+var FACT_NIX_VERSION = "nix_version";
 var FACT_NIX_LOCATION = "nix_location";
 var FACT_NIX_STORE_TRUST = "nix_store_trusted";
 var FACT_NIX_STORE_VERSION = "nix_store_version";
@@ -1154,10 +1155,12 @@ var DetSysAction = class {
         return;
       } else {
         await this.preflightNixStoreInfo();
+        await this.preflightNixVersion();
         this.addFact(FACT_NIX_STORE_TRUST, this.nixStoreTrust);
       }
       if (this.isMain) {
         await this.main();
+        await this.preflightNixVersion();
       } else if (this.isPost) {
         await this.post();
       }
@@ -1620,6 +1623,21 @@ var DetSysAction = class {
     } catch (e) {
       this.addFact(FACT_NIX_STORE_CHECK_ERROR, stringifyError2(e));
     }
+  }
+  async preflightNixVersion() {
+    let output = "unknown";
+    try {
+      ({ stdout: output } = await actionsExec.getExecOutput(
+        "nix",
+        ["--version"],
+        {
+          silent: true
+        }
+      ));
+      output = output.trim() || "unknown";
+    } catch {
+    }
+    this.addFact(FACT_NIX_VERSION, output);
   }
   async submitEvents() {
     const diagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
