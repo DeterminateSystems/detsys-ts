@@ -263,7 +263,7 @@ declare abstract class DetSysAction {
      */
     execute(): void;
     getTemporaryName(): string;
-    addFact(key: string, value: string | boolean): void;
+    addFact(key: string, value: string | boolean | number): void;
     getDiagnosticsUrl(): Promise<URL | undefined>;
     getUniqueId(): string;
     getCrossPhaseId(): string;

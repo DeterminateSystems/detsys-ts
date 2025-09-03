@@ -242,7 +242,7 @@ export abstract class DetSysAction {
   private nixSystem: string;
   private architectureFetchSuffix: string;
   private sourceParameters: SourceDef;
-  private facts: Record<string, string | boolean>;
+  private facts: Record<string, string | boolean | number>;
   private events: DiagnosticEvent[];
   private identity: correlation.AnonymizedCorrelationHashes;
   private idsHost: IdsHost;
@@ -400,7 +400,7 @@ export abstract class DetSysAction {
     return path.join(tmpDir, `${this.actionOptions.name}-${randomUUID()}`);
   }
 
-  addFact(key: string, value: string | boolean): void {
+  addFact(key: string, value: string | boolean | number): void {
     this.facts[key] = value;
   }
 
