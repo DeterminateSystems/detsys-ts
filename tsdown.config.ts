@@ -1,8 +1,7 @@
-import { name } from "./package.json";
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  name,
+  name: "detsys-ts",
   entry: ["src/index.ts"],
   format: ["esm"],
   target: "node24",
