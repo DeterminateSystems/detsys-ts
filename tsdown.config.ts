@@ -1,5 +1,5 @@
-import { defineConfig } from "tsdown";
 import { name } from "./package.json";
+import { defineConfig } from "tsdown";
 
 export default defineConfig({
   name,
