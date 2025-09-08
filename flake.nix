@@ -2,30 +2,47 @@
   description = "Development environment for detsys-ts";
 
   inputs = {
-    flake-schemas.url = "https://flakehub.com/f/DeterminateSystems/flake-schemas/*.tar.gz";
-    nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1.0.tar.gz";
+    flake-schemas.url = "https://flakehub.com/f/DeterminateSystems/flake-schemas/0.1";
+    nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1";
   };
 
-  outputs = { self, flake-schemas, nixpkgs }:
+  outputs =
+    {
+      self,
+      ...
+    }@inputs:
     let
-      supportedSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
-      forEachSupportedSystem = f: nixpkgs.lib.genAttrs supportedSystems (system: f {
-        pkgs = import nixpkgs { inherit system; };
-      });
+      supportedSystems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
+      ];
+      forEachSupportedSystem =
+        f:
+        inputs.nixpkgs.lib.genAttrs supportedSystems (
+          system:
+          f {
+            pkgs = import inputs.nixpkgs { inherit system; };
+          }
+        );
     in
     {
-      schemas = flake-schemas.schemas;
+      inherit (inputs.flake-schemas) schemas;
 
-      devShells = forEachSupportedSystem ({ pkgs }: {
-        default = pkgs.mkShell {
-          packages = with pkgs; [
-            nodejs_latest
-            nodePackages.typescript-language-server
-            nodePackages.vscode-langservers-extracted
-            nodePackages_latest.pnpm
-            nixpkgs-fmt
-          ];
-        };
-      });
+      formatter = forEachSupportedSystem ({ pkgs }: pkgs.nixfmt-rfc-style);
+
+      devShells = forEachSupportedSystem (
+        { pkgs }:
+        {
+          default = pkgs.mkShellNoCC {
+            packages = with pkgs; [
+              nodejs_latest
+              nodePackages_latest.pnpm
+              nixpkgs-fmt
+            ];
+          };
+        }
+      );
     };
 }

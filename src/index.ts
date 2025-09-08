@@ -1198,7 +1198,7 @@ function makeOptionsConfident(
 }
 
 // Public exports from other files
-export {
+export type {
   CheckIn,
   Feature,
   Incident,
@@ -1206,9 +1206,9 @@ export {
   Page,
   StatusSummary,
 } from "./check-in.js";
-export { AnonymizedCorrelationHashes } from "./correlation.js";
+export type { AnonymizedCorrelationHashes } from "./correlation.js";
 export { stringifyError } from "./errors.js";
 export { IdsHost } from "./ids-host.js";
-export { SourceDef } from "./sourcedef.js";
+export type { SourceDef } from "./sourcedef.js";
 export * as inputs from "./inputs.js";
 export * as platform from "./platform.js";
