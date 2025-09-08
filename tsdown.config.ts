@@ -4,7 +4,7 @@ export default defineConfig({
   name: "detsys-ts",
   entry: ["src/index.ts"],
   format: ["esm"],
-  target: "node24",
+  target: "node20",
   sourcemap: true,
   dts: {
     resolve: false,
