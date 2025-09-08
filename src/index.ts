@@ -1188,7 +1188,7 @@ function makeOptionsConfident(
       actionOptions.name,
     ],
     binaryNamesDenyList:
-      actionOptions.binaryNamePrefixes ?? PROGRAM_NAME_CRASH_DENY_LIST,
+      actionOptions.binaryNamesDenyList ?? PROGRAM_NAME_CRASH_DENY_LIST,
   };
 
   actionsCore.debug("idslib options:");
