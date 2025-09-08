@@ -1366,7 +1366,7 @@ function makeOptionsConfident(actionOptions) {
 			"determinate-nixd",
 			actionOptions.name
 		],
-		binaryNamesDenyList: actionOptions.binaryNamePrefixes ?? PROGRAM_NAME_CRASH_DENY_LIST
+		binaryNamesDenyList: actionOptions.binaryNamesDenyList ?? PROGRAM_NAME_CRASH_DENY_LIST
 	};
 	actionsCore.debug("idslib options:");
 	actionsCore.debug(JSON.stringify(finalOpts, void 0, 2));
