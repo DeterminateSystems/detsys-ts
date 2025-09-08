@@ -5,23 +5,26 @@
 // import { version as pkgVersion } from "../package.json";
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import { collectBacktraces } from "./backtrace.js";
-import { CheckIn, Feature } from "./check-in.js";
+import type { CheckIn, Feature } from "./check-in.js";
 import * as correlation from "./correlation.js";
-import { IdsHost } from "./ids-host.js";
+import type { IdsHost } from "./ids-host.js";
 import { getBool, getBoolOrUndefined, getStringOrNull } from "./inputs.js";
 import * as platform from "./platform.js";
-import { SourceDef, constructSourceParameters } from "./sourcedef.js";
+import type { SourceDef } from "./sourcedef.js";
+import { constructSourceParameters } from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import * as actionsExec from "@actions/exec";
-import { Got, Request, TimeoutError } from "got";
+import type { Got, Request, TimeoutError } from "got";
 import { exec } from "node:child_process";
-import { UUID, randomUUID } from "node:crypto";
+import type { UUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   PathLike,
   WriteStream,
   createWriteStream,
   readFileSync,
+  constants as fsConstants,
 } from "node:fs";
 import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
 import * as os from "node:os";
@@ -485,7 +488,7 @@ export abstract class DetSysAction {
    */
   async fetchExecutable(): Promise<string> {
     const binaryPath = await this.fetchArtifact();
-    await chmod(binaryPath, fs.constants.S_IXUSR | fs.constants.S_IXGRP);
+    await chmod(binaryPath, fsConstants.S_IXUSR | fsConstants.S_IXGRP);
     return binaryPath;
   }
 
