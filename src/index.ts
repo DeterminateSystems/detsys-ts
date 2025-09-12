@@ -23,8 +23,8 @@ import {
   PathLike,
   WriteStream,
   createWriteStream,
-  readFileSync,
   constants as fsConstants,
+  readFileSync,
 } from "node:fs";
 import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
 import * as os from "node:os";
