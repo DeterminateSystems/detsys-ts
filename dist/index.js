@@ -10,11 +10,11 @@ import os from "os";
 import fs, { chmod, copyFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { gzip } from "node:zlib";
 import { createHash, randomUUID } from "node:crypto";
+import { TimeoutError, got } from "got";
+import { resolveSrv } from "node:dns/promises";
 import * as actionsCache from "@actions/cache";
 import { exec } from "node:child_process";
 import * as path from "node:path";
-import { got } from "got";
-import { resolveSrv } from "node:dns/promises";
 
 //#region src/linux-release-info.ts
 const readFileAsync = promisify(fs$1.readFile);
@@ -405,156 +405,6 @@ function hashEnvironmentVariables(prefix, variables) {
 }
 
 //#endregion
-//#region src/inputs.ts
-var inputs_exports = {};
-__export(inputs_exports, {
-	getArrayOfStrings: () => getArrayOfStrings,
-	getArrayOfStringsOrNull: () => getArrayOfStringsOrNull,
-	getBool: () => getBool,
-	getBoolOrUndefined: () => getBoolOrUndefined,
-	getMultilineStringOrNull: () => getMultilineStringOrNull,
-	getNumberOrNull: () => getNumberOrNull,
-	getString: () => getString,
-	getStringOrNull: () => getStringOrNull,
-	getStringOrUndefined: () => getStringOrUndefined,
-	handleString: () => handleString
-});
-/**
-* Get a Boolean input from the Action's configuration by name.
-*/
-const getBool = (name) => {
-	return actionsCore.getBooleanInput(name);
-};
-/**
-* Get a Boolean input from the Action's configuration by name, or undefined if it is unset.
-*/
-const getBoolOrUndefined = (name) => {
-	if (getStringOrUndefined(name) === void 0) return;
-	return actionsCore.getBooleanInput(name);
-};
-/**
-* Convert a comma-separated string input into an array of strings. If `comma` is selected,
-* all whitespace is removed from the string before converting to an array.
-*/
-const getArrayOfStrings = (name, separator) => {
-	const original = getString(name);
-	return handleString(original, separator);
-};
-/**
-* Convert a string input into an array of strings or `null` if no value is set.
-*/
-const getArrayOfStringsOrNull = (name, separator) => {
-	const original = getStringOrNull(name);
-	if (original === null) return null;
-	else return handleString(original, separator);
-};
-const handleString = (input, separator) => {
-	const sepChar = separator === "comma" ? "," : /\s+/;
-	const trimmed = input.trim();
-	if (trimmed === "") return [];
-	return trimmed.split(sepChar).map((s) => s.trim());
-};
-/**
-* Get a multi-line string input from the Action's configuration by name or return `null` if not set.
-*/
-const getMultilineStringOrNull = (name) => {
-	const value = actionsCore.getMultilineInput(name);
-	if (value.length === 0) return null;
-	else return value;
-};
-/**
-* Get a number input from the Action's configuration by name or return `null` if not set.
-*/
-const getNumberOrNull = (name) => {
-	const value = actionsCore.getInput(name);
-	if (value === "") return null;
-	else return Number(value);
-};
-/**
-* Get a string input from the Action's configuration.
-*/
-const getString = (name) => {
-	return actionsCore.getInput(name);
-};
-/**
-* Get a string input from the Action's configuration by name or return `null` if not set.
-*/
-const getStringOrNull = (name) => {
-	const value = actionsCore.getInput(name);
-	if (value === "") return null;
-	else return value;
-};
-/**
-* Get a string input from the Action's configuration by name or return `undefined` if not set.
-*/
-const getStringOrUndefined = (name) => {
-	const value = actionsCore.getInput(name);
-	if (value === "") return;
-	else return value;
-};
-
-//#endregion
-//#region src/platform.ts
-var platform_exports = {};
-__export(platform_exports, {
-	getArchOs: () => getArchOs,
-	getNixPlatform: () => getNixPlatform
-});
-/**
-* Get the current architecture plus OS. Examples include `X64-Linux` and `ARM64-macOS`.
-*/
-function getArchOs() {
-	const envArch = process.env.RUNNER_ARCH;
-	const envOs = process.env.RUNNER_OS;
-	if (envArch && envOs) return `${envArch}-${envOs}`;
-	else {
-		actionsCore.error(`Can't identify the platform: RUNNER_ARCH or RUNNER_OS undefined (${envArch}-${envOs})`);
-		throw new Error("RUNNER_ARCH and/or RUNNER_OS is not defined");
-	}
-}
-/**
-* Get the current Nix system. Examples include `x86_64-linux` and `aarch64-darwin`.
-*/
-function getNixPlatform(archOs) {
-	const mappedTo = new Map([
-		["X64-macOS", "x86_64-darwin"],
-		["ARM64-macOS", "aarch64-darwin"],
-		["X64-Linux", "x86_64-linux"],
-		["ARM64-Linux", "aarch64-linux"]
-	]).get(archOs);
-	if (mappedTo) return mappedTo;
-	else {
-		actionsCore.error(`ArchOs (${archOs}) doesn't map to a supported Nix platform.`);
-		throw new Error(`Cannot convert ArchOs (${archOs}) to a supported Nix platform.`);
-	}
-}
-
-//#endregion
-//#region src/sourcedef.ts
-function constructSourceParameters(legacyPrefix) {
-	return {
-		path: noisilyGetInput("path", legacyPrefix),
-		url: noisilyGetInput("url", legacyPrefix),
-		tag: noisilyGetInput("tag", legacyPrefix),
-		pr: noisilyGetInput("pr", legacyPrefix),
-		branch: noisilyGetInput("branch", legacyPrefix),
-		revision: noisilyGetInput("revision", legacyPrefix)
-	};
-}
-function noisilyGetInput(suffix, legacyPrefix) {
-	const preferredInput = getStringOrUndefined(`source-${suffix}`);
-	if (!legacyPrefix) return preferredInput;
-	const legacyInput = getStringOrUndefined(`${legacyPrefix}-${suffix}`);
-	if (preferredInput && legacyInput) {
-		actionsCore.warning(`The supported option source-${suffix} and the legacy option ${legacyPrefix}-${suffix} are both set. Preferring source-${suffix}. Please stop setting ${legacyPrefix}-${suffix}.`);
-		return preferredInput;
-	} else if (legacyInput) {
-		actionsCore.warning(`The legacy option ${legacyPrefix}-${suffix} is set. Please migrate to source-${suffix}.`);
-		return legacyInput;
-	} else return preferredInput;
-}
-
-//#endregion
 //#region src/ids-host.ts
 const DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
 const ALLOWED_SUFFIXES = [".install.determinate.systems", ".install.detsys.dev"];
@@ -564,7 +414,7 @@ const DEFAULT_TIMEOUT = 1e4;
 /**
 * Host information for install.determinate.systems.
 */
-var IdsHost$1 = class {
+var IdsHost = class {
 	constructor(idsProjectName, diagnosticsSuffix, runtimeDiagnosticsUrl) {
 		this.idsProjectName = idsProjectName;
 		this.diagnosticsSuffix = diagnosticsSuffix;
@@ -713,6 +563,156 @@ function weightedRandom(records) {
 		}
 	}
 	return result;
+}
+
+//#endregion
+//#region src/inputs.ts
+var inputs_exports = {};
+__export(inputs_exports, {
+	getArrayOfStrings: () => getArrayOfStrings,
+	getArrayOfStringsOrNull: () => getArrayOfStringsOrNull,
+	getBool: () => getBool,
+	getBoolOrUndefined: () => getBoolOrUndefined,
+	getMultilineStringOrNull: () => getMultilineStringOrNull,
+	getNumberOrNull: () => getNumberOrNull,
+	getString: () => getString,
+	getStringOrNull: () => getStringOrNull,
+	getStringOrUndefined: () => getStringOrUndefined,
+	handleString: () => handleString
+});
+/**
+* Get a Boolean input from the Action's configuration by name.
+*/
+const getBool = (name) => {
+	return actionsCore.getBooleanInput(name);
+};
+/**
+* Get a Boolean input from the Action's configuration by name, or undefined if it is unset.
+*/
+const getBoolOrUndefined = (name) => {
+	if (getStringOrUndefined(name) === void 0) return;
+	return actionsCore.getBooleanInput(name);
+};
+/**
+* Convert a comma-separated string input into an array of strings. If `comma` is selected,
+* all whitespace is removed from the string before converting to an array.
+*/
+const getArrayOfStrings = (name, separator) => {
+	const original = getString(name);
+	return handleString(original, separator);
+};
+/**
+* Convert a string input into an array of strings or `null` if no value is set.
+*/
+const getArrayOfStringsOrNull = (name, separator) => {
+	const original = getStringOrNull(name);
+	if (original === null) return null;
+	else return handleString(original, separator);
+};
+const handleString = (input, separator) => {
+	const sepChar = separator === "comma" ? "," : /\s+/;
+	const trimmed = input.trim();
+	if (trimmed === "") return [];
+	return trimmed.split(sepChar).map((s) => s.trim());
+};
+/**
+* Get a multi-line string input from the Action's configuration by name or return `null` if not set.
+*/
+const getMultilineStringOrNull = (name) => {
+	const value = actionsCore.getMultilineInput(name);
+	if (value.length === 0) return null;
+	else return value;
+};
+/**
+* Get a number input from the Action's configuration by name or return `null` if not set.
+*/
+const getNumberOrNull = (name) => {
+	const value = actionsCore.getInput(name);
+	if (value === "") return null;
+	else return Number(value);
+};
+/**
+* Get a string input from the Action's configuration.
+*/
+const getString = (name) => {
+	return actionsCore.getInput(name);
+};
+/**
+* Get a string input from the Action's configuration by name or return `null` if not set.
+*/
+const getStringOrNull = (name) => {
+	const value = actionsCore.getInput(name);
+	if (value === "") return null;
+	else return value;
+};
+/**
+* Get a string input from the Action's configuration by name or return `undefined` if not set.
+*/
+const getStringOrUndefined = (name) => {
+	const value = actionsCore.getInput(name);
+	if (value === "") return;
+	else return value;
+};
+
+//#endregion
+//#region src/platform.ts
+var platform_exports = {};
+__export(platform_exports, {
+	getArchOs: () => getArchOs,
+	getNixPlatform: () => getNixPlatform
+});
+/**
+* Get the current architecture plus OS. Examples include `X64-Linux` and `ARM64-macOS`.
+*/
+function getArchOs() {
+	const envArch = process.env.RUNNER_ARCH;
+	const envOs = process.env.RUNNER_OS;
+	if (envArch && envOs) return `${envArch}-${envOs}`;
+	else {
+		actionsCore.error(`Can't identify the platform: RUNNER_ARCH or RUNNER_OS undefined (${envArch}-${envOs})`);
+		throw new Error("RUNNER_ARCH and/or RUNNER_OS is not defined");
+	}
+}
+/**
+* Get the current Nix system. Examples include `x86_64-linux` and `aarch64-darwin`.
+*/
+function getNixPlatform(archOs) {
+	const mappedTo = new Map([
+		["X64-macOS", "x86_64-darwin"],
+		["ARM64-macOS", "aarch64-darwin"],
+		["X64-Linux", "x86_64-linux"],
+		["ARM64-Linux", "aarch64-linux"]
+	]).get(archOs);
+	if (mappedTo) return mappedTo;
+	else {
+		actionsCore.error(`ArchOs (${archOs}) doesn't map to a supported Nix platform.`);
+		throw new Error(`Cannot convert ArchOs (${archOs}) to a supported Nix platform.`);
+	}
+}
+
+//#endregion
+//#region src/sourcedef.ts
+function constructSourceParameters(legacyPrefix) {
+	return {
+		path: noisilyGetInput("path", legacyPrefix),
+		url: noisilyGetInput("url", legacyPrefix),
+		tag: noisilyGetInput("tag", legacyPrefix),
+		pr: noisilyGetInput("pr", legacyPrefix),
+		branch: noisilyGetInput("branch", legacyPrefix),
+		revision: noisilyGetInput("revision", legacyPrefix)
+	};
+}
+function noisilyGetInput(suffix, legacyPrefix) {
+	const preferredInput = getStringOrUndefined(`source-${suffix}`);
+	if (!legacyPrefix) return preferredInput;
+	const legacyInput = getStringOrUndefined(`${legacyPrefix}-${suffix}`);
+	if (preferredInput && legacyInput) {
+		actionsCore.warning(`The supported option source-${suffix} and the legacy option ${legacyPrefix}-${suffix} are both set. Preferring source-${suffix}. Please stop setting ${legacyPrefix}-${suffix}.`);
+		return preferredInput;
+	} else if (legacyInput) {
+		actionsCore.warning(`The legacy option ${legacyPrefix}-${suffix} is set. Please migrate to source-${suffix}.`);
+		return legacyInput;
+	} else return preferredInput;
 }
 
 //#endregion
@@ -1350,5 +1350,5 @@ function makeOptionsConfident(actionOptions) {
 }
 
 //#endregion
-export { DetSysAction, IdsHost$1 as IdsHost, inputs_exports as inputs, platform_exports as platform, stringifyError };
+export { DetSysAction, IdsHost, inputs_exports as inputs, platform_exports as platform, stringifyError };
 //# sourceMappingURL=index.js.map
