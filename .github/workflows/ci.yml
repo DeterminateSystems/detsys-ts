@@ -9,23 +9,30 @@ on:
 jobs:
   checks:
     name: Run all checks
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: DeterminateSystems/determinate-nix-action@v3
       - uses: DeterminateSystems/flakehub-cache-action@main
+
+      - name: Check Nix formatting
+        run: git ls-files '*.nix' | xargs nix develop --command nixfmt --check
+
       - name: Install pnpm dependencies
         run: nix develop --command pnpm install
-      - name: Check formatting
-        run: nix develop --command pnpm run check-fmt
+
       - name: Lint
         run: nix develop --command pnpm run lint
+
       - name: Run test suite
         run: nix develop --command pnpm run test
+
       - name: Build
         run: nix develop --command pnpm run build
+
       - name: Check git status
         run: git status --porcelain=v1
+
       - name: Ensure no staged changes
         run: git diff --exit-code
 

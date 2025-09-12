@@ -23,6 +23,7 @@
         inputs.nixpkgs.lib.genAttrs supportedSystems (
           system:
           f {
+            inherit system;
             pkgs = import inputs.nixpkgs { inherit system; };
           }
         );
@@ -30,16 +31,16 @@
     {
       inherit (inputs.flake-schemas) schemas;
 
-      formatter = forEachSupportedSystem ({ pkgs }: pkgs.nixfmt-rfc-style);
+      formatter = forEachSupportedSystem ({ pkgs, ... }: pkgs.nixfmt-rfc-style);
 
       devShells = forEachSupportedSystem (
-        { pkgs }:
+        { pkgs, system }:
         {
           default = pkgs.mkShellNoCC {
             packages = with pkgs; [
               nodejs_latest
               nodePackages_latest.pnpm
-              nixpkgs-fmt
+              self.formatter.${system}
             ];
           };
         }
