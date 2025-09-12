@@ -1,4 +1,4 @@
-import { __export } from "./chunk-Cl8Af3a2.js";
+import { __export } from "./chunk-CTAAG5j7.js";
 import * as fs$1 from "node:fs";
 import { constants, createWriteStream, readFileSync } from "node:fs";
 import * as os$1 from "node:os";
@@ -567,8 +567,7 @@ function weightedRandom(records) {
 
 //#endregion
 //#region src/inputs.ts
-var inputs_exports = {};
-__export(inputs_exports, {
+var inputs_exports = __export({
 	getArrayOfStrings: () => getArrayOfStrings,
 	getArrayOfStringsOrNull: () => getArrayOfStringsOrNull,
 	getBool: () => getBool,
@@ -656,8 +655,7 @@ const getStringOrUndefined = (name) => {
 
 //#endregion
 //#region src/platform.ts
-var platform_exports = {};
-__export(platform_exports, {
+var platform_exports = __export({
 	getArchOs: () => getArchOs,
 	getNixPlatform: () => getNixPlatform
 });

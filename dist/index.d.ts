@@ -89,9 +89,6 @@ type SourceDef = {
   branch?: string;
   revision?: string;
 };
-declare namespace inputs_d_exports {
-  export { Separator, getArrayOfStrings, getArrayOfStringsOrNull, getBool, getBoolOrUndefined, getMultilineStringOrNull, getNumberOrNull, getString, getStringOrNull, getStringOrUndefined, handleString };
-}
 /**
  * Get a Boolean input from the Action's configuration by name.
  */
@@ -134,9 +131,6 @@ declare const getStringOrNull: (name: string) => string | null;
  * Get a string input from the Action's configuration by name or return `undefined` if not set.
  */
 declare const getStringOrUndefined: (name: string) => string | undefined;
-declare namespace platform_d_exports {
-  export { getArchOs, getNixPlatform };
-}
 /**
  * Get the current architecture plus OS. Examples include `X64-Linux` and `ARM64-macOS`.
  */
