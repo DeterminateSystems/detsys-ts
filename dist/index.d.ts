@@ -1,90 +1,94 @@
-import { Got } from 'got';
-import { UUID } from 'node:crypto';
+import { UUID } from "node:crypto";
+import { Got } from "got";
 
+//#region src/check-in.d.ts
 type CheckIn = {
-    status: StatusSummary | null;
-    options: {
-        [k: string]: Feature;
-    };
+  status: StatusSummary | null;
+  options: {
+    [k: string]: Feature;
+  };
 };
 type StatusSummary = {
-    page: Page;
-    incidents: Incident[];
-    scheduled_maintenances: Maintenance[];
+  page: Page;
+  incidents: Incident[];
+  scheduled_maintenances: Maintenance[];
 };
 type Page = {
-    name: string;
-    url: string;
+  name: string;
+  url: string;
 };
 type Incident = {
-    name: string;
-    status: string;
-    impact: string;
-    shortlink: string;
+  name: string;
+  status: string;
+  impact: string;
+  shortlink: string;
 };
 type Maintenance = {
-    name: string;
-    status: string;
-    impact: string;
-    shortlink: string;
-    scheduled_for: string;
-    scheduled_until: string;
+  name: string;
+  status: string;
+  impact: string;
+  shortlink: string;
+  scheduled_for: string;
+  scheduled_until: string;
 };
 type Feature = {
-    variant: boolean | string;
-    payload?: string;
+  variant: boolean | string;
+  payload?: string;
 };
-
+//#endregion
+//#region src/correlation.d.ts
 /**
  * JSON sent to server.
  */
 type AnonymizedCorrelationHashes = {
-    $anon_distinct_id: string;
-    $groups: Record<string, string | undefined>;
-    $session_id?: string;
-    correlation_source: string;
-    github_repository_hash?: string;
-    github_workflow_hash?: string;
-    github_workflow_job_hash?: string;
-    github_workflow_run_differentiator_hash?: string;
-    github_workflow_run_hash?: string;
-    is_ci: boolean;
+  $anon_distinct_id: string;
+  $groups: Record<string, string | undefined>;
+  $session_id?: string;
+  correlation_source: string;
+  github_repository_hash?: string;
+  github_workflow_hash?: string;
+  github_workflow_job_hash?: string;
+  github_workflow_run_differentiator_hash?: string;
+  github_workflow_run_hash?: string;
+  is_ci: boolean;
 };
-
+//#endregion
+//#region src/errors.d.ts
 /**
  * Coerce a value of type `unknown` into a string.
  */
 declare function stringifyError(e: unknown): string;
-
+//#endregion
+//#region src/ids-host.d.ts
 /**
  * Host information for install.determinate.systems.
  */
 declare class IdsHost {
-    private idsProjectName;
-    private diagnosticsSuffix?;
-    private runtimeDiagnosticsUrl?;
-    private prioritizedURLs?;
-    private client?;
-    constructor(idsProjectName: string, diagnosticsSuffix: string | undefined, runtimeDiagnosticsUrl: string | undefined);
-    getGot(recordFailoverCallback?: (incitingError: unknown, prevUrl: URL, nextUrl: URL) => void): Promise<Got>;
-    markCurrentHostBroken(): void;
-    setPrioritizedUrls(urls: URL[]): void;
-    isUrlSubjectToDynamicUrls(url: URL): boolean;
-    getDynamicRootUrl(): Promise<URL | undefined>;
-    getRootUrl(): Promise<URL>;
-    getDiagnosticsUrl(): Promise<URL | undefined>;
-    private getUrlsByPreference;
+  private idsProjectName;
+  private diagnosticsSuffix?;
+  private runtimeDiagnosticsUrl?;
+  private prioritizedURLs?;
+  private client?;
+  constructor(idsProjectName: string, diagnosticsSuffix: string | undefined, runtimeDiagnosticsUrl: string | undefined);
+  getGot(recordFailoverCallback?: (incitingError: unknown, prevUrl: URL, nextUrl: URL) => void): Promise<Got>;
+  markCurrentHostBroken(): void;
+  setPrioritizedUrls(urls: URL[]): void;
+  isUrlSubjectToDynamicUrls(url: URL): boolean;
+  getDynamicRootUrl(): Promise<URL | undefined>;
+  getRootUrl(): Promise<URL>;
+  getDiagnosticsUrl(): Promise<URL | undefined>;
+  private getUrlsByPreference;
 }
-
+//#endregion
+//#region src/sourcedef.d.ts
 type SourceDef = {
-    path?: string;
-    url?: string;
-    tag?: string;
-    pr?: string;
-    branch?: string;
-    revision?: string;
+  path?: string;
+  url?: string;
+  tag?: string;
+  pr?: string;
+  branch?: string;
+  revision?: string;
 };
-
 /**
  * Get a Boolean input from the Action's configuration by name.
  */
@@ -127,22 +131,6 @@ declare const getStringOrNull: (name: string) => string | null;
  * Get a string input from the Action's configuration by name or return `undefined` if not set.
  */
 declare const getStringOrUndefined: (name: string) => string | undefined;
-
-type inputs_Separator = Separator;
-declare const inputs_getArrayOfStrings: typeof getArrayOfStrings;
-declare const inputs_getArrayOfStringsOrNull: typeof getArrayOfStringsOrNull;
-declare const inputs_getBool: typeof getBool;
-declare const inputs_getBoolOrUndefined: typeof getBoolOrUndefined;
-declare const inputs_getMultilineStringOrNull: typeof getMultilineStringOrNull;
-declare const inputs_getNumberOrNull: typeof getNumberOrNull;
-declare const inputs_getString: typeof getString;
-declare const inputs_getStringOrNull: typeof getStringOrNull;
-declare const inputs_getStringOrUndefined: typeof getStringOrUndefined;
-declare const inputs_handleString: typeof handleString;
-declare namespace inputs {
-  export { type inputs_Separator as Separator, inputs_getArrayOfStrings as getArrayOfStrings, inputs_getArrayOfStringsOrNull as getArrayOfStringsOrNull, inputs_getBool as getBool, inputs_getBoolOrUndefined as getBoolOrUndefined, inputs_getMultilineStringOrNull as getMultilineStringOrNull, inputs_getNumberOrNull as getNumberOrNull, inputs_getString as getString, inputs_getStringOrNull as getStringOrNull, inputs_getStringOrUndefined as getStringOrUndefined, inputs_handleString as handleString };
-}
-
 /**
  * Get the current architecture plus OS. Examples include `X64-Linux` and `ARM64-macOS`.
  */
@@ -151,13 +139,8 @@ declare function getArchOs(): string;
  * Get the current Nix system. Examples include `x86_64-linux` and `aarch64-darwin`.
  */
 declare function getNixPlatform(archOs: string): string;
-
-declare const platform_getArchOs: typeof getArchOs;
-declare const platform_getNixPlatform: typeof getNixPlatform;
-declare namespace platform {
-  export { platform_getArchOs as getArchOs, platform_getNixPlatform as getNixPlatform };
-}
-
+//#endregion
+//#region src/index.d.ts
 /**
  * An enum for describing different "fetch suffixes" for i.d.s.
  *
@@ -189,138 +172,139 @@ type NixRequirementHandling = "fail" | "warn" | "ignore";
  */
 type NixStoreTrust = "trusted" | "untrusted" | "unknown";
 type ActionOptions = {
-    name: string;
-    idsProjectName?: string;
-    eventPrefix?: string;
-    fetchStyle: FetchSuffixStyle;
-    legacySourcePrefix?: string;
-    requireNix: NixRequirementHandling;
-    diagnosticsSuffix?: string;
-    binaryNamePrefixes?: string[];
-    binaryNamesDenyList?: string[];
+  name: string;
+  idsProjectName?: string;
+  eventPrefix?: string;
+  fetchStyle: FetchSuffixStyle;
+  legacySourcePrefix?: string;
+  requireNix: NixRequirementHandling;
+  diagnosticsSuffix?: string;
+  binaryNamePrefixes?: string[];
+  binaryNamesDenyList?: string[];
 };
 /**
  * A confident version of Options, where defaults have been resolved into final values.
  */
 type ConfidentActionOptions = {
-    name: string;
-    idsProjectName: string;
-    eventPrefix: string;
-    fetchStyle: FetchSuffixStyle;
-    legacySourcePrefix?: string;
-    requireNix: NixRequirementHandling;
-    providedDiagnosticsUrl?: URL;
-    binaryNamePrefixes: string[];
-    binaryNamesDenyList: string[];
+  name: string;
+  idsProjectName: string;
+  eventPrefix: string;
+  fetchStyle: FetchSuffixStyle;
+  legacySourcePrefix?: string;
+  requireNix: NixRequirementHandling;
+  providedDiagnosticsUrl?: URL;
+  binaryNamePrefixes: string[];
+  binaryNamesDenyList: string[];
 };
 /**
  * An event to send to the diagnostic endpoint of i.d.s.
  */
 type DiagnosticEvent = {
-    name: string;
-    distinct_id?: string;
-    uuid: UUID;
-    timestamp: Date;
-    properties: Record<string, unknown>;
+  name: string;
+  distinct_id?: string;
+  uuid: UUID;
+  timestamp: Date;
+  properties: Record<string, unknown>;
 };
 declare abstract class DetSysAction {
-    nixStoreTrust: NixStoreTrust;
-    strictMode: boolean;
-    private actionOptions;
-    private exceptionAttachments;
-    private archOs;
-    private executionPhase;
-    private nixSystem;
-    private architectureFetchSuffix;
-    private sourceParameters;
-    private facts;
-    private events;
-    private identity;
-    private idsHost;
-    private features;
-    private featureEventMetadata;
-    private determineExecutionPhase;
-    constructor(actionOptions: ActionOptions);
-    /**
-     * Attach a file to the diagnostics data in error conditions.
-     *
-     * The file at `location` doesn't need to exist when stapleFile is called.
-     *
-     * If the file doesn't exist or is unreadable when trying to staple the attachments, the JS error will be stored in a context value at `staple_failure_{name}`.
-     * If the file is readable, the file's contents will be stored in a context value at `staple_value_{name}`.
-     */
-    stapleFile(name: string, location: string): void;
-    /**
-     * The main execution phase.
-     */
-    abstract main(): Promise<void>;
-    /**
-     * The post execution phase.
-     */
-    abstract post(): Promise<void>;
-    /**
-     * Execute the Action as defined.
-     */
-    execute(): void;
-    getTemporaryName(): string;
-    addFact(key: string, value: string | boolean | number): void;
-    getDiagnosticsUrl(): Promise<URL | undefined>;
-    getUniqueId(): string;
-    getCrossPhaseId(): string;
-    getCorrelationHashes(): AnonymizedCorrelationHashes;
-    recordEvent(eventName: string, context?: Record<string, boolean | string | number | undefined>): void;
-    /**
-     * Unpacks the closure returned by `fetchArtifact()`, imports the
-     * contents into the Nix store, and returns the path of the executable at
-     * `/nix/store/STORE_PATH/bin/${bin}`.
-     */
-    unpackClosure(bin: string): Promise<string>;
-    /**
-     * Fetches the executable at the URL determined by the `source-*` inputs and
-     * other facts, `chmod`s it, and returns the path to the executable on disk.
-     */
-    fetchExecutable(): Promise<string>;
-    private get isMain();
-    private get isPost();
-    private executeAsync;
-    getClient(): Promise<Got>;
-    private checkIn;
-    getFeature(name: string): Feature | undefined;
-    /**
-     * Check in to install.determinate.systems, to accomplish three things:
-     *
-     * 1. Preflight the server selected from IdsHost, to increase the chances of success.
-     * 2. Fetch any incidents and maintenance events to let users know in case things are weird.
-     * 3. Get feature flag data so we can gently roll out new features.
-     */
-    private requestCheckIn;
-    private recordPlausibleTimeout;
-    /**
-     * Fetch an artifact, such as a tarball, from the location determined by the
-     * `source-*` inputs. If `source-binary` is specified, this will return a path
-     * to a binary on disk; otherwise, the artifact will be downloaded from the
-     * URL determined by the other `source-*` inputs (`source-url`, `source-pr`,
-     * etc.).
-     */
-    private fetchArtifact;
-    /**
-     * A helper function for failing on error only if strict mode is enabled.
-     * This is intended only for CI environments testing Actions themselves.
-     */
-    failOnError(msg: string): void;
-    private downloadFile;
-    private complete;
-    private getCheckInUrl;
-    private getSourceUrl;
-    private cacheKey;
-    private getCachedVersion;
-    private saveCachedVersion;
-    private collectBacktraceSetup;
-    private collectBacktraces;
-    private preflightRequireNix;
-    private preflightNixStoreInfo;
-    private preflightNixVersion;
-    private submitEvents;
+  nixStoreTrust: NixStoreTrust;
+  strictMode: boolean;
+  private actionOptions;
+  private exceptionAttachments;
+  private archOs;
+  private executionPhase;
+  private nixSystem;
+  private architectureFetchSuffix;
+  private sourceParameters;
+  private facts;
+  private events;
+  private identity;
+  private idsHost;
+  private features;
+  private featureEventMetadata;
+  private determineExecutionPhase;
+  constructor(actionOptions: ActionOptions);
+  /**
+   * Attach a file to the diagnostics data in error conditions.
+   *
+   * The file at `location` doesn't need to exist when stapleFile is called.
+   *
+   * If the file doesn't exist or is unreadable when trying to staple the attachments, the JS error will be stored in a context value at `staple_failure_{name}`.
+   * If the file is readable, the file's contents will be stored in a context value at `staple_value_{name}`.
+   */
+  stapleFile(name: string, location: string): void;
+  /**
+   * The main execution phase.
+   */
+  abstract main(): Promise<void>;
+  /**
+   * The post execution phase.
+   */
+  abstract post(): Promise<void>;
+  /**
+   * Execute the Action as defined.
+   */
+  execute(): void;
+  getTemporaryName(): string;
+  addFact(key: string, value: string | boolean | number): void;
+  getDiagnosticsUrl(): Promise<URL | undefined>;
+  getUniqueId(): string;
+  getCrossPhaseId(): string;
+  getCorrelationHashes(): AnonymizedCorrelationHashes;
+  recordEvent(eventName: string, context?: Record<string, boolean | string | number | undefined>): void;
+  /**
+   * Unpacks the closure returned by `fetchArtifact()`, imports the
+   * contents into the Nix store, and returns the path of the executable at
+   * `/nix/store/STORE_PATH/bin/${bin}`.
+   */
+  unpackClosure(bin: string): Promise<string>;
+  /**
+   * Fetches the executable at the URL determined by the `source-*` inputs and
+   * other facts, `chmod`s it, and returns the path to the executable on disk.
+   */
+  fetchExecutable(): Promise<string>;
+  private get isMain();
+  private get isPost();
+  private executeAsync;
+  getClient(): Promise<Got>;
+  private checkIn;
+  getFeature(name: string): Feature | undefined;
+  /**
+   * Check in to install.determinate.systems, to accomplish three things:
+   *
+   * 1. Preflight the server selected from IdsHost, to increase the chances of success.
+   * 2. Fetch any incidents and maintenance events to let users know in case things are weird.
+   * 3. Get feature flag data so we can gently roll out new features.
+   */
+  private requestCheckIn;
+  private recordPlausibleTimeout;
+  /**
+   * Fetch an artifact, such as a tarball, from the location determined by the
+   * `source-*` inputs. If `source-binary` is specified, this will return a path
+   * to a binary on disk; otherwise, the artifact will be downloaded from the
+   * URL determined by the other `source-*` inputs (`source-url`, `source-pr`,
+   * etc.).
+   */
+  private fetchArtifact;
+  /**
+   * A helper function for failing on error only if strict mode is enabled.
+   * This is intended only for CI environments testing Actions themselves.
+   */
+  failOnError(msg: string): void;
+  private downloadFile;
+  private complete;
+  private getCheckInUrl;
+  private getSourceUrl;
+  private cacheKey;
+  private getCachedVersion;
+  private saveCachedVersion;
+  private collectBacktraceSetup;
+  private collectBacktraces;
+  private preflightRequireNix;
+  private preflightNixStoreInfo;
+  private preflightNixVersion;
+  private submitEvents;
 }
-
-export { type ActionOptions, type AnonymizedCorrelationHashes, type CheckIn, type ConfidentActionOptions, DetSysAction, type DiagnosticEvent, type ExecutionPhase, type Feature, type FetchSuffixStyle, IdsHost, type Incident, type Maintenance, type NixRequirementHandling, type NixStoreTrust, type Page, type SourceDef, type StatusSummary, inputs, platform, stringifyError };
+//#endregion
+export { ActionOptions, type AnonymizedCorrelationHashes, type CheckIn, ConfidentActionOptions, DetSysAction, DiagnosticEvent, ExecutionPhase, type Feature, FetchSuffixStyle, IdsHost, type Incident, type Maintenance, NixRequirementHandling, NixStoreTrust, type Page, type SourceDef, type StatusSummary, inputs_d_exports as inputs, platform_d_exports as platform, stringifyError };
+//# sourceMappingURL=index.d.ts.map
