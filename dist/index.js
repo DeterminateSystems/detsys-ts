@@ -266,8 +266,7 @@ async function collectBacktracesMacOS(prefixes, programNameDenyList, startTimest
 		const doGzip = promisify(gzip);
 		for (const fileName of fileNames) try {
 			if ((await stat(`${dir}/${fileName}`)).ctimeMs >= startTimestampMs) {
-				const logText = await readFile(`${dir}/${fileName}`);
-				const buf = await doGzip(logText);
+				const buf = await doGzip(await readFile(`${dir}/${fileName}`));
 				backtraces.set(`backtrace_value_${source}_${fileName}`, buf.toString("base64"));
 			}
 		} catch (innerError) {
@@ -421,9 +420,9 @@ var IdsHost = class {
 		this.runtimeDiagnosticsUrl = runtimeDiagnosticsUrl;
 		this.client = void 0;
 	}
-	async getGot(recordFailoverCallback) {
+	async getGot(recordFailoverCallback, timeout) {
 		if (this.client === void 0) this.client = got.extend({
-			timeout: { request: DEFAULT_TIMEOUT },
+			timeout: { request: timeout ?? DEFAULT_TIMEOUT },
 			retry: {
 				limit: Math.max((await this.getUrlsByPreference()).length, 3),
 				methods: ["GET", "HEAD"]
@@ -567,7 +566,7 @@ function weightedRandom(records) {
 
 //#endregion
 //#region src/inputs.ts
-var inputs_exports = __export({
+var inputs_exports = /* @__PURE__ */ __export({
 	getArrayOfStrings: () => getArrayOfStrings,
 	getArrayOfStringsOrNull: () => getArrayOfStringsOrNull,
 	getBool: () => getBool,
@@ -597,8 +596,7 @@ const getBoolOrUndefined = (name) => {
 * all whitespace is removed from the string before converting to an array.
 */
 const getArrayOfStrings = (name, separator) => {
-	const original = getString(name);
-	return handleString(original, separator);
+	return handleString(getString(name), separator);
 };
 /**
 * Convert a string input into an array of strings or `null` if no value is set.
@@ -655,7 +653,7 @@ const getStringOrUndefined = (name) => {
 
 //#endregion
 //#region src/platform.ts
-var platform_exports = __export({
+var platform_exports = /* @__PURE__ */ __export({
 	getArchOs: () => getArchOs,
 	getNixPlatform: () => getNixPlatform
 });
@@ -808,14 +806,13 @@ var DetSysAction = class {
 			project: this.actionOptions.name,
 			ids_project: this.actionOptions.idsProjectName
 		};
-		const params = [
+		for (const [target, env] of [
 			["github_action_ref", "GITHUB_ACTION_REF"],
 			["github_action_repository", "GITHUB_ACTION_REPOSITORY"],
 			["github_event_name", "GITHUB_EVENT_NAME"],
 			["$os", "RUNNER_OS"],
 			["arch", "RUNNER_ARCH"]
-		];
-		for (const [target, env] of params) {
+		]) {
 			const value = process.env[env];
 			if (value) this.facts[target] = value;
 		}
@@ -913,8 +910,8 @@ var DetSysAction = class {
 	* Fetches the executable at the URL determined by the `source-*` inputs and
 	* other facts, `chmod`s it, and returns the path to the executable on disk.
 	*/
-	async fetchExecutable() {
-		const binaryPath = await this.fetchArtifact();
+	async fetchExecutable(timeout) {
+		const binaryPath = await this.fetchArtifact(timeout);
 		await chmod(binaryPath, constants.S_IXUSR | constants.S_IXGRP);
 		return binaryPath;
 	}
@@ -956,8 +953,7 @@ var DetSysAction = class {
 			const doGzip = promisify(gzip);
 			const exceptionContext = /* @__PURE__ */ new Map();
 			for (const [attachmentLabel, filePath] of this.exceptionAttachments) try {
-				const logText = readFileSync(filePath);
-				const buf = await doGzip(logText);
+				const buf = await doGzip(readFileSync(filePath));
 				exceptionContext.set(`staple_value_${attachmentLabel}`, buf.toString("base64"));
 			} catch (innerError) {
 				exceptionContext.set(`staple_failure_${attachmentLabel}`, stringifyError$1(innerError));
@@ -968,14 +964,14 @@ var DetSysAction = class {
 			await this.complete();
 		}
 	}
-	async getClient() {
+	async getClient(timeout) {
 		return await this.idsHost.getGot((incitingError, prevUrl, nextUrl) => {
 			this.recordPlausibleTimeout(incitingError);
 			this.recordEvent("ids-failover", {
 				previousUrl: prevUrl.toString(),
 				nextUrl: nextUrl.toString()
 			});
-		});
+		}, timeout);
 	}
 	async checkIn() {
 		const checkin = await this.requestCheckIn();
@@ -1063,7 +1059,7 @@ var DetSysAction = class {
 	* URL determined by the other `source-*` inputs (`source-url`, `source-pr`,
 	* etc.).
 	*/
-	async fetchArtifact() {
+	async fetchArtifact(timeout) {
 		const sourceBinary = getStringOrNull("source-binary");
 		if (sourceBinary !== null && sourceBinary !== "") {
 			actionsCore.debug(`Using the provided source binary at ${sourceBinary}`);
@@ -1075,7 +1071,7 @@ var DetSysAction = class {
 			const correlatedUrl = await this.getSourceUrl();
 			correlatedUrl.searchParams.set("ci", "github");
 			correlatedUrl.searchParams.set("correlation", JSON.stringify(this.identity));
-			const versionCheckup = await (await this.getClient()).head(correlatedUrl);
+			const versionCheckup = await (await this.getClient(timeout)).head(correlatedUrl);
 			if (versionCheckup.headers.etag) {
 				const v = versionCheckup.headers.etag;
 				this.addFact(FACT_SOURCE_URL_ETAG, v);
@@ -1090,7 +1086,7 @@ var DetSysAction = class {
 			this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = false;
 			actionsCore.debug(`No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`);
 			const destFile = this.getTemporaryName();
-			const fetchStream = await this.downloadFile(new URL(versionCheckup.url), destFile);
+			const fetchStream = await this.downloadFile(new URL(versionCheckup.url), destFile, timeout);
 			if (fetchStream.response?.headers.etag) {
 				const v = fetchStream.response.headers.etag;
 				try {
@@ -1114,8 +1110,8 @@ var DetSysAction = class {
 	failOnError(msg) {
 		if (this.strictMode) actionsCore.setFailed(`strict mode failure: ${msg}`);
 	}
-	async downloadFile(url, destination) {
-		const client = await this.getClient();
+	async downloadFile(url, destination, timeout) {
+		const client = await this.getClient(timeout);
 		return new Promise((resolve, reject) => {
 			let writeStream;
 			let failed = false;

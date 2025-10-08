@@ -70,7 +70,7 @@ declare class IdsHost {
   private prioritizedURLs?;
   private client?;
   constructor(idsProjectName: string, diagnosticsSuffix: string | undefined, runtimeDiagnosticsUrl: string | undefined);
-  getGot(recordFailoverCallback?: (incitingError: unknown, prevUrl: URL, nextUrl: URL) => void): Promise<Got>;
+  getGot(recordFailoverCallback?: (incitingError: unknown, prevUrl: URL, nextUrl: URL) => void, timeout?: number): Promise<Got>;
   markCurrentHostBroken(): void;
   setPrioritizedUrls(urls: URL[]): void;
   isUrlSubjectToDynamicUrls(url: URL): boolean;
@@ -262,11 +262,11 @@ declare abstract class DetSysAction {
    * Fetches the executable at the URL determined by the `source-*` inputs and
    * other facts, `chmod`s it, and returns the path to the executable on disk.
    */
-  fetchExecutable(): Promise<string>;
+  fetchExecutable(timeout?: number): Promise<string>;
   private get isMain();
   private get isPost();
   private executeAsync;
-  getClient(): Promise<Got>;
+  getClient(timeout?: number): Promise<Got>;
   private checkIn;
   getFeature(name: string): Feature | undefined;
   /**
