@@ -486,8 +486,8 @@ export abstract class DetSysAction {
    * Fetches the executable at the URL determined by the `source-*` inputs and
    * other facts, `chmod`s it, and returns the path to the executable on disk.
    */
-  async fetchExecutable(): Promise<string> {
-    const binaryPath = await this.fetchArtifact();
+  async fetchExecutable(timeout?: number): Promise<string> {
+    const binaryPath = await this.fetchArtifact(timeout);
     await chmod(binaryPath, fsConstants.S_IXUSR | fsConstants.S_IXGRP);
     return binaryPath;
   }
@@ -572,7 +572,7 @@ export abstract class DetSysAction {
     }
   }
 
-  async getClient(): Promise<Got> {
+  async getClient(timeout?: number): Promise<Got> {
     return await this.idsHost.getGot(
       (incitingError: unknown, prevUrl: URL, nextUrl: URL) => {
         this.recordPlausibleTimeout(incitingError);
@@ -582,6 +582,7 @@ export abstract class DetSysAction {
           nextUrl: nextUrl.toString(),
         });
       },
+      timeout,
     );
   }
 
@@ -733,7 +734,7 @@ export abstract class DetSysAction {
    * URL determined by the other `source-*` inputs (`source-url`, `source-pr`,
    * etc.).
    */
-  private async fetchArtifact(): Promise<string> {
+  private async fetchArtifact(timeout?: number): Promise<string> {
     const sourceBinary = getStringOrNull("source-binary");
 
     // If source-binary is set, use that. Otherwise fall back to the source-* parameters.
@@ -756,7 +757,9 @@ export abstract class DetSysAction {
         JSON.stringify(this.identity),
       );
 
-      const versionCheckup = await (await this.getClient()).head(correlatedUrl);
+      const versionCheckup = await (
+        await this.getClient(timeout)
+      ).head(correlatedUrl);
       if (versionCheckup.headers.etag) {
         const v = versionCheckup.headers.etag;
         this.addFact(FACT_SOURCE_URL_ETAG, v);
@@ -783,6 +786,7 @@ export abstract class DetSysAction {
       const fetchStream = await this.downloadFile(
         new URL(versionCheckup.url),
         destFile,
+        timeout,
       );
 
       if (fetchStream.response?.headers.etag) {
@@ -817,8 +821,9 @@ export abstract class DetSysAction {
   private async downloadFile(
     url: URL,
     destination: PathLike,
+    timeout?: number,
   ): Promise<Request> {
-    const client = await this.getClient();
+    const client = await this.getClient(timeout);
 
     return new Promise((resolve, reject) => {
       // Current stream handle

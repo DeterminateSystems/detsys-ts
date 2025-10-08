@@ -46,11 +46,12 @@ export class IdsHost {
       prevUrl: URL,
       nextUrl: URL,
     ) => void,
+    timeout?: number,
   ): Promise<Got> {
     if (this.client === undefined) {
       this.client = got.extend({
         timeout: {
-          request: DEFAULT_TIMEOUT,
+          request: timeout ?? DEFAULT_TIMEOUT,
         },
 
         retry: {
