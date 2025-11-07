@@ -10,4 +10,4 @@ var __export = (all) => {
 };
 
 //#endregion
-export { __export };
+export { __export as t };
