@@ -1,4 +1,4 @@
-import { __export } from "./chunk-CTAAG5j7.js";
+import { t as __export } from "./chunk-Bp6m_JJh.js";
 import * as fs$1 from "node:fs";
 import { constants, createWriteStream, readFileSync } from "node:fs";
 import * as os$1 from "node:os";
@@ -266,8 +266,7 @@ async function collectBacktracesMacOS(prefixes, programNameDenyList, startTimest
 		const doGzip = promisify(gzip);
 		for (const fileName of fileNames) try {
 			if ((await stat(`${dir}/${fileName}`)).ctimeMs >= startTimestampMs) {
-				const logText = await readFile(`${dir}/${fileName}`);
-				const buf = await doGzip(logText);
+				const buf = await doGzip(await readFile(`${dir}/${fileName}`));
 				backtraces.set(`backtrace_value_${source}_${fileName}`, buf.toString("base64"));
 			}
 		} catch (innerError) {
@@ -567,7 +566,7 @@ function weightedRandom(records) {
 
 //#endregion
 //#region src/inputs.ts
-var inputs_exports = __export({
+var inputs_exports = /* @__PURE__ */ __export({
 	getArrayOfStrings: () => getArrayOfStrings,
 	getArrayOfStringsOrNull: () => getArrayOfStringsOrNull,
 	getBool: () => getBool,
@@ -597,8 +596,7 @@ const getBoolOrUndefined = (name) => {
 * all whitespace is removed from the string before converting to an array.
 */
 const getArrayOfStrings = (name, separator) => {
-	const original = getString(name);
-	return handleString(original, separator);
+	return handleString(getString(name), separator);
 };
 /**
 * Convert a string input into an array of strings or `null` if no value is set.
@@ -655,7 +653,7 @@ const getStringOrUndefined = (name) => {
 
 //#endregion
 //#region src/platform.ts
-var platform_exports = __export({
+var platform_exports = /* @__PURE__ */ __export({
 	getArchOs: () => getArchOs,
 	getNixPlatform: () => getNixPlatform
 });
@@ -808,14 +806,13 @@ var DetSysAction = class {
 			project: this.actionOptions.name,
 			ids_project: this.actionOptions.idsProjectName
 		};
-		const params = [
+		for (const [target, env] of [
 			["github_action_ref", "GITHUB_ACTION_REF"],
 			["github_action_repository", "GITHUB_ACTION_REPOSITORY"],
 			["github_event_name", "GITHUB_EVENT_NAME"],
 			["$os", "RUNNER_OS"],
 			["arch", "RUNNER_ARCH"]
-		];
-		for (const [target, env] of params) {
+		]) {
 			const value = process.env[env];
 			if (value) this.facts[target] = value;
 		}
@@ -956,8 +953,7 @@ var DetSysAction = class {
 			const doGzip = promisify(gzip);
 			const exceptionContext = /* @__PURE__ */ new Map();
 			for (const [attachmentLabel, filePath] of this.exceptionAttachments) try {
-				const logText = readFileSync(filePath);
-				const buf = await doGzip(logText);
+				const buf = await doGzip(readFileSync(filePath));
 				exceptionContext.set(`staple_value_${attachmentLabel}`, buf.toString("base64"));
 			} catch (innerError) {
 				exceptionContext.set(`staple_failure_${attachmentLabel}`, stringifyError$1(innerError));
