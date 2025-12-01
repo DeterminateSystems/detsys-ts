@@ -313,4 +313,4 @@ declare abstract class DetSysAction {
 }
 //#endregion
 export { ActionOptions, type AnonymizedCorrelationHashes, type CheckIn, ConfidentActionOptions, DetSysAction, DiagnosticEvent, ExecutionPhase, type Feature, FetchSuffixStyle, IdsHost, type Incident, type Maintenance, NixRequirementHandling, NixStoreTrust, type Page, type SourceDef, type StatusSummary, inputs_d_exports as inputs, platform_d_exports as platform, stringifyError };
-//# sourceMappingURL=index.d.ts.map
+//# sourceMappingURL=index.d.mts.map

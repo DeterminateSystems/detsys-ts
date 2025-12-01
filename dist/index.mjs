@@ -1,4 +1,4 @@
-import { t as __export } from "./chunk-Bp6m_JJh.js";
+import { t as __export } from "./chunk-C6wwvPpM.mjs";
 import * as fs$1 from "node:fs";
 import { constants, createWriteStream, readFileSync } from "node:fs";
 import * as os$1 from "node:os";
@@ -17,6 +17,16 @@ import { exec } from "node:child_process";
 import * as path from "node:path";
 
 //#region src/linux-release-info.ts
+/*!
+* linux-release-info
+* Get Linux release info (distribution name, version, arch, release, etc.)
+* from '/etc/os-release' or '/usr/lib/os-release' files and from native os
+* module. On Windows and Darwin platforms it only returns common node os module
+* info (platform, hostname, release, and arch)
+*
+* Licensed under MIT
+* Copyright (c) 2018-2020 [Samuel Carreira]
+*/
 const readFileAsync = promisify(fs$1.readFile);
 const linuxReleaseInfoOptionsDefaults = {
 	mode: "async",
@@ -225,6 +235,10 @@ function stringifyError(e) {
 
 //#endregion
 //#region src/backtrace.ts
+/**
+* @packageDocumentation
+* Collects backtraces for executables for diagnostics
+*/
 const START_SLOP_SECONDS = 5;
 async function collectBacktraces(prefixes, programNameDenyList, startTimestampMs) {
 	if (isMacOS) return await collectBacktracesMacOS(prefixes, programNameDenyList, startTimestampMs);
@@ -405,6 +419,10 @@ function hashEnvironmentVariables(prefix, variables) {
 
 //#endregion
 //#region src/ids-host.ts
+/**
+* @packageDocumentation
+* Identifies and discovers backend servers for install.determinate.systems
+*/
 const DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
 const ALLOWED_SUFFIXES = [".install.determinate.systems", ".install.detsys.dev"];
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
@@ -566,6 +584,10 @@ function weightedRandom(records) {
 
 //#endregion
 //#region src/inputs.ts
+/**
+* @packageDocumentation
+* Helpers for getting values from an Action's configuration.
+*/
 var inputs_exports = /* @__PURE__ */ __export({
 	getArrayOfStrings: () => getArrayOfStrings,
 	getArrayOfStringsOrNull: () => getArrayOfStringsOrNull,
@@ -653,6 +675,10 @@ const getStringOrUndefined = (name) => {
 
 //#endregion
 //#region src/platform.ts
+/**
+* @packageDocumentation
+* Helpers for determining system attributes of the current runner.
+*/
 var platform_exports = /* @__PURE__ */ __export({
 	getArchOs: () => getArchOs,
 	getNixPlatform: () => getNixPlatform
@@ -713,6 +739,10 @@ function noisilyGetInput(suffix, legacyPrefix) {
 
 //#endregion
 //#region src/index.ts
+/**
+* @packageDocumentation
+* Determinate Systems' TypeScript library for creating GitHub Actions logic.
+*/
 const pkgVersion = "1.0";
 const EVENT_BACKTRACES = "backtrace";
 const EVENT_EXCEPTION = "exception";
@@ -1345,4 +1375,4 @@ function makeOptionsConfident(actionOptions) {
 
 //#endregion
 export { DetSysAction, IdsHost, inputs_exports as inputs, platform_exports as platform, stringifyError };
-//# sourceMappingURL=index.js.map
+//# sourceMappingURL=index.mjs.map
