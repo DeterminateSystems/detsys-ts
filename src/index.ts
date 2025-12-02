@@ -179,7 +179,7 @@ export type DiagnosticEvent = {
 const determinateStateDir = "/var/lib/determinate";
 const determinateIdentityFile = path.join(determinateStateDir, "identity.json");
 
-const isRoot = os.userInfo().uid === 0;
+const isRoot = typeof process.geteuid === "function" && process.geteuid() === 0;
 
 /** Create the Determinate state directory by escalating via sudo */
 async function sudoEnsureDeterminateStateDir(): Promise<void> {
