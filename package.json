@@ -2,8 +2,8 @@
   "name": "detsys-ts",
   "version": "1.0.0",
   "description": "TypeScript goodies for DetSys projects",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
   "type": "module",
   "scripts": {
     "build": "tsdown",
