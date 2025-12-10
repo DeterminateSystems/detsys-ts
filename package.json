@@ -13,7 +13,7 @@
     "docs": "typedoc",
     "test": "vitest --watch false",
     "test-dev": "vitest",
-    "all": "rm -rf dist && pnpm run format && pnpm run lint && pnpm run build"
+    "all": "rm -rf dist && npm run format && npm run lint && npm run build"
   },
   "repository": {
     "type": "git",
@@ -35,8 +35,8 @@
   },
   "devDependencies": {
     "@trivago/prettier-plugin-sort-imports": "^6.0.0",
-    "@types/node": "^24.10.1",
-    "@typescript-eslint/eslint-plugin": "^8.48.1",
+    "@types/node": "^24.10.2",
+    "@typescript-eslint/eslint-plugin": "^8.49.0",
     "eslint": "^9.39.1",
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-github": "^6.0.0",
@@ -44,10 +44,10 @@
     "eslint-plugin-prettier": "^5.5.4",
     "globals": "^16.5.0",
     "prettier": "^3.7.4",
-    "tsdown": "^0.17.0",
+    "tsdown": "^0.17.2",
     "typedoc": "^0.28.15",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.48.1",
+    "typescript-eslint": "^8.49.0",
     "vitest": "^4.0.15"
   }
 }
