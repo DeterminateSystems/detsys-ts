@@ -28,14 +28,14 @@
   "homepage": "https://github.com/DeterminateSystems/detsys-ts#readme",
   "dependencies": {
     "@actions/cache": "^4.1.0",
-    "@actions/core": "^1.11.1",
-    "@actions/exec": "^1.1.1",
+    "@actions/core": "^2.0.0",
+    "@actions/exec": "^2.0.0",
     "got": "^14.6.5",
     "type-fest": "^5.3.1"
   },
   "devDependencies": {
     "@trivago/prettier-plugin-sort-imports": "^6.0.0",
-    "@types/node": "^24.10.2",
+    "@types/node": "^25.0.0",
     "@typescript-eslint/eslint-plugin": "^8.49.0",
     "eslint": "^9.39.1",
     "eslint-import-resolver-typescript": "^4.4.4",
