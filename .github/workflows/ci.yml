@@ -18,17 +18,17 @@ jobs:
       - name: Check Nix formatting
         run: git ls-files '*.nix' | xargs nix develop --command nixfmt --check
 
-      - name: Install pnpm dependencies
-        run: nix develop --command pnpm install
+      - name: Install npm dependencies
+        run: nix develop --command npm ci
 
       - name: Lint
-        run: nix develop --command pnpm run lint
+        run: nix develop --command npm run lint
 
       - name: Run test suite
-        run: nix develop --command pnpm run test
+        run: nix develop --command npm run test
 
       - name: Build
-        run: nix develop --command pnpm run build
+        run: nix develop --command npm run build
 
       - name: Check git status
         run: git status --porcelain=v1
@@ -40,4 +40,4 @@ jobs:
       - name: Build docs
         run: |
           rm -rf dist
-          nix develop --command pnpm run docs
+          nix develop --command npm run docs
