@@ -1096,9 +1096,9 @@ export abstract class DetSysAction {
 
     try {
       const parsed = JSON.parse(output);
-      if (parsed.trusted === 1) {
+      if (parsed.trusted === true || parsed.trusted === 1) {
         this.nixStoreTrust = "trusted";
-      } else if (parsed.trusted === 0) {
+      } else if (parsed.trusted === false || parsed.trusted === 0) {
         this.nixStoreTrust = "untrusted";
       } else if (parsed.trusted !== undefined) {
         this.addFact(

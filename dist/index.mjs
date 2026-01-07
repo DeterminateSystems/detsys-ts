@@ -1310,8 +1310,8 @@ var DetSysAction = class {
 		}
 		try {
 			const parsed = JSON.parse(output);
-			if (parsed.trusted === 1) this.nixStoreTrust = "trusted";
-			else if (parsed.trusted === 0) this.nixStoreTrust = "untrusted";
+			if (parsed.trusted === true || parsed.trusted === 1) this.nixStoreTrust = "trusted";
+			else if (parsed.trusted === false || parsed.trusted === 0) this.nixStoreTrust = "untrusted";
 			else if (parsed.trusted !== void 0) this.addFact(FACT_NIX_STORE_CHECK_ERROR, `Mysterious trusted value: ${JSON.stringify(parsed.trusted)}`);
 			this.addFact(FACT_NIX_STORE_VERSION, JSON.stringify(parsed.version));
 		} catch (e) {
