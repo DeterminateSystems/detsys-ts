@@ -1,6 +1,6 @@
 //#region rolldown:runtime
 var __defProp = Object.defineProperty;
-var __export = (all, symbols) => {
+var __exportAll = (all, symbols) => {
 	let target = {};
 	for (var name in all) {
 		__defProp(target, name, {
@@ -15,4 +15,4 @@ var __export = (all, symbols) => {
 };
 
 //#endregion
-export { __export as t };
+export { __exportAll as t };
