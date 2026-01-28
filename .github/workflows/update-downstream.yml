@@ -11,7 +11,9 @@ jobs:
     environment: detsys-pr-bot
     name: Pull request detsys-ts update to ${{ github.repository_owner }}/${{ matrix.repo }}
     runs-on: ubuntu-22.04
-
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
