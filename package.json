@@ -27,22 +27,22 @@
   },
   "homepage": "https://github.com/DeterminateSystems/detsys-ts#readme",
   "dependencies": {
-    "@actions/cache": "^5.0.3",
-    "@actions/core": "^2.0.2",
-    "@actions/exec": "^2.0.0",
+    "@actions/cache": "^6.0.0",
+    "@actions/core": "^3.0.0",
+    "@actions/exec": "^3.0.0",
     "got": "^14.6.6",
-    "type-fest": "^5.4.1"
+    "type-fest": "^5.4.3"
   },
   "devDependencies": {
     "@trivago/prettier-plugin-sort-imports": "^6.0.2",
-    "@types/node": "^25.0.10",
+    "@types/node": "^25.2.0",
     "@typescript-eslint/eslint-plugin": "^8.53.1",
     "eslint": "^9.39.2",
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-github": "^6.0.0",
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-prettier": "^5.5.5",
-    "globals": "^17.1.0",
+    "globals": "^17.3.0",
     "prettier": "^3.8.1",
     "tsdown": "^0.20.1",
     "typedoc": "^0.28.16",
