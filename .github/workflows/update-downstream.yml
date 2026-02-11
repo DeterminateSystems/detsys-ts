@@ -78,6 +78,13 @@ jobs:
         run: |
           gh repo fork
 
+      - name: Update flake inputs
+        working-directory: target
+        run: |
+          if [ -f ./flake.nix ]; then
+             nix flake update --commit-lock-file
+          fi
+
       - name: Update `detsys-ts` dependency for ${{ env.TARGET_REPO }} to ref `${{ env.REF }}`
         working-directory: target
         run: |
