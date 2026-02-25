@@ -87,6 +87,18 @@ const getNumberOrNull = (name: string): number | null => {
 };
 
 /**
+ * Get a Number input from the Action's configuration by name, or undefined if it is unset.
+ */
+const getNumberOrUndefined = (name: string): number | undefined => {
+  const value = getStringOrUndefined(name);
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return Number(value);
+};
+
+/**
  * Get a string input from the Action's configuration.
  */
 const getString = (name: string): string => {
@@ -124,6 +136,7 @@ export {
   getArrayOfStringsOrNull,
   getMultilineStringOrNull,
   getNumberOrNull,
+  getNumberOrUndefined,
   getString,
   getStringOrNull,
   getStringOrUndefined,
