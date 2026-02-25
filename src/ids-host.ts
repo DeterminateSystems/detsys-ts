@@ -28,16 +28,19 @@ export class IdsHost {
   private runtimeDiagnosticsUrl?: string;
   private prioritizedURLs?: URL[];
   private client?: Got;
+  private timeout?: number;
 
   constructor(
     idsProjectName: string,
     diagnosticsSuffix: string | undefined,
     runtimeDiagnosticsUrl: string | undefined,
+    timeout: number | undefined,
   ) {
     this.idsProjectName = idsProjectName;
     this.diagnosticsSuffix = diagnosticsSuffix;
     this.runtimeDiagnosticsUrl = runtimeDiagnosticsUrl;
     this.client = undefined;
+    this.timeout = timeout ?? DEFAULT_TIMEOUT;
   }
 
   async getGot(
@@ -50,7 +53,7 @@ export class IdsHost {
     if (this.client === undefined) {
       this.client = got.extend({
         timeout: {
-          request: DEFAULT_TIMEOUT,
+          request: this.timeout,
         },
 
         retry: {
