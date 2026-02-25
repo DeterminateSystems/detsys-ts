@@ -69,7 +69,8 @@ declare class IdsHost {
   private runtimeDiagnosticsUrl?;
   private prioritizedURLs?;
   private client?;
-  constructor(idsProjectName: string, diagnosticsSuffix: string | undefined, runtimeDiagnosticsUrl: string | undefined);
+  private timeout?;
+  constructor(idsProjectName: string, diagnosticsSuffix: string | undefined, runtimeDiagnosticsUrl: string | undefined, timeout?: number);
   getGot(recordFailoverCallback?: (incitingError: unknown, prevUrl: URL, nextUrl: URL) => void): Promise<Got>;
   markCurrentHostBroken(): void;
   setPrioritizedUrls(urls: URL[]): void;
@@ -90,7 +91,7 @@ type SourceDef = {
   revision?: string;
 };
 declare namespace inputs_d_exports {
-  export { Separator, getArrayOfStrings, getArrayOfStringsOrNull, getBool, getBoolOrUndefined, getMultilineStringOrNull, getNumberOrNull, getString, getStringOrNull, getStringOrUndefined, handleString };
+  export { Separator, getArrayOfStrings, getArrayOfStringsOrNull, getBool, getBoolOrUndefined, getMultilineStringOrNull, getNumberOrNull, getNumberOrUndefined, getString, getStringOrNull, getStringOrUndefined, handleString };
 }
 /**
  * Get a Boolean input from the Action's configuration by name.
@@ -122,6 +123,10 @@ declare const getMultilineStringOrNull: (name: string) => string[] | null;
  * Get a number input from the Action's configuration by name or return `null` if not set.
  */
 declare const getNumberOrNull: (name: string) => number | null;
+/**
+ * Get a Number input from the Action's configuration by name, or undefined if it is unset.
+ */
+declare const getNumberOrUndefined: (name: string) => number | undefined;
 /**
  * Get a string input from the Action's configuration.
  */
