@@ -70,7 +70,7 @@ declare class IdsHost {
   private prioritizedURLs?;
   private client?;
   private timeout?;
-  constructor(idsProjectName: string, diagnosticsSuffix: string | undefined, runtimeDiagnosticsUrl: string | undefined, timeout: number | undefined);
+  constructor(idsProjectName: string, diagnosticsSuffix: string | undefined, runtimeDiagnosticsUrl: string | undefined, timeout?: number);
   getGot(recordFailoverCallback?: (incitingError: unknown, prevUrl: URL, nextUrl: URL) => void): Promise<Got>;
   markCurrentHostBroken(): void;
   setPrioritizedUrls(urls: URL[]): void;

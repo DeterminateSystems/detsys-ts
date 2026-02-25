@@ -432,12 +432,12 @@ const DEFAULT_TIMEOUT = 1e4;
 * Host information for install.determinate.systems.
 */
 var IdsHost = class {
-	constructor(idsProjectName, diagnosticsSuffix, runtimeDiagnosticsUrl, timeout) {
+	constructor(idsProjectName, diagnosticsSuffix, runtimeDiagnosticsUrl, timeout = DEFAULT_TIMEOUT) {
 		this.idsProjectName = idsProjectName;
 		this.diagnosticsSuffix = diagnosticsSuffix;
 		this.runtimeDiagnosticsUrl = runtimeDiagnosticsUrl;
 		this.client = void 0;
-		this.timeout = timeout ?? DEFAULT_TIMEOUT;
+		this.timeout = timeout;
 	}
 	async getGot(recordFailoverCallback) {
 		if (this.client === void 0) this.client = got.extend({
