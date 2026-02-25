@@ -8,7 +8,12 @@ import { collectBacktraces } from "./backtrace.js";
 import type { CheckIn, Feature } from "./check-in.js";
 import * as correlation from "./correlation.js";
 import { IdsHost } from "./ids-host.js";
-import { getBool, getBoolOrUndefined, getStringOrNull } from "./inputs.js";
+import {
+  getBool,
+  getBoolOrUndefined,
+  getNumberOrUndefined,
+  getStringOrNull,
+} from "./inputs.js";
 import * as platform from "./platform.js";
 import type { SourceDef } from "./sourcedef.js";
 import { constructSourceParameters } from "./sourcedef.js";
@@ -270,6 +275,7 @@ export abstract class DetSysAction {
       // Note: we don't use actionsCore.getInput('diagnostic-endpoint') on purpose:
       // getInput silently converts absent data to an empty string.
       process.env["INPUT_DIAGNOSTIC-ENDPOINT"],
+      getNumberOrUndefined("timeout-request"),
     );
     this.exceptionAttachments = new Map();
     this.nixStoreTrust = "unknown";
