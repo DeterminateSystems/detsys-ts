@@ -28,7 +28,7 @@ export class IdsHost {
   private runtimeDiagnosticsUrl?: string;
   private prioritizedURLs?: URL[];
   private client?: Got;
-  private timeout?: number;
+  private timeout: number;
 
   constructor(
     idsProjectName: string,
