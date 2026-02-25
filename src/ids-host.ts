@@ -34,13 +34,13 @@ export class IdsHost {
     idsProjectName: string,
     diagnosticsSuffix: string | undefined,
     runtimeDiagnosticsUrl: string | undefined,
-    timeout: number | undefined,
+    timeout: number = DEFAULT_TIMEOUT,
   ) {
     this.idsProjectName = idsProjectName;
     this.diagnosticsSuffix = diagnosticsSuffix;
     this.runtimeDiagnosticsUrl = runtimeDiagnosticsUrl;
     this.client = undefined;
-    this.timeout = timeout ?? DEFAULT_TIMEOUT;
+    this.timeout = timeout;
   }
 
   async getGot(
