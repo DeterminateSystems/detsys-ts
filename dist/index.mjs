@@ -432,15 +432,16 @@ const DEFAULT_TIMEOUT = 1e4;
 * Host information for install.determinate.systems.
 */
 var IdsHost = class {
-	constructor(idsProjectName, diagnosticsSuffix, runtimeDiagnosticsUrl) {
+	constructor(idsProjectName, diagnosticsSuffix, runtimeDiagnosticsUrl, timeout) {
 		this.idsProjectName = idsProjectName;
 		this.diagnosticsSuffix = diagnosticsSuffix;
 		this.runtimeDiagnosticsUrl = runtimeDiagnosticsUrl;
 		this.client = void 0;
+		this.timeout = timeout ?? DEFAULT_TIMEOUT;
 	}
 	async getGot(recordFailoverCallback) {
 		if (this.client === void 0) this.client = got.extend({
-			timeout: { request: DEFAULT_TIMEOUT },
+			timeout: { request: this.timeout },
 			retry: {
 				limit: Math.max((await this.getUrlsByPreference()).length, 3),
 				methods: ["GET", "HEAD"]
@@ -595,6 +596,7 @@ var inputs_exports = /* @__PURE__ */ __exportAll({
 	getBoolOrUndefined: () => getBoolOrUndefined,
 	getMultilineStringOrNull: () => getMultilineStringOrNull,
 	getNumberOrNull: () => getNumberOrNull,
+	getNumberOrUndefined: () => getNumberOrUndefined,
 	getString: () => getString,
 	getStringOrNull: () => getStringOrNull,
 	getStringOrUndefined: () => getStringOrUndefined,
@@ -649,6 +651,14 @@ const getNumberOrNull = (name) => {
 	const value = actionsCore.getInput(name);
 	if (value === "") return null;
 	else return Number(value);
+};
+/**
+* Get a Number input from the Action's configuration by name, or undefined if it is unset.
+*/
+const getNumberOrUndefined = (name) => {
+	const value = getStringOrUndefined(name);
+	if (value === void 0) return;
+	return Number(value);
 };
 /**
 * Get a string input from the Action's configuration.
@@ -817,7 +827,7 @@ var DetSysAction = class {
 	}
 	constructor(actionOptions) {
 		this.actionOptions = makeOptionsConfident(actionOptions);
-		this.idsHost = new IdsHost(this.actionOptions.idsProjectName, actionOptions.diagnosticsSuffix, process.env["INPUT_DIAGNOSTIC-ENDPOINT"]);
+		this.idsHost = new IdsHost(this.actionOptions.idsProjectName, actionOptions.diagnosticsSuffix, process.env["INPUT_DIAGNOSTIC-ENDPOINT"], getNumberOrUndefined("timeout-request"));
 		this.exceptionAttachments = /* @__PURE__ */ new Map();
 		this.nixStoreTrust = "unknown";
 		this.strictMode = getBool("_internal-strict-mode");
