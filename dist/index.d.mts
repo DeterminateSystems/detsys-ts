@@ -69,7 +69,7 @@ declare class IdsHost {
   private runtimeDiagnosticsUrl?;
   private prioritizedURLs?;
   private client?;
-  private timeout?;
+  private timeout;
   constructor(idsProjectName: string, diagnosticsSuffix: string | undefined, runtimeDiagnosticsUrl: string | undefined, timeout?: number);
   getGot(recordFailoverCallback?: (incitingError: unknown, prevUrl: URL, nextUrl: URL) => void): Promise<Got>;
   markCurrentHostBroken(): void;
