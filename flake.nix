@@ -2,7 +2,6 @@
   description = "Development environment for detsys-ts";
 
   inputs = {
-    flake-schemas.url = "https://flakehub.com/f/DeterminateSystems/flake-schemas/0.1";
     nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0";
   };
 
@@ -29,8 +28,6 @@
         );
     in
     {
-      inherit (inputs.flake-schemas) schemas;
-
       formatter = forEachSupportedSystem ({ pkgs, ... }: pkgs.nixfmt-rfc-style);
 
       devShells = forEachSupportedSystem (

@@ -1,4 +1,4 @@
-import { t as __exportAll } from "./chunk-DQk6qfdC.mjs";
+import { t as __exportAll } from "./chunk-CfYAbeIz.mjs";
 import * as fs$1 from "node:fs";
 import { constants, createWriteStream, readFileSync } from "node:fs";
 import * as os$1 from "node:os";
@@ -15,7 +15,6 @@ import { resolveSrv } from "node:dns/promises";
 import * as actionsCache from "@actions/cache";
 import { exec } from "node:child_process";
 import * as path from "node:path";
-
 //#region src/linux-release-info.ts
 /*!
 * linux-release-info
@@ -125,7 +124,6 @@ function readSyncOsreleaseFile(releaseFileList, options) {
 	if (fileData === null) throw new Error("Cannot read os-release file!");
 	return formatFileData(getOsInfo(), fileData);
 }
-
 //#endregion
 //#region src/actions-core-platform.ts
 /**
@@ -221,7 +219,6 @@ async function getDetails() {
 		isLinux
 	};
 }
-
 //#endregion
 //#region src/errors.ts
 /**
@@ -232,7 +229,6 @@ function stringifyError(e) {
 	else if (typeof e === "string") return e;
 	else return JSON.stringify(e);
 }
-
 //#endregion
 //#region src/backtrace.ts
 /**
@@ -328,7 +324,6 @@ async function collectBacktracesSystemd(prefixes, programNameDenyList, startTime
 	}
 	return backtraces;
 }
-
 //#endregion
 //#region src/correlation.ts
 const OPTIONAL_VARIABLES = ["INVOCATION_ID"];
@@ -416,7 +411,6 @@ function hashEnvironmentVariables(prefix, variables) {
 	}
 	return `${prefix}-${hash.digest("hex")}`;
 }
-
 //#endregion
 //#region src/ids-host.ts
 /**
@@ -582,7 +576,6 @@ function weightedRandom(records) {
 	}
 	return result;
 }
-
 //#endregion
 //#region src/inputs.ts
 /**
@@ -682,7 +675,6 @@ const getStringOrUndefined = (name) => {
 	if (value === "") return;
 	else return value;
 };
-
 //#endregion
 //#region src/platform.ts
 /**
@@ -721,7 +713,6 @@ function getNixPlatform(archOs) {
 		throw new Error(`Cannot convert ArchOs (${archOs}) to a supported Nix platform.`);
 	}
 }
-
 //#endregion
 //#region src/sourcedef.ts
 function constructSourceParameters(legacyPrefix) {
@@ -746,7 +737,6 @@ function noisilyGetInput(suffix, legacyPrefix) {
 		return legacyInput;
 	} else return preferredInput;
 }
-
 //#endregion
 //#region src/index.ts
 /**
@@ -1382,7 +1372,7 @@ function makeOptionsConfident(actionOptions) {
 	actionsCore.debug(JSON.stringify(finalOpts, void 0, 2));
 	return finalOpts;
 }
-
 //#endregion
 export { DetSysAction, IdsHost, inputs_exports as inputs, platform_exports as platform, stringifyError };
+
 //# sourceMappingURL=index.mjs.map
