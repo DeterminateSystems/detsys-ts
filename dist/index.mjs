@@ -705,7 +705,8 @@ function getNixPlatform(archOs) {
 		["X64-macOS", "x86_64-darwin"],
 		["ARM64-macOS", "aarch64-darwin"],
 		["X64-Linux", "x86_64-linux"],
-		["ARM64-Linux", "aarch64-linux"]
+		["ARM64-Linux", "aarch64-linux"],
+		["RISCV64-Linux", "riscv64-linux"]
 	]).get(archOs);
 	if (mappedTo) return mappedTo;
 	else {

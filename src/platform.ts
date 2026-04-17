@@ -30,6 +30,7 @@ export function getNixPlatform(archOs: string): string {
     ["ARM64-macOS", "aarch64-darwin"],
     ["X64-Linux", "x86_64-linux"],
     ["ARM64-Linux", "aarch64-linux"],
+    ["RISCV64-Linux", "riscv64-linux"],
   ]);
 
   const mappedTo = archOsMap.get(archOs);
