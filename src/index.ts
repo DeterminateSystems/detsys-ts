@@ -443,7 +443,11 @@ export abstract class DetSysAction {
 
   recordEvent(
     eventName: string,
-    context: Record<string, boolean | string | number | undefined> = {},
+    context: Record<
+      string,
+      boolean | string | number | undefined,
+      Record<string, boolean | string | number | undefined>
+    > = {},
   ): void {
     const prefixedName =
       eventName === "$feature_flag_called" || eventName === "$groupidentify"
