@@ -280,6 +280,7 @@ declare abstract class DetSysAction {
   getClient(): Promise<Got>;
   private checkIn;
   getFeature(name: string): Feature | undefined;
+  private recordGroup;
   /**
    * Check in to install.determinate.systems, to accomplish three things:
    *

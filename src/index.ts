@@ -446,7 +446,7 @@ export abstract class DetSysAction {
     context: Record<string, boolean | string | number | undefined> = {},
   ): void {
     const prefixedName =
-      eventName === "$feature_flag_called"
+      eventName === "$feature_flag_called" || eventName === "$groupidentify"
         ? eventName
         : `${this.actionOptions.eventPrefix}${eventName}`;
 
@@ -528,6 +528,7 @@ export abstract class DetSysAction {
       }
 
       if (this.isMain) {
+        await this.recordGroup();
         await this.main();
 
         // Run the preflight of the nix version a second time so our "shutdown" events have updated version info.
@@ -656,6 +657,21 @@ export abstract class DetSysAction {
     });
 
     return result;
+  }
+
+  private async recordGroup(): Promise<undefined> {
+    const ghorg_hash = this.identity.$groups["github_organization"];
+    const ghorg_name = process.env["GITHUB_REPOSITORY_OWNER"];
+
+    if (ghorg_hash !== undefined && ghorg_name !== undefined) {
+      this.recordEvent("$groupidentify", {
+        $group_type: "github_organization",
+        $group_key: ghorg_hash,
+        $group_set: {
+          name: ghorg_name,
+        },
+      });
+    }
   }
 
   /**
