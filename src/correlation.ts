@@ -7,7 +7,7 @@ const OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 /**
  * JSON sent to server.
  */
-export type AnonymizedCorrelationHashes = {
+export type CorrelationProperties = {
   $anon_distinct_id: string;
   $groups: Record<string, string | undefined>;
   $session_id?: string;
@@ -20,7 +20,7 @@ export type AnonymizedCorrelationHashes = {
   is_ci: boolean;
 };
 
-export function identify(): AnonymizedCorrelationHashes {
+export function identify(): CorrelationProperties {
   const repository = hashEnvironmentVariables("GHR", [
     "GITHUB_SERVER_URL",
     "GITHUB_REPOSITORY_OWNER",
@@ -43,7 +43,7 @@ export function identify(): AnonymizedCorrelationHashes {
     "INVOCATION_ID",
   ]);
 
-  const ident: AnonymizedCorrelationHashes = {
+  const ident: CorrelationProperties = {
     $anon_distinct_id: process.env["RUNNER_TRACKING_ID"] || randomUUID(),
 
     correlation_source: "github-actions",

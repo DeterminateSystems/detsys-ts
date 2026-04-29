@@ -252,7 +252,7 @@ export abstract class DetSysAction {
   private sourceParameters: SourceDef;
   private facts: Record<string, string | boolean | number>;
   private events: DiagnosticEvent[];
-  private identity: correlation.AnonymizedCorrelationHashes;
+  private identity: correlation.CorrelationProperties;
   private idsHost: IdsHost;
   private features: { [k: string]: Feature };
   private featureEventMetadata: { [k: string]: string | boolean };
@@ -437,16 +437,23 @@ export abstract class DetSysAction {
     return crossPhaseId;
   }
 
-  getCorrelationHashes(): correlation.AnonymizedCorrelationHashes {
+  getCorrelationHashes(): correlation.CorrelationProperties {
     return this.identity;
   }
 
   recordEvent(
     eventName: string,
-    context: Record<string, boolean | string | number | undefined> = {},
+    context: Record<
+      string,
+      | boolean
+      | string
+      | number
+      | undefined
+      | Record<string, boolean | string | number | undefined>
+    > = {},
   ): void {
     const prefixedName =
-      eventName === "$feature_flag_called"
+      eventName === "$feature_flag_called" || eventName === "$groupidentify"
         ? eventName
         : `${this.actionOptions.eventPrefix}${eventName}`;
 
@@ -528,6 +535,7 @@ export abstract class DetSysAction {
       }
 
       if (this.isMain) {
+        this.recordGroup();
         await this.main();
 
         // Run the preflight of the nix version a second time so our "shutdown" events have updated version info.
@@ -656,6 +664,21 @@ export abstract class DetSysAction {
     });
 
     return result;
+  }
+
+  private recordGroup(): void {
+    const ghorg_hash = this.identity.$groups["github_organization"];
+    const ghorg_name = process.env["GITHUB_REPOSITORY_OWNER"];
+
+    if (ghorg_hash !== undefined && ghorg_name !== undefined) {
+      this.recordEvent("$groupidentify", {
+        $group_type: "github_organization",
+        $group_key: ghorg_hash,
+        $group_set: {
+          name: ghorg_name,
+        },
+      });
+    }
   }
 
   /**
@@ -1215,7 +1238,7 @@ export type {
   Page,
   StatusSummary,
 } from "./check-in.js";
-export type { AnonymizedCorrelationHashes } from "./correlation.js";
+export type { CorrelationProperties } from "./correlation.js";
 export { stringifyError } from "./errors.js";
 export { IdsHost } from "./ids-host.js";
 export type { SourceDef } from "./sourcedef.js";

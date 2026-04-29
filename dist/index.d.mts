@@ -40,7 +40,7 @@ type Feature = {
 /**
  * JSON sent to server.
  */
-type AnonymizedCorrelationHashes = {
+type CorrelationProperties = {
   $anon_distinct_id: string;
   $groups: Record<string, string | undefined>;
   $session_id?: string;
@@ -261,8 +261,8 @@ declare abstract class DetSysAction {
   getDiagnosticsUrl(): Promise<URL | undefined>;
   getUniqueId(): string;
   getCrossPhaseId(): string;
-  getCorrelationHashes(): AnonymizedCorrelationHashes;
-  recordEvent(eventName: string, context?: Record<string, boolean | string | number | undefined>): void;
+  getCorrelationHashes(): CorrelationProperties;
+  recordEvent(eventName: string, context?: Record<string, boolean | string | number | undefined | Record<string, boolean | string | number | undefined>>): void;
   /**
    * Unpacks the closure returned by `fetchArtifact()`, imports the
    * contents into the Nix store, and returns the path of the executable at
@@ -280,6 +280,7 @@ declare abstract class DetSysAction {
   getClient(): Promise<Got>;
   private checkIn;
   getFeature(name: string): Feature | undefined;
+  private recordGroup;
   /**
    * Check in to install.determinate.systems, to accomplish three things:
    *
@@ -317,5 +318,5 @@ declare abstract class DetSysAction {
   private submitEvents;
 }
 //#endregion
-export { ActionOptions, type AnonymizedCorrelationHashes, type CheckIn, ConfidentActionOptions, DetSysAction, DiagnosticEvent, ExecutionPhase, type Feature, FetchSuffixStyle, IdsHost, type Incident, type Maintenance, NixRequirementHandling, NixStoreTrust, type Page, type SourceDef, type StatusSummary, inputs_d_exports as inputs, platform_d_exports as platform, stringifyError };
+export { ActionOptions, type CheckIn, ConfidentActionOptions, type CorrelationProperties, DetSysAction, DiagnosticEvent, ExecutionPhase, type Feature, FetchSuffixStyle, IdsHost, type Incident, type Maintenance, NixRequirementHandling, NixStoreTrust, type Page, type SourceDef, type StatusSummary, inputs_d_exports as inputs, platform_d_exports as platform, stringifyError };
 //# sourceMappingURL=index.d.mts.map
