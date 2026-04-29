@@ -535,7 +535,7 @@ export abstract class DetSysAction {
       }
 
       if (this.isMain) {
-        await this.recordGroup();
+        this.recordGroup();
         await this.main();
 
         // Run the preflight of the nix version a second time so our "shutdown" events have updated version info.
@@ -666,7 +666,7 @@ export abstract class DetSysAction {
     return result;
   }
 
-  private async recordGroup(): Promise<undefined> {
+  private recordGroup(): void {
     const ghorg_hash = this.identity.$groups["github_organization"];
     const ghorg_name = process.env["GITHUB_REPOSITORY_OWNER"];
 
@@ -679,8 +679,6 @@ export abstract class DetSysAction {
         },
       });
     }
-
-    return undefined;
   }
 
   /**

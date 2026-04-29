@@ -970,7 +970,7 @@ var DetSysAction = class {
 				this.addFact(FACT_NIX_STORE_TRUST, this.nixStoreTrust);
 			}
 			if (this.isMain) {
-				await this.recordGroup();
+				this.recordGroup();
 				await this.main();
 				await this.preflightNixVersion();
 			} else if (this.isPost) await this.post();
@@ -1039,7 +1039,7 @@ var DetSysAction = class {
 		});
 		return result;
 	}
-	async recordGroup() {
+	recordGroup() {
 		const ghorg_hash = this.identity.$groups["github_organization"];
 		const ghorg_name = process.env["GITHUB_REPOSITORY_OWNER"];
 		if (ghorg_hash !== void 0 && ghorg_name !== void 0) this.recordEvent("$groupidentify", {
