@@ -262,7 +262,7 @@ declare abstract class DetSysAction {
   getUniqueId(): string;
   getCrossPhaseId(): string;
   getCorrelationHashes(): CorrelationProperties;
-  recordEvent(eventName: string, context?: Record<string, boolean | string | number | undefined, Record<string, boolean | string | number | undefined>>): void;
+  recordEvent(eventName: string, context?: Record<string, boolean | string | number | undefined | Record<string, boolean | string | number | undefined>>): void;
   /**
    * Unpacks the closure returned by `fetchArtifact()`, imports the
    * contents into the Nix store, and returns the path of the executable at

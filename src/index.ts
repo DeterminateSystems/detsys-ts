@@ -445,8 +445,11 @@ export abstract class DetSysAction {
     eventName: string,
     context: Record<
       string,
-      boolean | string | number | undefined,
-      Record<string, boolean | string | number | undefined>
+      | boolean
+      | string
+      | number
+      | undefined
+      | Record<string, boolean | string | number | undefined>
     > = {},
   ): void {
     const prefixedName =
