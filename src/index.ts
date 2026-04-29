@@ -252,7 +252,7 @@ export abstract class DetSysAction {
   private sourceParameters: SourceDef;
   private facts: Record<string, string | boolean | number>;
   private events: DiagnosticEvent[];
-  private identity: correlation.AnonymizedCorrelationHashes;
+  private identity: correlation.CorrelationProperties;
   private idsHost: IdsHost;
   private features: { [k: string]: Feature };
   private featureEventMetadata: { [k: string]: string | boolean };
@@ -437,7 +437,7 @@ export abstract class DetSysAction {
     return crossPhaseId;
   }
 
-  getCorrelationHashes(): correlation.AnonymizedCorrelationHashes {
+  getCorrelationHashes(): correlation.CorrelationProperties {
     return this.identity;
   }
 
@@ -1215,7 +1215,7 @@ export type {
   Page,
   StatusSummary,
 } from "./check-in.js";
-export type { AnonymizedCorrelationHashes } from "./correlation.js";
+export type { CorrelationProperties } from "./correlation.js";
 export { stringifyError } from "./errors.js";
 export { IdsHost } from "./ids-host.js";
 export type { SourceDef } from "./sourcedef.js";
