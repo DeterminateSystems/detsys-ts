@@ -676,6 +676,8 @@ export abstract class DetSysAction {
         },
       });
     }
+
+    return undefined;
   }
 
   /**
