@@ -71,9 +71,12 @@ jobs:
 
       - name: Configure Git for ${{ env.GIT_USER }}
         working-directory: target
+        env:
+          GIT_EMAIL: ${{ env.GIT_EMAIL }}
+          GIT_USER: ${{ env.GIT_USER }}
         run: |
-          git config user.name "${{ env.GIT_USER }}"
-          git config user.email "${{ env.GIT_EMAIL }}"
+          git config user.name "$GIT_USER"
+          git config user.email "$GIT_EMAIL"
 
       - name: Make sure the repo is forked
         working-directory: target
