@@ -46,6 +46,7 @@ jobs:
         with:
           path: current
           token: ${{ env.GH_TOKEN }}
+          persist-credentials: false
 
       - name: Get last detsys-ts commit message
         id: commit-msg
@@ -60,9 +61,10 @@ jobs:
           path: target
           repository: ${{ env.TARGET_REPO }}
           token: ${{ env.GH_TOKEN }}
+          persist-credentials: false
 
       - name: Install Nix
-        uses: DeterminateSystems/determinate-nix-action@bafaa638b9d5ec0e7e3ac1a7fc80453ef1fd265f # v3.20.0
+        uses: DeterminateSystems/determinate-nix-action@main
 
       - name: Set up FlakeHub Cache
         uses: DeterminateSystems/flakehub-cache-action@main
