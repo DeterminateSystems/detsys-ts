@@ -1,4 +1,4 @@
-TypeScript goodies for DetSys projects.
-Check out the generated documentation [here][typedoc].
+TypeScript goodies for [Determinate Systems][detsys]' GitHub Actions projects.
 
-[typedoc]: https://detsys-ts-docs.netlify.app
+[detsys]: https://determinate.systems
+
