@@ -42,10 +42,11 @@ jobs:
       GH_TOKEN: ${{ secrets.detsys_pr_bot_token }} # for `gh pr create`
     steps:
       - name: Check out detsys-ts
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: current
           token: ${{ env.GH_TOKEN }}
+          persist-credentials: false
 
       - name: Get last detsys-ts commit message
         id: commit-msg
@@ -55,23 +56,27 @@ jobs:
           echo "msg=${MSG}" >> $GITHUB_OUTPUT
 
       - name: Check out ${{ env.TARGET_REPO }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: target
           repository: ${{ env.TARGET_REPO }}
           token: ${{ env.GH_TOKEN }}
+          persist-credentials: false
 
       - name: Install Nix
-        uses: DeterminateSystems/determinate-nix-action@v3
+        uses: DeterminateSystems/determinate-nix-action@main
 
       - name: Set up FlakeHub Cache
         uses: DeterminateSystems/flakehub-cache-action@main
 
       - name: Configure Git for ${{ env.GIT_USER }}
         working-directory: target
+        env:
+          GIT_EMAIL: ${{ env.GIT_EMAIL }}
+          GIT_USER: ${{ env.GIT_USER }}
         run: |
-          git config user.name "${{ env.GIT_USER }}"
-          git config user.email "${{ env.GIT_EMAIL }}"
+          git config user.name "$GIT_USER"
+          git config user.email "$GIT_EMAIL"
 
       - name: Make sure the repo is forked
         working-directory: target
@@ -97,7 +102,7 @@ jobs:
           fi
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         env:
           COMMIT_MSG: ${{ steps.commit-msg.outputs.msg }}
         with:
