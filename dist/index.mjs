@@ -1,6 +1,6 @@
 import { t as __exportAll } from "./chunk-CfYAbeIz.mjs";
 import * as fs$1 from "node:fs";
-import { constants, createWriteStream, readFileSync } from "node:fs";
+import { constants, createReadStream, createWriteStream, readFileSync } from "node:fs";
 import * as os$1 from "node:os";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -323,6 +323,52 @@ async function collectBacktracesSystemd(prefixes, programNameDenyList, startTime
 		backtraces.set(`backtrace_failure_${coredump.pid}`, stringifyError(innerError));
 	}
 	return backtraces;
+}
+//#endregion
+//#region src/checksums.ts
+/**
+* @packageDocumentation
+* Parsing and hashing helpers for `shasum`-format checksum files, used to
+* hash-lock downloaded artifacts.
+*/
+const HEX_STRING_RE = /^[0-9a-fA-F]+$/;
+/**
+* Parse a `shasum`-format checksums file into a map of filename -> hex digest.
+*
+* Each non-empty line has the shape `<hex-digest><space(s)><filename>`. Lines
+* without a space delimiter are skipped. Invalid hex digests throw, so a
+* malformed file fails loudly rather than silently skipping the entry we
+* care about.
+*/
+function parseChecksumsFile(text) {
+	const result = /* @__PURE__ */ new Map();
+	for (const record of text.split(os$1.EOL).filter(Boolean)) {
+		const delimIndex = record.indexOf(" ");
+		if (delimIndex === -1) continue;
+		const digest = record.slice(0, delimIndex);
+		if (!HEX_STRING_RE.test(digest)) throw new Error(`Invalid digest in checksums file: ${digest}`);
+		const name = record.slice(delimIndex + 1).trim();
+		if (name === "") continue;
+		result.set(name, digest.toLowerCase());
+	}
+	return result;
+}
+/**
+* Compute the SHA-256 of a file on disk and return its lowercase hex digest.
+* Streams the file so memory use is constant regardless of size.
+*/
+async function sha256OfFile(filePath) {
+	return new Promise((resolve, reject) => {
+		const hash = createHash("sha256").setEncoding("hex");
+		createReadStream(filePath).once("error", reject).pipe(hash).once("finish", () => resolve(hash.read()));
+	});
+}
+/**
+* Compute the SHA-256 of an in-memory buffer or string and return its
+* lowercase hex digest.
+*/
+function sha256OfBuffer(data) {
+	return createHash("sha256").update(data).digest("hex");
 }
 //#endregion
 //#region src/correlation.ts
@@ -758,6 +804,7 @@ const FACT_OS = "$os";
 const FACT_OS_VERSION = "$os_version";
 const FACT_SOURCE_URL = "source_url";
 const FACT_SOURCE_URL_ETAG = "source_url_etag";
+const FACT_SOURCE_CHECKSUMS_URL = "source_checksums_url";
 const FACT_NIX_VERSION = "nix_version";
 const FACT_NIX_LOCATION = "nix_location";
 const FACT_NIX_STORE_TRUST = "nix_store_trusted";
@@ -1098,6 +1145,11 @@ var DetSysAction = class {
 	* to a binary on disk; otherwise, the artifact will be downloaded from the
 	* URL determined by the other `source-*` inputs (`source-url`, `source-pr`,
 	* etc.).
+	*
+	* When `source-checksums-url` and `source-checksums-sha256` are both set,
+	* the downloaded artifact is verified against the per-arch hash in the
+	* checksums file, which is itself verified against the pinned
+	* `source-checksums-sha256`. Both inputs must be set together.
 	*/
 	async fetchArtifact() {
 		const sourceBinary = getStringOrNull("source-binary");
@@ -1105,6 +1157,7 @@ var DetSysAction = class {
 			actionsCore.debug(`Using the provided source binary at ${sourceBinary}`);
 			return sourceBinary;
 		}
+		const expectedArtifactHash = await this.resolveExpectedArtifactHash();
 		actionsCore.startGroup(`Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`);
 		try {
 			actionsCore.info(`Fetching from ${await this.getSourceUrl()}`);
@@ -1116,10 +1169,11 @@ var DetSysAction = class {
 				const v = versionCheckup.headers.etag;
 				this.addFact(FACT_SOURCE_URL_ETAG, v);
 				actionsCore.debug(`Checking the tool cache for ${await this.getSourceUrl()} at ${v}`);
-				const cached = await this.getCachedVersion(v);
+				const cached = await this.getCachedVersion(v, expectedArtifactHash);
 				if (cached) {
 					this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = true;
 					actionsCore.debug(`Tool cache hit.`);
+					await this.verifyArtifactHash(cached, expectedArtifactHash);
 					return cached;
 				}
 			}
@@ -1127,10 +1181,11 @@ var DetSysAction = class {
 			actionsCore.debug(`No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`);
 			const destFile = this.getTemporaryName();
 			const fetchStream = await this.downloadFile(new URL(versionCheckup.url), destFile);
+			await this.verifyArtifactHash(destFile, expectedArtifactHash);
 			if (fetchStream.response?.headers.etag) {
 				const v = fetchStream.response.headers.etag;
 				try {
-					await this.saveCachedVersion(v, destFile);
+					await this.saveCachedVersion(v, destFile, expectedArtifactHash);
 				} catch (e) {
 					actionsCore.debug(`Error caching the artifact: ${stringifyError$1(e)}`);
 				}
@@ -1142,6 +1197,38 @@ var DetSysAction = class {
 		} finally {
 			actionsCore.endGroup();
 		}
+	}
+	/**
+	* Read the `source-checksums-url` and `source-checksums-sha256` inputs and,
+	* if both are set, fetch the checksums file, verify its hash matches the
+	* pin, parse it, and return the expected hash for the artifact matching
+	* this runner's `${name}-${architectureFetchSuffix}`. Returns `null` when
+	* verification is opted out (both inputs unset).
+	*/
+	async resolveExpectedArtifactHash() {
+		const checksumsUrl = getStringOrNull("source-checksums-url");
+		const checksumsSha256 = getStringOrNull("source-checksums-sha256");
+		if (checksumsUrl === null && checksumsSha256 === null) return null;
+		if (checksumsUrl === null || checksumsSha256 === null) throw new Error("`source-checksums-url` and `source-checksums-sha256` must be set together");
+		this.addFact(FACT_SOURCE_CHECKSUMS_URL, checksumsUrl);
+		actionsCore.info(`Fetching checksums file from ${checksumsUrl}`);
+		const body = (await (await this.getClient()).get(checksumsUrl)).body;
+		const actualFileHash = sha256OfBuffer(body);
+		const expectedFileHash = checksumsSha256.toLowerCase();
+		if (actualFileHash !== expectedFileHash) throw new Error(`Checksums file hash mismatch at ${checksumsUrl}: expected ${expectedFileHash}, got ${actualFileHash}`);
+		const wanted = `${this.actionOptions.name}-${this.architectureFetchSuffix}`;
+		const artifactHash = parseChecksumsFile(body).get(wanted);
+		if (artifactHash === void 0) throw new Error(`No entry for ${wanted} in checksums file at ${checksumsUrl}`);
+		return artifactHash;
+	}
+	/**
+	* Verify a downloaded artifact's SHA-256 matches the expected hash. No-op
+	* when `expected` is `null` (verification disabled).
+	*/
+	async verifyArtifactHash(filePath, expected) {
+		if (expected === null) return;
+		const actual = await sha256OfFile(filePath);
+		if (actual !== expected) throw new Error(`Artifact hash mismatch for ${this.architectureFetchSuffix}: expected ${expected}, got ${actual}`);
 	}
 	/**
 	* A helper function for failing on error only if strict mode is enabled.
@@ -1203,11 +1290,12 @@ var DetSysAction = class {
 		this.addFact(FACT_SOURCE_URL, fetchUrl.toString());
 		return fetchUrl;
 	}
-	cacheKey(version) {
+	cacheKey(version, expectedHash) {
 		const cleanedVersion = version.replace(/[^a-zA-Z0-9-+.]/g, "");
-		return `determinatesystem-${this.actionOptions.name}-${this.architectureFetchSuffix}-${cleanedVersion}`;
+		const hashSuffix = expectedHash ? `-h${expectedHash}` : "";
+		return `determinatesystem-${this.actionOptions.name}-${this.architectureFetchSuffix}-${cleanedVersion}${hashSuffix}`;
 	}
-	async getCachedVersion(version) {
+	async getCachedVersion(version, expectedHash) {
 		const startCwd = process.cwd();
 		try {
 			const tempDir = this.getTemporaryName();
@@ -1215,7 +1303,7 @@ var DetSysAction = class {
 			process.chdir(tempDir);
 			process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
 			delete process.env.GITHUB_WORKSPACE;
-			if (await actionsCache.restoreCache([this.actionOptions.name], this.cacheKey(version), [], void 0, true)) {
+			if (await actionsCache.restoreCache([this.actionOptions.name], this.cacheKey(version, expectedHash), [], void 0, true)) {
 				this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
 				return `${tempDir}/${this.actionOptions.name}`;
 			}
@@ -1227,7 +1315,7 @@ var DetSysAction = class {
 			process.chdir(startCwd);
 		}
 	}
-	async saveCachedVersion(version, toolPath) {
+	async saveCachedVersion(version, toolPath, expectedHash) {
 		const startCwd = process.cwd();
 		try {
 			const tempDir = this.getTemporaryName();
@@ -1236,7 +1324,7 @@ var DetSysAction = class {
 			await copyFile(toolPath, `${tempDir}/${this.actionOptions.name}`);
 			process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
 			delete process.env.GITHUB_WORKSPACE;
-			await actionsCache.saveCache([this.actionOptions.name], this.cacheKey(version), void 0, true);
+			await actionsCache.saveCache([this.actionOptions.name], this.cacheKey(version, expectedHash), void 0, true);
 			this.recordEvent(EVENT_ARTIFACT_CACHE_PERSIST);
 		} finally {
 			process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
