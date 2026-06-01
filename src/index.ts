@@ -60,7 +60,7 @@ const FACT_OS = "$os";
 const FACT_OS_VERSION = "$os_version";
 const FACT_SOURCE_URL = "source_url";
 const FACT_SOURCE_URL_ETAG = "source_url_etag";
-const FACT_SOURCE_CHECKSUMS_URL = "source_checksums_url";
+const FACT_SOURCE_CHECKSUMS_SHA256 = "source_checksums_sha256";
 const FACT_NIX_VERSION = "nix_version";
 
 const FACT_NIX_LOCATION = "nix_location";
@@ -869,17 +869,20 @@ export abstract class DetSysAction {
       );
     }
 
-    this.addFact(FACT_SOURCE_CHECKSUMS_URL, checksumsUrl);
+    const expectedFileHash = checksumsSha256.toLowerCase();
+    this.addFact(FACT_SOURCE_CHECKSUMS_SHA256, expectedFileHash);
 
-    actionsCore.info(`Fetching checksums file from ${checksumsUrl}`);
+    const parsedUrl = new URL(checksumsUrl);
+    const safeUrl = parsedUrl.origin + parsedUrl.pathname;
+
+    actionsCore.info(`Fetching checksums file from ${safeUrl}`);
     const response = await (await this.getClient()).get(checksumsUrl);
     const body = response.body;
 
     const actualFileHash = sha256OfBuffer(body);
-    const expectedFileHash = checksumsSha256.toLowerCase();
     if (actualFileHash !== expectedFileHash) {
       throw new Error(
-        `Checksums file hash mismatch at ${checksumsUrl}: expected ${expectedFileHash}, got ${actualFileHash}`,
+        `Checksums file hash mismatch at ${safeUrl}: expected ${expectedFileHash}, got ${actualFileHash}`,
       );
     }
 
@@ -887,9 +890,7 @@ export abstract class DetSysAction {
     const hashes = parseChecksumsFile(body);
     const artifactHash = hashes.get(wanted);
     if (artifactHash === undefined) {
-      throw new Error(
-        `No entry for ${wanted} in checksums file at ${checksumsUrl}`,
-      );
+      throw new Error(`No entry for ${wanted} in checksums file at ${safeUrl}`);
     }
     return artifactHash;
   }

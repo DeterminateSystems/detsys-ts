@@ -1,5 +1,4 @@
 import { parseChecksumsFile, sha256OfBuffer } from "./checksums.js";
-import * as os from "node:os";
 import { describe, expect, test } from "vitest";
 
 describe("parseChecksumsFile", () => {
@@ -8,7 +7,7 @@ describe("parseChecksumsFile", () => {
       "4a215517d0bcb37c47b9178e2668d7651a7fef9a482cef482227ad09796cdfc0  nix-installer-x86_64-linux",
       "baaf26b33519fe4494729aab9b02cea449a134ed028b5c21d16ca42734da76e4  nix-installer-aarch64-linux",
       "154ea883ce098eac4fa106ff9ee4e4964bb97f809dd8ec9c34a432b466ce1494  nix-installer-aarch64-darwin",
-    ].join(os.EOL);
+    ].join("\n");
 
     const result = parseChecksumsFile(text);
     expect(result.get("nix-installer-x86_64-linux")).toBe(
@@ -25,7 +24,7 @@ describe("parseChecksumsFile", () => {
       "",
       "4a215517d0bcb37c47b9178e2668d7651a7fef9a482cef482227ad09796cdfc0  nix-installer-x86_64-linux",
       "",
-    ].join(os.EOL);
+    ].join("\n");
     const result = parseChecksumsFile(text);
     expect(result.size).toBe(1);
   });
@@ -34,7 +33,7 @@ describe("parseChecksumsFile", () => {
     const text = [
       "noseparatorhere",
       "4a215517d0bcb37c47b9178e2668d7651a7fef9a482cef482227ad09796cdfc0  nix-installer-x86_64-linux",
-    ].join(os.EOL);
+    ].join("\n");
     const result = parseChecksumsFile(text);
     expect(result.size).toBe(1);
     expect(result.has("nix-installer-x86_64-linux")).toBe(true);
@@ -61,6 +60,20 @@ describe("parseChecksumsFile", () => {
     const text = `4a215517d0bcb37c47b9178e2668d7651a7fef9a482cef482227ad09796cdfc0   `;
     const result = parseChecksumsFile(text);
     expect(result.size).toBe(0);
+  });
+
+  test("handles CRLF and CR line endings", () => {
+    const crlf = [
+      "4a215517d0bcb37c47b9178e2668d7651a7fef9a482cef482227ad09796cdfc0  nix-installer-x86_64-linux",
+      "154ea883ce098eac4fa106ff9ee4e4964bb97f809dd8ec9c34a432b466ce1494  nix-installer-aarch64-darwin",
+    ].join("\r\n");
+    expect(parseChecksumsFile(crlf).size).toBe(2);
+
+    const cr = [
+      "4a215517d0bcb37c47b9178e2668d7651a7fef9a482cef482227ad09796cdfc0  nix-installer-x86_64-linux",
+      "154ea883ce098eac4fa106ff9ee4e4964bb97f809dd8ec9c34a432b466ce1494  nix-installer-aarch64-darwin",
+    ].join("\r");
+    expect(parseChecksumsFile(cr).size).toBe(2);
   });
 });
 

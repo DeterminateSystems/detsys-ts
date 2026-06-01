@@ -342,7 +342,7 @@ const HEX_STRING_RE = /^[0-9a-fA-F]+$/;
 */
 function parseChecksumsFile(text) {
 	const result = /* @__PURE__ */ new Map();
-	for (const record of text.split(os$1.EOL).filter(Boolean)) {
+	for (const record of text.split(/\r\n|\n|\r/).filter(Boolean)) {
 		const delimIndex = record.indexOf(" ");
 		if (delimIndex === -1) continue;
 		const digest = record.slice(0, delimIndex);
@@ -804,7 +804,7 @@ const FACT_OS = "$os";
 const FACT_OS_VERSION = "$os_version";
 const FACT_SOURCE_URL = "source_url";
 const FACT_SOURCE_URL_ETAG = "source_url_etag";
-const FACT_SOURCE_CHECKSUMS_URL = "source_checksums_url";
+const FACT_SOURCE_CHECKSUMS_SHA256 = "source_checksums_sha256";
 const FACT_NIX_VERSION = "nix_version";
 const FACT_NIX_LOCATION = "nix_location";
 const FACT_NIX_STORE_TRUST = "nix_store_trusted";
@@ -1210,15 +1210,17 @@ var DetSysAction = class {
 		const checksumsSha256 = getStringOrNull("source-checksums-sha256");
 		if (checksumsUrl === null && checksumsSha256 === null) return null;
 		if (checksumsUrl === null || checksumsSha256 === null) throw new Error("`source-checksums-url` and `source-checksums-sha256` must be set together");
-		this.addFact(FACT_SOURCE_CHECKSUMS_URL, checksumsUrl);
-		actionsCore.info(`Fetching checksums file from ${checksumsUrl}`);
+		const expectedFileHash = checksumsSha256.toLowerCase();
+		this.addFact(FACT_SOURCE_CHECKSUMS_SHA256, expectedFileHash);
+		const parsedUrl = new URL(checksumsUrl);
+		const safeUrl = parsedUrl.origin + parsedUrl.pathname;
+		actionsCore.info(`Fetching checksums file from ${safeUrl}`);
 		const body = (await (await this.getClient()).get(checksumsUrl)).body;
 		const actualFileHash = sha256OfBuffer(body);
-		const expectedFileHash = checksumsSha256.toLowerCase();
-		if (actualFileHash !== expectedFileHash) throw new Error(`Checksums file hash mismatch at ${checksumsUrl}: expected ${expectedFileHash}, got ${actualFileHash}`);
+		if (actualFileHash !== expectedFileHash) throw new Error(`Checksums file hash mismatch at ${safeUrl}: expected ${expectedFileHash}, got ${actualFileHash}`);
 		const wanted = `${this.actionOptions.name}-${this.architectureFetchSuffix}`;
 		const artifactHash = parseChecksumsFile(body).get(wanted);
-		if (artifactHash === void 0) throw new Error(`No entry for ${wanted} in checksums file at ${checksumsUrl}`);
+		if (artifactHash === void 0) throw new Error(`No entry for ${wanted} in checksums file at ${safeUrl}`);
 		return artifactHash;
 	}
 	/**

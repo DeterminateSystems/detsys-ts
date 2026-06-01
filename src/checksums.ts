@@ -5,7 +5,6 @@
  */
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import * as os from "node:os";
 
 const HEX_STRING_RE = /^[0-9a-fA-F]+$/;
 
@@ -20,7 +19,7 @@ const HEX_STRING_RE = /^[0-9a-fA-F]+$/;
 export function parseChecksumsFile(text: string): Map<string, string> {
   const result = new Map<string, string>();
 
-  for (const record of text.split(os.EOL).filter(Boolean)) {
+  for (const record of text.split(/\r\n|\n|\r/).filter(Boolean)) {
     const delimIndex = record.indexOf(" ");
     if (delimIndex === -1) {
       continue;
