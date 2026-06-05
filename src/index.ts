@@ -21,7 +21,10 @@ import {
 } from "./inputs.js";
 import * as platform from "./platform.js";
 import type { SourceDef } from "./sourcedef.js";
-import { constructSourceParameters } from "./sourcedef.js";
+import {
+  assertChecksumSourceIsPinned,
+  constructSourceParameters,
+} from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import * as actionsExec from "@actions/exec";
@@ -868,6 +871,8 @@ export abstract class DetSysAction {
         "`source-checksums-url` and `source-checksums-sha256` must be set together",
       );
     }
+
+    assertChecksumSourceIsPinned(this.sourceParameters);
 
     const expectedFileHash = checksumsSha256.toLowerCase();
     this.addFact(FACT_SOURCE_CHECKSUMS_SHA256, expectedFileHash);

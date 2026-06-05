@@ -761,6 +761,16 @@ function getNixPlatform(archOs) {
 }
 //#endregion
 //#region src/sourcedef.ts
+/**
+* Throw if hash-locking is requested against a source that is not pinned to a
+* fixed version. `source-tag`, `source-revision`, and `source-url` are
+* immutable (or caller-controlled); any other selector resolves to a moving
+* target (`branch`, `pr`, or the `stable` fallback) where the pinned checksum
+* would break the moment a new release is published.
+*/
+function assertChecksumSourceIsPinned(source) {
+	if (source.url === void 0 && source.tag === void 0 && source.revision === void 0) throw new Error("Hash-locking via `source-checksums-url`/`source-checksums-sha256` requires a pinned source: set `source-tag`, `source-revision`, or `source-url`. Without one the action resolves to a moving target (e.g. `stable`) and the checksum will break the next time a release is published.");
+}
 function constructSourceParameters(legacyPrefix) {
 	return {
 		path: noisilyGetInput("path", legacyPrefix),
@@ -1210,6 +1220,7 @@ var DetSysAction = class {
 		const checksumsSha256 = getStringOrNull("source-checksums-sha256");
 		if (checksumsUrl === null && checksumsSha256 === null) return null;
 		if (checksumsUrl === null || checksumsSha256 === null) throw new Error("`source-checksums-url` and `source-checksums-sha256` must be set together");
+		assertChecksumSourceIsPinned(this.sourceParameters);
 		const expectedFileHash = checksumsSha256.toLowerCase();
 		this.addFact(FACT_SOURCE_CHECKSUMS_SHA256, expectedFileHash);
 		const parsedUrl = new URL(checksumsUrl);

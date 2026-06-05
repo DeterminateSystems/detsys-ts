@@ -10,6 +10,25 @@ export type SourceDef = {
   revision?: string;
 };
 
+/**
+ * Throw if hash-locking is requested against a source that is not pinned to a
+ * fixed version. `source-tag`, `source-revision`, and `source-url` are
+ * immutable (or caller-controlled); any other selector resolves to a moving
+ * target (`branch`, `pr`, or the `stable` fallback) where the pinned checksum
+ * would break the moment a new release is published.
+ */
+export function assertChecksumSourceIsPinned(source: SourceDef): void {
+  if (
+    source.url === undefined &&
+    source.tag === undefined &&
+    source.revision === undefined
+  ) {
+    throw new Error(
+      "Hash-locking via `source-checksums-url`/`source-checksums-sha256` requires a pinned source: set `source-tag`, `source-revision`, or `source-url`. Without one the action resolves to a moving target (e.g. `stable`) and the checksum will break the next time a release is published.",
+    );
+  }
+}
+
 export function constructSourceParameters(legacyPrefix?: string): SourceDef {
   return {
     path: noisilyGetInput("path", legacyPrefix),
