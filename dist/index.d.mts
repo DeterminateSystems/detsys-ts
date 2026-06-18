@@ -296,8 +296,26 @@ declare abstract class DetSysAction {
    * to a binary on disk; otherwise, the artifact will be downloaded from the
    * URL determined by the other `source-*` inputs (`source-url`, `source-pr`,
    * etc.).
+   *
+   * When `source-checksums-url` and `source-checksums-sha256` are both set,
+   * the downloaded artifact is verified against the per-arch hash in the
+   * checksums file, which is itself verified against the pinned
+   * `source-checksums-sha256`. Both inputs must be set together.
    */
   private fetchArtifact;
+  /**
+   * Read the `source-checksums-url` and `source-checksums-sha256` inputs and,
+   * if both are set, fetch the checksums file, verify its hash matches the
+   * pin, parse it, and return the expected hash for the artifact matching
+   * this runner's `${name}-${architectureFetchSuffix}`. Returns `null` when
+   * verification is opted out (both inputs unset).
+   */
+  private resolveExpectedArtifactHash;
+  /**
+   * Verify a downloaded artifact's SHA-256 matches the expected hash. No-op
+   * when `expected` is `null` (verification disabled).
+   */
+  private verifyArtifactHash;
   /**
    * A helper function for failing on error only if strict mode is enabled.
    * This is intended only for CI environments testing Actions themselves.

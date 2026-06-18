@@ -6,6 +6,11 @@
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import { collectBacktraces } from "./backtrace.js";
 import type { CheckIn, Feature } from "./check-in.js";
+import {
+  parseChecksumsFile,
+  sha256OfBuffer,
+  sha256OfFile,
+} from "./checksums.js";
 import * as correlation from "./correlation.js";
 import { IdsHost } from "./ids-host.js";
 import {
@@ -16,7 +21,10 @@ import {
 } from "./inputs.js";
 import * as platform from "./platform.js";
 import type { SourceDef } from "./sourcedef.js";
-import { constructSourceParameters } from "./sourcedef.js";
+import {
+  assertChecksumSourceIsPinned,
+  constructSourceParameters,
+} from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import * as actionsExec from "@actions/exec";
@@ -55,6 +63,7 @@ const FACT_OS = "$os";
 const FACT_OS_VERSION = "$os_version";
 const FACT_SOURCE_URL = "source_url";
 const FACT_SOURCE_URL_ETAG = "source_url_etag";
+const FACT_SOURCE_CHECKSUMS_SHA256 = "source_checksums_sha256";
 const FACT_NIX_VERSION = "nix_version";
 
 const FACT_NIX_LOCATION = "nix_location";
@@ -761,6 +770,11 @@ export abstract class DetSysAction {
    * to a binary on disk; otherwise, the artifact will be downloaded from the
    * URL determined by the other `source-*` inputs (`source-url`, `source-pr`,
    * etc.).
+   *
+   * When `source-checksums-url` and `source-checksums-sha256` are both set,
+   * the downloaded artifact is verified against the per-arch hash in the
+   * checksums file, which is itself verified against the pinned
+   * `source-checksums-sha256`. Both inputs must be set together.
    */
   private async fetchArtifact(): Promise<string> {
     const sourceBinary = getStringOrNull("source-binary");
@@ -770,6 +784,8 @@ export abstract class DetSysAction {
       actionsCore.debug(`Using the provided source binary at ${sourceBinary}`);
       return sourceBinary;
     }
+
+    const expectedArtifactHash = await this.resolveExpectedArtifactHash();
 
     actionsCore.startGroup(
       `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`,
@@ -793,10 +809,11 @@ export abstract class DetSysAction {
         actionsCore.debug(
           `Checking the tool cache for ${await this.getSourceUrl()} at ${v}`,
         );
-        const cached = await this.getCachedVersion(v);
+        const cached = await this.getCachedVersion(v, expectedArtifactHash);
         if (cached) {
           this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = true;
           actionsCore.debug(`Tool cache hit.`);
+          await this.verifyArtifactHash(cached, expectedArtifactHash);
           return cached;
         }
       }
@@ -814,11 +831,13 @@ export abstract class DetSysAction {
         destFile,
       );
 
+      await this.verifyArtifactHash(destFile, expectedArtifactHash);
+
       if (fetchStream.response?.headers.etag) {
         const v = fetchStream.response.headers.etag;
 
         try {
-          await this.saveCachedVersion(v, destFile);
+          await this.saveCachedVersion(v, destFile, expectedArtifactHash);
         } catch (e: unknown) {
           actionsCore.debug(`Error caching the artifact: ${stringifyError(e)}`);
         }
@@ -830,6 +849,73 @@ export abstract class DetSysAction {
       throw e;
     } finally {
       actionsCore.endGroup();
+    }
+  }
+
+  /**
+   * Read the `source-checksums-url` and `source-checksums-sha256` inputs and,
+   * if both are set, fetch the checksums file, verify its hash matches the
+   * pin, parse it, and return the expected hash for the artifact matching
+   * this runner's `${name}-${architectureFetchSuffix}`. Returns `null` when
+   * verification is opted out (both inputs unset).
+   */
+  private async resolveExpectedArtifactHash(): Promise<string | null> {
+    const checksumsUrl = getStringOrNull("source-checksums-url");
+    const checksumsSha256 = getStringOrNull("source-checksums-sha256");
+
+    if (checksumsUrl === null && checksumsSha256 === null) {
+      return null;
+    }
+    if (checksumsUrl === null || checksumsSha256 === null) {
+      throw new Error(
+        "`source-checksums-url` and `source-checksums-sha256` must be set together",
+      );
+    }
+
+    assertChecksumSourceIsPinned(this.sourceParameters);
+
+    const expectedFileHash = checksumsSha256.toLowerCase();
+    this.addFact(FACT_SOURCE_CHECKSUMS_SHA256, expectedFileHash);
+
+    const parsedUrl = new URL(checksumsUrl);
+    const safeUrl = parsedUrl.origin + parsedUrl.pathname;
+
+    actionsCore.info(`Fetching checksums file from ${safeUrl}`);
+    const response = await (await this.getClient()).get(checksumsUrl);
+    const body = response.body;
+
+    const actualFileHash = sha256OfBuffer(body);
+    if (actualFileHash !== expectedFileHash) {
+      throw new Error(
+        `Checksums file hash mismatch at ${safeUrl}: expected ${expectedFileHash}, got ${actualFileHash}`,
+      );
+    }
+
+    const wanted = `${this.actionOptions.name}-${this.architectureFetchSuffix}`;
+    const hashes = parseChecksumsFile(body);
+    const artifactHash = hashes.get(wanted);
+    if (artifactHash === undefined) {
+      throw new Error(`No entry for ${wanted} in checksums file at ${safeUrl}`);
+    }
+    return artifactHash;
+  }
+
+  /**
+   * Verify a downloaded artifact's SHA-256 matches the expected hash. No-op
+   * when `expected` is `null` (verification disabled).
+   */
+  private async verifyArtifactHash(
+    filePath: string,
+    expected: string | null,
+  ): Promise<void> {
+    if (expected === null) {
+      return;
+    }
+    const actual = await sha256OfFile(filePath);
+    if (actual !== expected) {
+      throw new Error(
+        `Artifact hash mismatch for ${this.architectureFetchSuffix}: expected ${expected}, got ${actual}`,
+      );
     }
   }
 
@@ -939,12 +1025,16 @@ export abstract class DetSysAction {
     return fetchUrl;
   }
 
-  private cacheKey(version: string): string {
+  private cacheKey(version: string, expectedHash: string | null): string {
     const cleanedVersion = version.replace(/[^a-zA-Z0-9-+.]/g, "");
-    return `determinatesystem-${this.actionOptions.name}-${this.architectureFetchSuffix}-${cleanedVersion}`;
+    const hashSuffix = expectedHash ? `-h${expectedHash}` : "";
+    return `determinatesystem-${this.actionOptions.name}-${this.architectureFetchSuffix}-${cleanedVersion}${hashSuffix}`;
   }
 
-  private async getCachedVersion(version: string): Promise<undefined | string> {
+  private async getCachedVersion(
+    version: string,
+    expectedHash: string | null,
+  ): Promise<undefined | string> {
     const startCwd = process.cwd();
 
     try {
@@ -959,7 +1049,7 @@ export abstract class DetSysAction {
       if (
         await actionsCache.restoreCache(
           [this.actionOptions.name],
-          this.cacheKey(version),
+          this.cacheKey(version, expectedHash),
           [],
           undefined,
           true,
@@ -981,6 +1071,7 @@ export abstract class DetSysAction {
   private async saveCachedVersion(
     version: string,
     toolPath: string,
+    expectedHash: string | null,
   ): Promise<void> {
     const startCwd = process.cwd();
 
@@ -996,7 +1087,7 @@ export abstract class DetSysAction {
 
       await actionsCache.saveCache(
         [this.actionOptions.name],
-        this.cacheKey(version),
+        this.cacheKey(version, expectedHash),
         undefined,
         true,
       );
