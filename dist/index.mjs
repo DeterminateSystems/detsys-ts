@@ -11,6 +11,16 @@ import { gzip } from "node:zlib";
 import { createHash, randomUUID } from "node:crypto";
 import got, { TimeoutError } from "got";
 import { resolveSrv } from "node:dns/promises";
+import * as otelApi from "@opentelemetry/api";
+import { SeverityNumber, logs } from "@opentelemetry/api-logs";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { W3CTraceContextPropagator } from "@opentelemetry/core";
+import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import { resourceFromAttributes } from "@opentelemetry/resources";
+import * as sdkLogs from "@opentelemetry/sdk-logs";
+import * as sdkTrace from "@opentelemetry/sdk-trace-base";
+import * as semconv from "@opentelemetry/semantic-conventions";
 import * as actionsCache from "@actions/cache";
 import { exec } from "node:child_process";
 import path from "node:path";
@@ -727,6 +737,366 @@ const getStringOrUndefined = (name) => {
 	else return value;
 };
 //#endregion
+//#region src/telemetry.ts
+/**
+* @packageDocumentation
+* OpenTelemetry traces and logs for Determinate Systems' GitHub Actions.
+*
+* The OpenTelemetry API is a no-op until a provider is registered globally.
+* That means instrumentation call sites -- spans, log records -- can be
+* written unconditionally: when export is disabled (no endpoint, or the
+* feature flag is off) they cost nothing and no branching is needed at the
+* call site.
+*/
+/** The instrumentation scope name for everything this library emits. */
+const SCOPE_NAME = "detsys-ts";
+/**
+* The OTLP/HTTP collector every Action exports to, in the shape of
+* `OTEL_EXPORTER_OTLP_ENDPOINT`: `/v1/traces` and `/v1/logs` are appended.
+*
+* This is a fixed service. It is not one of the install.determinate.systems
+* backends discovered by SRV record, so it is not subject to their failover.
+*/
+const DEFAULT_OTLP_ENDPOINT = "https://otel.determinate.systems";
+/**
+* The token {@link DEFAULT_OTLP_ENDPOINT} authenticates with, presented as
+* `Authorization: Bearer <token>` -- the default scheme of the collector's
+* `bearertokenauth` extension.
+*
+* This is a write-only ingest token, and it is public: it ships in `dist/`,
+* on npm, and in every workflow that vendors this library. It buys the
+* ability to send us telemetry and nothing else. Rotate it in the collector's
+* config and here together.
+*/
+const OTLP_INGEST_TOKEN = "8bfa2d8b689352981286f0149c4e55cc0dff30a4f7a735b560e31479904a74e1";
+/**
+* How long to wait for buffered spans and logs to reach the collector before
+* giving up. The Action's process exits immediately afterward, so this is a
+* hard ceiling on how much a slow collector can delay a workflow.
+*/
+const SHUTDOWN_TIMEOUT_MS = 5e3;
+/** Truncate any single span attribute longer than this. */
+const MAX_ATTRIBUTE_VALUE_LENGTH = 8192;
+/**
+* Our own propagator instance, rather than the global one.
+*
+* The global propagator only exists once {@link Telemetry.start} has
+* registered it, which would make traceparent handling silently depend on
+* start-up ordering. Owning an instance keeps {@link traceparentOf} and {@link
+* contextFromTraceparent} correct no matter when they're called.
+*/
+const PROPAGATOR = new W3CTraceContextPropagator();
+const SEVERITY = {
+	debug: SeverityNumber.DEBUG,
+	info: SeverityNumber.INFO,
+	notice: SeverityNumber.INFO2,
+	warning: SeverityNumber.WARN,
+	error: SeverityNumber.ERROR
+};
+/**
+* The OTLP base endpoint to export to.
+*
+* `OTEL_EXPORTER_OTLP_ENDPOINT` overrides {@link DEFAULT_OTLP_ENDPOINT}, which
+* makes it easy to point a run at a local collector. Setting it to an empty
+* string turns export off. An unparseable value is ignored, and the default
+* applies.
+*/
+function otlpEndpoint() {
+	const fromEnv = process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
+	if (fromEnv === "") return;
+	if (fromEnv !== void 0) try {
+		return new URL(fromEnv);
+	} catch (e) {
+		actionsCore.info(`OTEL_EXPORTER_OTLP_ENDPOINT ignored: not a valid URL: ${stringifyError(e)}`);
+	}
+	return new URL(DEFAULT_OTLP_ENDPOINT);
+}
+/**
+* Whether `OTEL_EXPORTER_OTLP_ENDPOINT` names an endpoint.
+*
+* Doing so opts a run into export regardless of the feature flag, so the
+* export can be exercised in testing without a server-side rollout.
+*/
+function otlpExplicitlyConfigured() {
+	const fromEnv = process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
+	return fromEnv !== void 0 && fromEnv !== "";
+}
+/**
+* The headers every OTLP export request carries.
+*
+* Empty unless we are exporting to {@link DEFAULT_OTLP_ENDPOINT}: a run
+* pointed at somebody else's collector has no business presenting our token.
+* Staying quiet also keeps an `OTEL_EXPORTER_OTLP_HEADERS` the user set for
+* their own collector intact, since headers given in code beat the
+* environment key by key.
+*/
+function otlpHeaders() {
+	if (otlpEndpoint()?.toString() !== new URL(DEFAULT_OTLP_ENDPOINT).toString()) return {};
+	return { Authorization: `Bearer ${OTLP_INGEST_TOKEN}` };
+}
+/**
+* Serialize headers for `OTEL_EXPORTER_OTLP_HEADERS`, which a child process's
+* own SDK reads.
+*
+* The variable is in W3C baggage format, and the SDK reading it back
+* percent-decodes each value -- so the space in `Bearer <token>` has to be
+* encoded here or the scheme and the token arrive as separate entries.
+*
+* Returns undefined when there are no headers, so the caller can leave the
+* variable unset rather than blanking one the user supplied.
+*/
+function encodeOtlpHeaders(headers) {
+	const encoded = Object.entries(headers).map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join(",");
+	return encoded === "" ? void 0 : encoded;
+}
+/**
+* Owns the OpenTelemetry SDK's lifecycle. Constructing this does nothing on
+* its own; `start()` registers the global providers and `shutdown()` flushes
+* whatever is buffered.
+*/
+var Telemetry = class {
+	/** Whether OTLP export is actually running. */
+	get enabled() {
+		return this.tracerProvider !== void 0;
+	}
+	/**
+	* Register the global tracer and logger providers, pointed at `endpoint`.
+	*
+	* Safe to call at most once. If it throws, telemetry stays disabled and the
+	* Action carries on: instrumentation degrades to the API's no-ops rather
+	* than failing the workflow.
+	*/
+	start(options) {
+		if (this.enabled) return;
+		try {
+			const resource = resourceFromAttributes({
+				[semconv.ATTR_SERVICE_NAME]: options.serviceName,
+				[semconv.ATTR_SERVICE_VERSION]: options.serviceVersion,
+				...options.resourceAttributes
+			});
+			const exporterOptions = {
+				timeoutMillis: options.requestTimeoutMs,
+				headers: options.headers
+			};
+			this.tracerProvider = new sdkTrace.BasicTracerProvider({
+				resource,
+				spanLimits: { attributeValueLengthLimit: MAX_ATTRIBUTE_VALUE_LENGTH },
+				spanProcessors: [new sdkTrace.BatchSpanProcessor(new OTLPTraceExporter({
+					url: signalUrl(options.endpoint, "v1/traces").toString(),
+					...exporterOptions
+				}))]
+			});
+			this.loggerProvider = new sdkLogs.LoggerProvider({
+				resource,
+				logRecordLimits: { attributeValueLengthLimit: MAX_ATTRIBUTE_VALUE_LENGTH },
+				processors: [new sdkLogs.BatchLogRecordProcessor({ exporter: new OTLPLogExporter({
+					url: signalUrl(options.endpoint, "v1/logs").toString(),
+					...exporterOptions
+				}) })]
+			});
+			otelApi.context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
+			otelApi.propagation.setGlobalPropagator(PROPAGATOR);
+			otelApi.trace.setGlobalTracerProvider(this.tracerProvider);
+			logs.setGlobalLoggerProvider(this.loggerProvider);
+			actionsCore.debug(`OpenTelemetry export enabled to ${options.endpoint}`);
+		} catch (e) {
+			this.tracerProvider = void 0;
+			this.loggerProvider = void 0;
+			actionsCore.debug(`Failed to start OpenTelemetry export, continuing without it: ${stringifyError(e)}`);
+		}
+	}
+	/**
+	* Flush buffered spans and logs and tear the SDK down.
+	*
+	* Never throws and never hangs: the Action calls this on its way out, so a
+	* broken or slow collector must not be able to fail or stall the workflow.
+	*/
+	async shutdown() {
+		const providers = [this.tracerProvider, this.loggerProvider].flatMap((p) => p ?? []);
+		if (providers.length === 0) return;
+		try {
+			await withTimeout(Promise.all(providers.map(async (p) => p.shutdown())), SHUTDOWN_TIMEOUT_MS);
+		} catch (e) {
+			actionsCore.debug(`Error flushing OpenTelemetry data: ${stringifyError(e)}`);
+		} finally {
+			this.tracerProvider = void 0;
+			this.loggerProvider = void 0;
+		}
+	}
+};
+/**
+* The tracer for this library. Returns a no-op tracer until {@link
+* Telemetry.start} has run, so this is always safe to call.
+*/
+function getTracer() {
+	return otelApi.trace.getTracer(SCOPE_NAME);
+}
+/**
+* The logger for this library. Returns a no-op logger until {@link
+* Telemetry.start} has run, so this is always safe to call.
+*/
+function getLogger() {
+	return logs.getLogger(SCOPE_NAME);
+}
+/**
+* Emit a log record at `level`, correlated to whatever span is currently
+* active.
+*/
+function emitLogRecord(level, message, attributes) {
+	getLogger().emit({
+		severityNumber: SEVERITY[level],
+		severityText: level.toUpperCase(),
+		body: message,
+		attributes,
+		context: otelApi.context.active()
+	});
+}
+/**
+* Serialize a span as a W3C `traceparent` header value, suitable for stashing
+* in the Action's state or handing to a child process.
+*
+* Returns undefined when telemetry is disabled, since the no-op span's context
+* is all zeroes and would not be a valid parent.
+*/
+function traceparentOf(span) {
+	if (span === void 0 || !otelApi.isSpanContextValid(span.spanContext())) return;
+	const carrier = {};
+	PROPAGATOR.inject(otelApi.trace.setSpan(otelApi.ROOT_CONTEXT, span), carrier, otelApi.defaultTextMapSetter);
+	return carrier["traceparent"];
+}
+/**
+* Rebuild a Context from a W3C `traceparent` value, so a span started in one
+* process can parent spans started in another. Falls back to the root context
+* when `traceparent` is absent or unparseable.
+*/
+function contextFromTraceparent(traceparent) {
+	if (traceparent === void 0 || traceparent === "") return otelApi.ROOT_CONTEXT;
+	return PROPAGATOR.extract(otelApi.ROOT_CONTEXT, { traceparent }, otelApi.defaultTextMapGetter);
+}
+/**
+* Mark `span` as failed and attach the exception to it.
+*/
+function recordSpanError(span, error) {
+	span.recordException(error instanceof Error ? error : new Error(stringifyError(error)));
+	span.setStatus({
+		code: otelApi.SpanStatusCode.ERROR,
+		message: stringifyError(error)
+	});
+}
+/**
+* Run `fn` inside a new active span, ending the span when it settles and
+* marking it failed if it throws. The error is always re-thrown: this records,
+* it does not swallow.
+*/
+async function withSpan(name, fn, attributes) {
+	return await getTracer().startActiveSpan(name, { attributes }, async (span) => {
+		try {
+			return await fn(span);
+		} catch (e) {
+			recordSpanError(span, e);
+			throw e;
+		} finally {
+			span.end();
+		}
+	});
+}
+/** Join a signal-specific path onto an OTLP base endpoint. */
+function signalUrl(base, signalPath) {
+	const url = new URL(base);
+	url.pathname = `${url.pathname.replace(/\/$/, "")}/${signalPath}`;
+	return url;
+}
+/** Reject if `promise` has not settled within `timeoutMs`. */
+async function withTimeout(promise, timeoutMs) {
+	let timer;
+	try {
+		return await Promise.race([promise, new Promise((_resolve, reject) => {
+			timer = setTimeout(() => reject(/* @__PURE__ */ new Error(`timed out after ${timeoutMs}ms`)), timeoutMs);
+		})]);
+	} finally {
+		if (timer !== void 0) clearTimeout(timer);
+	}
+}
+//#endregion
+//#region src/log.ts
+/**
+* @packageDocumentation
+* Logging that tees to both the GitHub Actions console and OpenTelemetry.
+*
+* These are drop-in replacements for the `@actions/core` logging functions.
+* Every call still writes to the workflow log exactly as it did before -- the
+* user-visible output is unchanged -- and additionally emits an OpenTelemetry
+* LogRecord correlated to the currently active span.
+*
+* When telemetry is disabled the OpenTelemetry half is a no-op, so these
+* behave identically to calling `@actions/core` directly.
+*/
+var log_exports = /* @__PURE__ */ __exportAll({
+	debug: () => debug,
+	error: () => error,
+	group: () => group,
+	info: () => info,
+	notice: () => notice,
+	setFailed: () => setFailed,
+	warning: () => warning
+});
+function tee(level, message, attributes) {
+	const text = typeof message === "string" ? message : stringifyError(message);
+	emitLogRecord(level, text, attributes);
+	return text;
+}
+/**
+* Write a debug message. Only visible in the workflow log when the user has
+* enabled step debug logging, but always exported to OpenTelemetry.
+*/
+function debug(message, attributes) {
+	actionsCore.debug(tee("debug", message, attributes));
+}
+/** Write an informational message to the workflow log. */
+function info(message, attributes) {
+	actionsCore.info(tee("info", message, attributes));
+}
+/** Write a notice annotation to the workflow log. */
+function notice(message, properties, attributes) {
+	tee("notice", message, attributes);
+	actionsCore.notice(message, properties);
+}
+/** Write a warning annotation to the workflow log. */
+function warning(message, properties, attributes) {
+	tee("warning", message, attributes);
+	actionsCore.warning(message, properties);
+}
+/** Write an error annotation to the workflow log. */
+function error(message, properties, attributes) {
+	tee("error", message, attributes);
+	actionsCore.error(message, properties);
+}
+/**
+* Fail the workflow step, recording the reason as an OpenTelemetry error log.
+*/
+function setFailed(message, attributes) {
+	tee("error", message, attributes);
+	actionsCore.setFailed(message);
+}
+/**
+* Run `fn` inside both a collapsible group in the workflow log and an active
+* OpenTelemetry span of the same name.
+*
+* This is the replacement for a `startGroup`/`endGroup` pair: the group closes
+* and the span ends even if `fn` throws, and a throwing `fn` marks the span
+* failed before re-throwing.
+*/
+async function group(name, fn, attributes) {
+	return await withSpan(name, async () => {
+		actionsCore.startGroup(name);
+		try {
+			return await fn();
+		} finally {
+			actionsCore.endGroup();
+		}
+	}, attributes);
+}
+//#endregion
 //#region src/platform.ts
 /**
 * @packageDocumentation
@@ -831,6 +1201,10 @@ const STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
 const STATE_NOT_FOUND = "not-found";
 const STATE_KEY_CROSS_PHASE_ID = "detsys_cross_phase_id";
 const STATE_BACKTRACE_START_TIMESTAMP = "detsys_backtrace_start_timestamp";
+const STATE_KEY_TRACEPARENT = "detsys_otel_traceparent";
+const FEATURE_OTEL_EXPORT = "otel-export";
+const ATTR_PREFIX_FACT = "detsys.fact.";
+const ATTR_PREFIX_EVENT = "detsys.event.";
 const DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 1e4;
 const CHECK_IN_ENDPOINT_TIMEOUT_MS = 1e3;
 const PROGRAM_NAME_CRASH_DENY_LIST = [
@@ -880,6 +1254,7 @@ var DetSysAction = class {
 	constructor(actionOptions) {
 		this.actionOptions = makeOptionsConfident(actionOptions);
 		this.idsHost = new IdsHost(this.actionOptions.idsProjectName, actionOptions.diagnosticsSuffix, process.env["INPUT_DIAGNOSTIC-ENDPOINT"], getNumberOrUndefined("timeout-request"));
+		this.telemetry = new Telemetry();
 		this.exceptionAttachments = /* @__PURE__ */ new Map();
 		this.nixStoreTrust = "unknown";
 		this.strictMode = getBool("_internal-strict-mode");
@@ -955,6 +1330,7 @@ var DetSysAction = class {
 	}
 	addFact(key, value) {
 		this.facts[key] = value;
+		this.phaseSpan?.setAttribute(`${ATTR_PREFIX_FACT}${key}`, value);
 	}
 	async getDiagnosticsUrl() {
 		return await this.idsHost.getDiagnosticsUrl();
@@ -987,6 +1363,7 @@ var DetSysAction = class {
 				...Object.fromEntries(Object.entries(this.featureEventMetadata).map(([name, variant]) => [`$feature/${name}`, variant]))
 			}
 		});
+		(otelApi.trace.getActiveSpan() ?? this.phaseSpan)?.addEvent(prefixedName, toAttributes(context, ATTR_PREFIX_EVENT));
 	}
 	/**
 	* Unpacks the closure returned by `fetchArtifact()`, imports the
@@ -1014,35 +1391,41 @@ var DetSysAction = class {
 		return this.executionPhase === "post";
 	}
 	async executeAsync() {
+		const phaseStartTime = /* @__PURE__ */ new Date();
 		try {
 			await this.checkIn();
-			const correlationHashes = JSON.stringify(this.getCorrelationHashes());
-			process.env.DETSYS_CORRELATION = correlationHashes;
-			try {
-				await writeCorrelationHashes(correlationHashes);
-			} catch (error) {
-				this.recordEvent(EVENT_STORE_IDENTITY_FAILED, { error: String(error) });
-			}
-			if (!await this.preflightRequireNix()) {
-				this.recordEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
-				return;
-			} else {
-				await this.preflightNixStoreInfo();
-				await this.preflightNixVersion();
-				this.addFact(FACT_NIX_STORE_TRUST, this.nixStoreTrust);
-			}
-			if (this.isMain) {
-				this.recordGroup();
-				await this.main();
-				await this.preflightNixVersion();
-			} else if (this.isPost) await this.post();
+			await this.startTelemetry();
+			this.startPhaseSpan(phaseStartTime);
+			await this.withPhaseSpanActive(async () => {
+				const correlationHashes = JSON.stringify(this.getCorrelationHashes());
+				process.env.DETSYS_CORRELATION = correlationHashes;
+				try {
+					await writeCorrelationHashes(correlationHashes);
+				} catch (error) {
+					this.recordEvent(EVENT_STORE_IDENTITY_FAILED, { error: String(error) });
+				}
+				if (!await this.preflightRequireNix()) {
+					this.recordEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
+					return;
+				} else {
+					await this.preflightNixStoreInfo();
+					await this.preflightNixVersion();
+					this.addFact(FACT_NIX_STORE_TRUST, this.nixStoreTrust);
+				}
+				if (this.isMain) {
+					this.recordGroup();
+					await this.main();
+					await this.preflightNixVersion();
+				} else if (this.isPost) await this.post();
+			});
 			this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
 		} catch (e) {
 			this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
 			const reportable = stringifyError$1(e);
 			this.addFact(FACT_FINAL_EXCEPTION, reportable);
-			if (this.isPost) actionsCore.warning(reportable);
-			else actionsCore.setFailed(reportable);
+			if (this.phaseSpan !== void 0) recordSpanError(this.phaseSpan, e);
+			if (this.isPost) warning(reportable);
+			else setFailed(reportable);
 			const doGzip = promisify(gzip);
 			const exceptionContext = /* @__PURE__ */ new Map();
 			for (const [attachmentLabel, filePath] of this.exceptionAttachments) try {
@@ -1053,9 +1436,124 @@ var DetSysAction = class {
 			}
 			this.recordEvent(EVENT_EXCEPTION, Object.fromEntries(exceptionContext));
 		} finally {
-			if (this.isPost) await this.collectBacktraces();
+			await this.withPhaseSpanActive(async () => {
+				if (this.isPost) await this.collectBacktraces();
+			});
 			await this.complete();
 		}
+	}
+	/**
+	* Run `fn` with the phase's root span as the active span, so anything it
+	* starts is parented into this phase's trace.
+	*/
+	async withPhaseSpanActive(fn) {
+		const span = this.phaseSpan;
+		if (span === void 0) return await fn();
+		return await otelApi.context.with(otelApi.trace.setSpan(otelApi.context.active(), span), fn);
+	}
+	/**
+	* Start OpenTelemetry export, if this run is opted in.
+	*
+	* This has to run after check-in, because check-in is what resolves the
+	* feature flag. When it doesn't start, the OpenTelemetry API stays in its
+	* no-op state: every span and log record below silently does nothing, so
+	* there is no need to branch on it at the call sites.
+	*/
+	async startTelemetry() {
+		const enabledByFlag = this.getFeature(FEATURE_OTEL_EXPORT)?.variant === true;
+		const enabledByConfig = otlpExplicitlyConfigured();
+		if (!enabledByFlag && !enabledByConfig) {
+			actionsCore.debug("OpenTelemetry export is not enabled for this run.");
+			return;
+		}
+		const endpoint = otlpEndpoint();
+		if (endpoint === void 0) {
+			actionsCore.debug("OpenTelemetry export is disabled: no OTLP endpoint resolved.");
+			return;
+		}
+		this.telemetry.start({
+			serviceName: this.actionOptions.name,
+			serviceVersion: pkgVersion,
+			endpoint,
+			headers: otlpHeaders(),
+			requestTimeoutMs: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS,
+			resourceAttributes: this.telemetryResourceAttributes()
+		});
+	}
+	/**
+	* Open the root span for this execution phase.
+	*
+	* `main` and `post` are separate processes, so the main phase publishes its
+	* span as a W3C traceparent in the Action's state and the post phase adopts
+	* it as a parent. That puts both phases of a run in one trace.
+	*/
+	startPhaseSpan(startTime) {
+		const parentContext = contextFromTraceparent(actionsCore.getState(STATE_KEY_TRACEPARENT) || void 0);
+		const span = getTracer().startSpan(`${this.actionOptions.name}:${this.executionPhase}`, { startTime }, parentContext);
+		for (const [key, value] of Object.entries(this.facts)) span.setAttribute(`${ATTR_PREFIX_FACT}${key}`, value);
+		if (this.isMain) {
+			const traceparent = traceparentOf(span);
+			if (traceparent !== void 0) actionsCore.saveState(STATE_KEY_TRACEPARENT, traceparent);
+		}
+		this.phaseSpan = span;
+		return span;
+	}
+	/**
+	* The stable, run-scoped attributes attached to every span and log record.
+	*
+	* These carry the same hashed, non-identifying correlation data the
+	* diagnostics endpoint already receives.
+	*/
+	telemetryResourceAttributes() {
+		return {
+			"detsys.project": this.actionOptions.name,
+			"detsys.ids_project": this.actionOptions.idsProjectName,
+			"detsys.execution_phase": this.executionPhase,
+			"detsys.cross_phase_id": this.getCrossPhaseId(),
+			"detsys.anon_distinct_id": this.identity.$anon_distinct_id,
+			"detsys.session_id": this.identity.$session_id,
+			"detsys.correlation_source": this.identity.correlation_source,
+			"detsys.github_repository_hash": this.identity.github_repository_hash,
+			"detsys.github_organization_hash": this.identity.$groups["github_organization"],
+			"detsys.github_workflow_hash": this.identity.github_workflow_hash,
+			"detsys.github_workflow_job_hash": this.identity.github_workflow_job_hash,
+			"detsys.github_workflow_run_hash": this.identity.github_workflow_run_hash,
+			"detsys.github_workflow_run_differentiator_hash": this.identity.github_workflow_run_differentiator_hash,
+			"detsys.arch_os": this.archOs,
+			"detsys.nix_system": this.nixSystem,
+			"ci.provider": "github-actions",
+			...Object.fromEntries(Object.entries(this.featureEventMetadata).map(([name, variant]) => [`detsys.feature.${name}`, variant]))
+		};
+	}
+	/**
+	* The W3C `traceparent` identifying the span currently in progress.
+	*
+	* Hand this to a child process -- as `$TRACEPARENT` -- so that its own
+	* OpenTelemetry data joins this Action's trace. Returns undefined when
+	* OpenTelemetry export is disabled for this run.
+	*/
+	getTraceparent() {
+		return traceparentOf(otelApi.trace.getActiveSpan() ?? this.phaseSpan);
+	}
+	/**
+	* Environment variables that let a spawned binary export into this Action's
+	* trace: the current `$TRACEPARENT`, and the OTLP endpoint and credentials
+	* to send to.
+	*
+	* Merge this into the environment of any child process you want traced. It
+	* is empty when OpenTelemetry export is disabled, so merging it is always
+	* safe.
+	*/
+	async getTelemetryEnvironment() {
+		if (!this.telemetry.enabled) return {};
+		const environment = {};
+		const traceparent = this.getTraceparent();
+		if (traceparent !== void 0) environment["TRACEPARENT"] = traceparent;
+		const endpoint = otlpEndpoint();
+		if (endpoint !== void 0) environment["OTEL_EXPORTER_OTLP_ENDPOINT"] = endpoint.toString();
+		const headers = encodeOtlpHeaders(otlpHeaders());
+		if (headers !== void 0) environment["OTEL_EXPORTER_OTLP_HEADERS"] = headers;
+		return environment;
 	}
 	async getClient() {
 		return await this.idsHost.getGot((incitingError, prevUrl, nextUrl) => {
@@ -1169,49 +1667,54 @@ var DetSysAction = class {
 	async fetchArtifact() {
 		const sourceBinary = getStringOrNull("source-binary");
 		if (sourceBinary !== null && sourceBinary !== "") {
-			actionsCore.debug(`Using the provided source binary at ${sourceBinary}`);
+			debug(`Using the provided source binary at ${sourceBinary}`);
 			return sourceBinary;
 		}
-		const expectedArtifactHash = await this.resolveExpectedArtifactHash();
-		actionsCore.startGroup(`Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`);
-		try {
-			actionsCore.info(`Fetching from ${await this.getSourceUrl()}`);
-			const correlatedUrl = await this.getSourceUrl();
-			correlatedUrl.searchParams.set("ci", "github");
-			correlatedUrl.searchParams.set("correlation", JSON.stringify(this.identity));
-			const versionCheckup = await (await this.getClient()).head(correlatedUrl);
-			if (versionCheckup.headers.etag) {
-				const v = versionCheckup.headers.etag;
-				this.addFact(FACT_SOURCE_URL_ETAG, v);
-				actionsCore.debug(`Checking the tool cache for ${await this.getSourceUrl()} at ${v}`);
-				const cached = await this.getCachedVersion(v, expectedArtifactHash);
-				if (cached) {
-					this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = true;
-					actionsCore.debug(`Tool cache hit.`);
-					await this.verifyArtifactHash(cached, expectedArtifactHash);
-					return cached;
+		return await withSpan("fetch_artifact", async () => {
+			const expectedArtifactHash = await this.resolveExpectedArtifactHash();
+			actionsCore.startGroup(`Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`);
+			try {
+				info(`Fetching from ${await this.getSourceUrl()}`);
+				const correlatedUrl = await this.getSourceUrl();
+				correlatedUrl.searchParams.set("ci", "github");
+				correlatedUrl.searchParams.set("correlation", JSON.stringify(this.identity));
+				const versionCheckup = await (await this.getClient()).head(correlatedUrl);
+				if (versionCheckup.headers.etag) {
+					const v = versionCheckup.headers.etag;
+					this.addFact(FACT_SOURCE_URL_ETAG, v);
+					debug(`Checking the tool cache for ${await this.getSourceUrl()} at ${v}`);
+					const cached = await this.getCachedVersion(v, expectedArtifactHash);
+					if (cached) {
+						this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = true;
+						debug(`Tool cache hit.`);
+						await this.verifyArtifactHash(cached, expectedArtifactHash);
+						return cached;
+					}
 				}
-			}
-			this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = false;
-			actionsCore.debug(`No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`);
-			const destFile = this.getTemporaryName();
-			const fetchStream = await this.downloadFile(new URL(versionCheckup.url), destFile);
-			await this.verifyArtifactHash(destFile, expectedArtifactHash);
-			if (fetchStream.response?.headers.etag) {
-				const v = fetchStream.response.headers.etag;
-				try {
-					await this.saveCachedVersion(v, destFile, expectedArtifactHash);
-				} catch (e) {
-					actionsCore.debug(`Error caching the artifact: ${stringifyError$1(e)}`);
+				this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = false;
+				debug(`No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`);
+				const destFile = this.getTemporaryName();
+				const fetchStream = await this.downloadFile(new URL(versionCheckup.url), destFile);
+				await this.verifyArtifactHash(destFile, expectedArtifactHash);
+				if (fetchStream.response?.headers.etag) {
+					const v = fetchStream.response.headers.etag;
+					try {
+						await this.saveCachedVersion(v, destFile, expectedArtifactHash);
+					} catch (e) {
+						debug(`Error caching the artifact: ${stringifyError$1(e)}`);
+					}
 				}
+				return destFile;
+			} catch (e) {
+				this.recordPlausibleTimeout(e);
+				throw e;
+			} finally {
+				actionsCore.endGroup();
 			}
-			return destFile;
-		} catch (e) {
-			this.recordPlausibleTimeout(e);
-			throw e;
-		} finally {
-			actionsCore.endGroup();
-		}
+		}, {
+			"detsys.artifact": this.actionOptions.name,
+			"detsys.architecture_fetch_suffix": this.architectureFetchSuffix
+		});
 	}
 	/**
 	* Read the `source-checksums-url` and `source-checksums-sha256` inputs and,
@@ -1256,6 +1759,9 @@ var DetSysAction = class {
 		if (this.strictMode) actionsCore.setFailed(`strict mode failure: ${msg}`);
 	}
 	async downloadFile(url, destination) {
+		return await withSpan("download_file", async () => this.download(url, destination));
+	}
+	async download(url, destination) {
 		const client = await this.getClient();
 		return new Promise((resolve, reject) => {
 			let writeStream;
@@ -1283,7 +1789,10 @@ var DetSysAction = class {
 	}
 	async complete() {
 		this.recordEvent(`complete_${this.executionPhase}`);
+		this.phaseSpan?.end();
+		this.phaseSpan = void 0;
 		await this.submitEvents();
+		await this.telemetry.shutdown();
 	}
 	async getCheckInUrl() {
 		const checkInUrl = await this.idsHost.getDynamicRootUrl();
@@ -1314,41 +1823,47 @@ var DetSysAction = class {
 		return `determinatesystem-${this.actionOptions.name}-${this.architectureFetchSuffix}-${cleanedVersion}${hashSuffix}`;
 	}
 	async getCachedVersion(version, expectedHash) {
-		const startCwd = process.cwd();
-		try {
-			const tempDir = this.getTemporaryName();
-			await mkdir(tempDir);
-			process.chdir(tempDir);
-			process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
-			delete process.env.GITHUB_WORKSPACE;
-			if (await actionsCache.restoreCache([this.actionOptions.name], this.cacheKey(version, expectedHash), [], void 0, true)) {
-				this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
-				return `${tempDir}/${this.actionOptions.name}`;
+		return await withSpan("artifact_cache_restore", async (span) => {
+			const startCwd = process.cwd();
+			try {
+				const tempDir = this.getTemporaryName();
+				await mkdir(tempDir);
+				process.chdir(tempDir);
+				process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
+				delete process.env.GITHUB_WORKSPACE;
+				if (await actionsCache.restoreCache([this.actionOptions.name], this.cacheKey(version, expectedHash), [], void 0, true)) {
+					span.setAttribute("detsys.cache_hit", true);
+					this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
+					return `${tempDir}/${this.actionOptions.name}`;
+				}
+				span.setAttribute("detsys.cache_hit", false);
+				this.recordEvent(EVENT_ARTIFACT_CACHE_MISS);
+				return;
+			} finally {
+				process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
+				delete process.env.GITHUB_WORKSPACE_BACKUP;
+				process.chdir(startCwd);
 			}
-			this.recordEvent(EVENT_ARTIFACT_CACHE_MISS);
-			return;
-		} finally {
-			process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
-			delete process.env.GITHUB_WORKSPACE_BACKUP;
-			process.chdir(startCwd);
-		}
+		});
 	}
 	async saveCachedVersion(version, toolPath, expectedHash) {
-		const startCwd = process.cwd();
-		try {
-			const tempDir = this.getTemporaryName();
-			await mkdir(tempDir);
-			process.chdir(tempDir);
-			await copyFile(toolPath, `${tempDir}/${this.actionOptions.name}`);
-			process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
-			delete process.env.GITHUB_WORKSPACE;
-			await actionsCache.saveCache([this.actionOptions.name], this.cacheKey(version, expectedHash), void 0, true);
-			this.recordEvent(EVENT_ARTIFACT_CACHE_PERSIST);
-		} finally {
-			process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
-			delete process.env.GITHUB_WORKSPACE_BACKUP;
-			process.chdir(startCwd);
-		}
+		return await withSpan("artifact_cache_persist", async () => {
+			const startCwd = process.cwd();
+			try {
+				const tempDir = this.getTemporaryName();
+				await mkdir(tempDir);
+				process.chdir(tempDir);
+				await copyFile(toolPath, `${tempDir}/${this.actionOptions.name}`);
+				process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
+				delete process.env.GITHUB_WORKSPACE;
+				await actionsCache.saveCache([this.actionOptions.name], this.cacheKey(version, expectedHash), void 0, true);
+				this.recordEvent(EVENT_ARTIFACT_CACHE_PERSIST);
+			} finally {
+				process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
+				delete process.env.GITHUB_WORKSPACE_BACKUP;
+				process.chdir(startCwd);
+			}
+		});
 	}
 	collectBacktraceSetup() {
 		if (!process.env.DETSYS_BACKTRACE_COLLECTOR) {
@@ -1359,86 +1874,94 @@ var DetSysAction = class {
 	async collectBacktraces() {
 		try {
 			if (process.env.DETSYS_BACKTRACE_COLLECTOR !== this.getCrossPhaseId()) return;
-			const backtraces = await collectBacktraces(this.actionOptions.binaryNamePrefixes, this.actionOptions.binaryNamesDenyList, parseInt(actionsCore.getState(STATE_BACKTRACE_START_TIMESTAMP)));
-			actionsCore.debug(`Backtraces identified: ${backtraces.size}`);
+			const backtraces = await withSpan("collect_backtraces", async () => collectBacktraces(this.actionOptions.binaryNamePrefixes, this.actionOptions.binaryNamesDenyList, parseInt(actionsCore.getState(STATE_BACKTRACE_START_TIMESTAMP))));
+			debug(`Backtraces identified: ${backtraces.size}`);
 			if (backtraces.size > 0) this.recordEvent(EVENT_BACKTRACES, Object.fromEntries(backtraces));
 		} catch (innerError) {
 			actionsCore.debug(`Error collecting backtraces: ${stringifyError$1(innerError)}`);
 		}
 	}
 	async preflightRequireNix() {
-		let nixLocation;
-		const pathParts = (process.env["PATH"] || "").split(":");
-		for (const location of pathParts) {
-			const candidateNix = path.join(location, "nix");
-			try {
-				await fs$1.access(candidateNix, fs$1.constants.X_OK);
-				actionsCore.debug(`Found Nix at ${candidateNix}`);
-				nixLocation = candidateNix;
-				break;
-			} catch {
-				actionsCore.debug(`Nix not at ${candidateNix}`);
+		return await withSpan("preflight_require_nix", async () => {
+			let nixLocation;
+			const pathParts = (process.env["PATH"] || "").split(":");
+			for (const location of pathParts) {
+				const candidateNix = path.join(location, "nix");
+				try {
+					await fs$1.access(candidateNix, fs$1.constants.X_OK);
+					debug(`Found Nix at ${candidateNix}`);
+					nixLocation = candidateNix;
+					break;
+				} catch {
+					actionsCore.debug(`Nix not at ${candidateNix}`);
+				}
 			}
-		}
-		this.addFact(FACT_NIX_LOCATION, nixLocation || "");
-		if (this.actionOptions.requireNix === "ignore") return true;
-		if (actionsCore.getState(STATE_KEY_NIX_NOT_FOUND) === STATE_NOT_FOUND) return false;
-		if (nixLocation !== void 0) return true;
-		actionsCore.saveState(STATE_KEY_NIX_NOT_FOUND, STATE_NOT_FOUND);
-		switch (this.actionOptions.requireNix) {
-			case "fail":
-				actionsCore.setFailed(["This action can only be used when Nix is installed.", "Add `- uses: DeterminateSystems/determinate-nix-action@v3` earlier in your workflow."].join(" "));
-				break;
-			case "warn": actionsCore.warning(["This action is in no-op mode because Nix is not installed.", "Add `- uses: DeterminateSystems/determinate-nix-action@v3` earlier in your workflow."].join(" "));
-		}
-		return false;
+			this.addFact(FACT_NIX_LOCATION, nixLocation || "");
+			if (this.actionOptions.requireNix === "ignore") return true;
+			if (actionsCore.getState(STATE_KEY_NIX_NOT_FOUND) === STATE_NOT_FOUND) return false;
+			if (nixLocation !== void 0) return true;
+			actionsCore.saveState(STATE_KEY_NIX_NOT_FOUND, STATE_NOT_FOUND);
+			switch (this.actionOptions.requireNix) {
+				case "fail":
+					setFailed(["This action can only be used when Nix is installed.", "Add `- uses: DeterminateSystems/determinate-nix-action@v3` earlier in your workflow."].join(" "));
+					break;
+				case "warn": warning(["This action is in no-op mode because Nix is not installed.", "Add `- uses: DeterminateSystems/determinate-nix-action@v3` earlier in your workflow."].join(" "));
+			}
+			return false;
+		});
 	}
 	async preflightNixStoreInfo() {
-		let output = "";
-		const options = {};
-		options.silent = true;
-		options.listeners = { stdout: (data) => {
-			output += data.toString();
-		} };
-		try {
-			output = "";
-			await exec$1.exec("nix", [
-				"store",
-				"info",
-				"--json"
-			], options);
-			this.addFact(FACT_NIX_STORE_CHECK_METHOD, "info");
-		} catch {
+		return await withSpan("preflight_nix_store_info", async (span) => {
+			let output = "";
+			const options = {};
+			options.silent = true;
+			options.listeners = { stdout: (data) => {
+				output += data.toString();
+			} };
 			try {
 				output = "";
 				await exec$1.exec("nix", [
 					"store",
-					"ping",
+					"info",
 					"--json"
 				], options);
-				this.addFact(FACT_NIX_STORE_CHECK_METHOD, "ping");
+				this.addFact(FACT_NIX_STORE_CHECK_METHOD, "info");
 			} catch {
-				this.addFact(FACT_NIX_STORE_CHECK_METHOD, "none");
-				return;
+				try {
+					output = "";
+					await exec$1.exec("nix", [
+						"store",
+						"ping",
+						"--json"
+					], options);
+					this.addFact(FACT_NIX_STORE_CHECK_METHOD, "ping");
+				} catch {
+					this.addFact(FACT_NIX_STORE_CHECK_METHOD, "none");
+					return;
+				}
 			}
-		}
-		try {
-			const parsed = JSON.parse(output);
-			if (parsed.trusted === true || parsed.trusted === 1) this.nixStoreTrust = "trusted";
-			else if (parsed.trusted === false || parsed.trusted === 0) this.nixStoreTrust = "untrusted";
-			else if (parsed.trusted !== void 0) this.addFact(FACT_NIX_STORE_CHECK_ERROR, `Mysterious trusted value: ${JSON.stringify(parsed.trusted)}`);
-			this.addFact(FACT_NIX_STORE_VERSION, JSON.stringify(parsed.version));
-		} catch (e) {
-			this.addFact(FACT_NIX_STORE_CHECK_ERROR, stringifyError$1(e));
-		}
+			try {
+				const parsed = JSON.parse(output);
+				if (parsed.trusted === true || parsed.trusted === 1) this.nixStoreTrust = "trusted";
+				else if (parsed.trusted === false || parsed.trusted === 0) this.nixStoreTrust = "untrusted";
+				else if (parsed.trusted !== void 0) this.addFact(FACT_NIX_STORE_CHECK_ERROR, `Mysterious trusted value: ${JSON.stringify(parsed.trusted)}`);
+				this.addFact(FACT_NIX_STORE_VERSION, JSON.stringify(parsed.version));
+			} catch (e) {
+				this.addFact(FACT_NIX_STORE_CHECK_ERROR, stringifyError$1(e));
+			}
+			span.setAttribute("detsys.nix_store_trust", this.nixStoreTrust);
+		});
 	}
 	async preflightNixVersion() {
-		let output = "unknown";
-		try {
-			({stdout: output} = await exec$1.getExecOutput("nix", ["--version"], { silent: true }));
-			output = output.trim() || "unknown";
-		} catch {}
-		this.addFact(FACT_NIX_VERSION, output);
+		return await withSpan("preflight_nix_version", async (span) => {
+			let output = "unknown";
+			try {
+				({stdout: output} = await exec$1.getExecOutput("nix", ["--version"], { silent: true }));
+				output = output.trim() || "unknown";
+			} catch {}
+			this.addFact(FACT_NIX_VERSION, output);
+			span.setAttribute("detsys.nix_version", output);
+		});
 	}
 	async submitEvents() {
 		const diagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
@@ -1466,6 +1989,22 @@ var DetSysAction = class {
 function stringifyError$1(error) {
 	return error instanceof Error || typeof error == "string" ? error.toString() : JSON.stringify(error);
 }
+/**
+* Flatten an event context into OpenTelemetry attributes.
+*
+* Attributes are a flat map of primitives, so the one level of nesting an
+* EventContext permits is joined with a dot, and undefined values are dropped
+* rather than serialized as the string "undefined".
+*/
+function toAttributes(context, prefix) {
+	const attributes = {};
+	const set = (key, value) => {
+		if (value !== void 0) attributes[`${prefix}${key}`] = value;
+	};
+	for (const [key, value] of Object.entries(context)) if (typeof value === "object" && value !== null) for (const [nestedKey, nestedValue] of Object.entries(value)) set(`${key}.${nestedKey}`, nestedValue);
+	else set(key, value);
+	return attributes;
+}
 function makeOptionsConfident(actionOptions) {
 	const idsProjectName = actionOptions.idsProjectName ?? actionOptions.name;
 	const finalOpts = {
@@ -1487,6 +2026,6 @@ function makeOptionsConfident(actionOptions) {
 	return finalOpts;
 }
 //#endregion
-export { DetSysAction, IdsHost, inputs_exports as inputs, platform_exports as platform, stringifyError };
+export { DetSysAction, IdsHost, SCOPE_NAME, contextFromTraceparent, getLogger, getTracer, inputs_exports as inputs, log_exports as log, platform_exports as platform, recordSpanError, stringifyError, traceparentOf, withSpan };
 
 //# sourceMappingURL=index.mjs.map

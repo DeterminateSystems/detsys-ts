@@ -1,5 +1,9 @@
+import * as actionsCore from "@actions/core";
 import { UUID } from "node:crypto";
 import { Got } from "got";
+import * as otelApi from "@opentelemetry/api";
+import { Attributes } from "@opentelemetry/api";
+import { Logger } from "@opentelemetry/api-logs";
 //#region src/check-in.d.ts
 type CheckIn = {
   status: StatusSummary | null;
@@ -138,6 +142,40 @@ declare const getStringOrNull: (name: string) => string | null;
  * Get a string input from the Action's configuration by name or return `undefined` if not set.
  */
 declare const getStringOrUndefined: (name: string) => string | undefined;
+declare namespace log_d_exports {
+  export { debug, error, group, info, notice, setFailed, warning };
+}
+/**
+ * `@actions/core` accepts an Error in place of a message for the annotation
+ * functions, and renders it via `toString()`.
+ */
+type Message = string | Error;
+/**
+ * Write a debug message. Only visible in the workflow log when the user has
+ * enabled step debug logging, but always exported to OpenTelemetry.
+ */
+declare function debug(message: string, attributes?: Attributes): void;
+/** Write an informational message to the workflow log. */
+declare function info(message: string, attributes?: Attributes): void;
+/** Write a notice annotation to the workflow log. */
+declare function notice(message: Message, properties?: actionsCore.AnnotationProperties, attributes?: Attributes): void;
+/** Write a warning annotation to the workflow log. */
+declare function warning(message: Message, properties?: actionsCore.AnnotationProperties, attributes?: Attributes): void;
+/** Write an error annotation to the workflow log. */
+declare function error(message: Message, properties?: actionsCore.AnnotationProperties, attributes?: Attributes): void;
+/**
+ * Fail the workflow step, recording the reason as an OpenTelemetry error log.
+ */
+declare function setFailed(message: Message, attributes?: Attributes): void;
+/**
+ * Run `fn` inside both a collapsible group in the workflow log and an active
+ * OpenTelemetry span of the same name.
+ *
+ * This is the replacement for a `startGroup`/`endGroup` pair: the group closes
+ * and the span ends even if `fn` throws, and a throwing `fn` marks the span
+ * failed before re-throwing.
+ */
+declare function group<T>(name: string, fn: () => Promise<T>, attributes?: Attributes): Promise<T>;
 declare namespace platform_d_exports {
   export { getArchOs, getNixPlatform };
 }
@@ -149,6 +187,46 @@ declare function getArchOs(): string;
  * Get the current Nix system. Examples include `x86_64-linux` and `aarch64-darwin`.
  */
 declare function getNixPlatform(archOs: string): string;
+//#endregion
+//#region src/telemetry.d.ts
+/** The instrumentation scope name for everything this library emits. */
+declare const SCOPE_NAME = "detsys-ts";
+/** The severities we map GitHub Actions' log levels onto. */
+type LogLevel = "debug" | "info" | "notice" | "warning" | "error";
+/**
+ * The tracer for this library. Returns a no-op tracer until {@link
+ * Telemetry.start} has run, so this is always safe to call.
+ */
+declare function getTracer(): otelApi.Tracer;
+/**
+ * The logger for this library. Returns a no-op logger until {@link
+ * Telemetry.start} has run, so this is always safe to call.
+ */
+declare function getLogger(): Logger;
+/**
+ * Serialize a span as a W3C `traceparent` header value, suitable for stashing
+ * in the Action's state or handing to a child process.
+ *
+ * Returns undefined when telemetry is disabled, since the no-op span's context
+ * is all zeroes and would not be a valid parent.
+ */
+declare function traceparentOf(span: otelApi.Span | undefined): string | undefined;
+/**
+ * Rebuild a Context from a W3C `traceparent` value, so a span started in one
+ * process can parent spans started in another. Falls back to the root context
+ * when `traceparent` is absent or unparseable.
+ */
+declare function contextFromTraceparent(traceparent: string | undefined): otelApi.Context;
+/**
+ * Mark `span` as failed and attach the exception to it.
+ */
+declare function recordSpanError(span: otelApi.Span, error: unknown): void;
+/**
+ * Run `fn` inside a new active span, ending the span when it settles and
+ * marking it failed if it throws. The error is always re-thrown: this records,
+ * it does not swallow.
+ */
+declare function withSpan<T>(name: string, fn: (span: otelApi.Span) => Promise<T>, attributes?: otelApi.Attributes): Promise<T>;
 //#endregion
 //#region src/index.d.ts
 /**
@@ -207,6 +285,11 @@ type ConfidentActionOptions = {
   binaryNamesDenyList: string[];
 };
 /**
+ * The context attached to a recorded event. Values may nest one level deep,
+ * which is how PostHog-style properties like `$group_set` are expressed.
+ */
+type EventContext = Record<string, boolean | string | number | undefined | Record<string, boolean | string | number | undefined>>;
+/**
  * An event to send to the diagnostic endpoint of i.d.s.
  */
 type DiagnosticEvent = {
@@ -232,6 +315,8 @@ declare abstract class DetSysAction {
   private idsHost;
   private features;
   private featureEventMetadata;
+  private telemetry;
+  private phaseSpan?;
   private determineExecutionPhase;
   constructor(actionOptions: ActionOptions);
   /**
@@ -261,7 +346,7 @@ declare abstract class DetSysAction {
   getUniqueId(): string;
   getCrossPhaseId(): string;
   getCorrelationHashes(): CorrelationProperties;
-  recordEvent(eventName: string, context?: Record<string, boolean | string | number | undefined | Record<string, boolean | string | number | undefined>>): void;
+  recordEvent(eventName: string, context?: EventContext): void;
   /**
    * Unpacks the closure returned by `fetchArtifact()`, imports the
    * contents into the Nix store, and returns the path of the executable at
@@ -276,6 +361,53 @@ declare abstract class DetSysAction {
   private get isMain();
   private get isPost();
   private executeAsync;
+  /**
+   * Run `fn` with the phase's root span as the active span, so anything it
+   * starts is parented into this phase's trace.
+   */
+  private withPhaseSpanActive;
+  /**
+   * Start OpenTelemetry export, if this run is opted in.
+   *
+   * This has to run after check-in, because check-in is what resolves the
+   * feature flag. When it doesn't start, the OpenTelemetry API stays in its
+   * no-op state: every span and log record below silently does nothing, so
+   * there is no need to branch on it at the call sites.
+   */
+  private startTelemetry;
+  /**
+   * Open the root span for this execution phase.
+   *
+   * `main` and `post` are separate processes, so the main phase publishes its
+   * span as a W3C traceparent in the Action's state and the post phase adopts
+   * it as a parent. That puts both phases of a run in one trace.
+   */
+  private startPhaseSpan;
+  /**
+   * The stable, run-scoped attributes attached to every span and log record.
+   *
+   * These carry the same hashed, non-identifying correlation data the
+   * diagnostics endpoint already receives.
+   */
+  private telemetryResourceAttributes;
+  /**
+   * The W3C `traceparent` identifying the span currently in progress.
+   *
+   * Hand this to a child process -- as `$TRACEPARENT` -- so that its own
+   * OpenTelemetry data joins this Action's trace. Returns undefined when
+   * OpenTelemetry export is disabled for this run.
+   */
+  getTraceparent(): string | undefined;
+  /**
+   * Environment variables that let a spawned binary export into this Action's
+   * trace: the current `$TRACEPARENT`, and the OTLP endpoint and credentials
+   * to send to.
+   *
+   * Merge this into the environment of any child process you want traced. It
+   * is empty when OpenTelemetry export is disabled, so merging it is always
+   * safe.
+   */
+  getTelemetryEnvironment(): Promise<Record<string, string>>;
   getClient(): Promise<Got>;
   private checkIn;
   getFeature(name: string): Feature | undefined;
@@ -321,6 +453,7 @@ declare abstract class DetSysAction {
    */
   failOnError(msg: string): void;
   private downloadFile;
+  private download;
   private complete;
   private getCheckInUrl;
   private getSourceUrl;
@@ -335,5 +468,5 @@ declare abstract class DetSysAction {
   private submitEvents;
 }
 //#endregion
-export { ActionOptions, type CheckIn, ConfidentActionOptions, type CorrelationProperties, DetSysAction, DiagnosticEvent, ExecutionPhase, type Feature, FetchSuffixStyle, IdsHost, type Incident, type Maintenance, NixRequirementHandling, NixStoreTrust, type Page, type SourceDef, type StatusSummary, inputs_d_exports as inputs, platform_d_exports as platform, stringifyError };
+export { ActionOptions, type CheckIn, ConfidentActionOptions, type CorrelationProperties, DetSysAction, DiagnosticEvent, EventContext, ExecutionPhase, type Feature, FetchSuffixStyle, IdsHost, type Incident, type LogLevel, type Maintenance, NixRequirementHandling, NixStoreTrust, type Page, SCOPE_NAME, type SourceDef, type StatusSummary, contextFromTraceparent, getLogger, getTracer, inputs_d_exports as inputs, log_d_exports as log, platform_d_exports as platform, recordSpanError, stringifyError, traceparentOf, withSpan };
 //# sourceMappingURL=index.d.mts.map

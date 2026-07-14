@@ -10,12 +10,15 @@ import * as checksums from "./checksums.js";
 import * as correlation from "./correlation.js";
 import { IdsHost } from "./ids-host.js";
 import * as inputs from "./inputs.js";
+import * as log from "./log.js";
 import * as platform from "./platform.js";
 import type { SourceDef } from "./sourcedef.js";
 import * as sourcedef from "./sourcedef.js";
+import * as otel from "./telemetry.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import * as actionsExec from "@actions/exec";
+import * as otelApi from "@opentelemetry/api";
 import { type Got, type Request, TimeoutError } from "got";
 import { exec } from "node:child_process";
 import type { UUID } from "node:crypto";
@@ -58,6 +61,15 @@ const STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
 const STATE_NOT_FOUND = "not-found";
 const STATE_KEY_CROSS_PHASE_ID = "detsys_cross_phase_id";
 const STATE_BACKTRACE_START_TIMESTAMP = "detsys_backtrace_start_timestamp";
+const STATE_KEY_TRACEPARENT = "detsys_otel_traceparent";
+
+// The check-in feature flag that turns OTLP export on.
+const FEATURE_OTEL_EXPORT = "otel-export";
+
+// Span attribute prefixes, so trace data lines up with the facts and events
+// already sent to the diagnostics endpoint.
+const ATTR_PREFIX_FACT = "detsys.fact.";
+const ATTR_PREFIX_EVENT = "detsys.event.";
 
 const DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 10_000; // 10 seconds in ms
 const CHECK_IN_ENDPOINT_TIMEOUT_MS = 1_000; // 1 second in ms
@@ -158,6 +170,19 @@ export type ConfidentActionOptions = {
 };
 
 /**
+ * The context attached to a recorded event. Values may nest one level deep,
+ * which is how PostHog-style properties like `$group_set` are expressed.
+ */
+export type EventContext = Record<
+  string,
+  | boolean
+  | string
+  | number
+  | undefined
+  | Record<string, boolean | string | number | undefined>
+>;
+
+/**
  * An event to send to the diagnostic endpoint of i.d.s.
  */
 export type DiagnosticEvent = {
@@ -246,6 +271,11 @@ export abstract class DetSysAction {
   private idsHost: IdsHost;
   private features: { [k: string]: Feature };
   private featureEventMetadata: { [k: string]: string | boolean };
+  private telemetry: otel.Telemetry;
+
+  // The root span for this execution phase. Undefined until the phase span is
+  // opened, and when OpenTelemetry export is disabled.
+  private phaseSpan?: otelApi.Span;
 
   private determineExecutionPhase(): ExecutionPhase {
     const currentPhase = actionsCore.getState(STATE_KEY_EXECUTION_PHASE);
@@ -267,6 +297,7 @@ export abstract class DetSysAction {
       process.env["INPUT_DIAGNOSTIC-ENDPOINT"],
       inputs.getNumberOrUndefined("timeout-request"),
     );
+    this.telemetry = new otel.Telemetry();
     this.exceptionAttachments = new Map();
     this.nixStoreTrust = "unknown";
     this.strictMode = inputs.getBool("_internal-strict-mode");
@@ -401,6 +432,10 @@ export abstract class DetSysAction {
 
   addFact(key: string, value: string | boolean | number): void {
     this.facts[key] = value;
+
+    // Facts describe the run as a whole, so they belong on the phase's root
+    // span rather than on whichever span happens to be active.
+    this.phaseSpan?.setAttribute(`${ATTR_PREFIX_FACT}${key}`, value);
   }
 
   async getDiagnosticsUrl(): Promise<URL | undefined> {
@@ -431,17 +466,7 @@ export abstract class DetSysAction {
     return this.identity;
   }
 
-  recordEvent(
-    eventName: string,
-    context: Record<
-      string,
-      | boolean
-      | string
-      | number
-      | undefined
-      | Record<string, boolean | string | number | undefined>
-    > = {},
-  ): void {
+  recordEvent(eventName: string, context: EventContext = {}): void {
     const prefixedName =
       eventName === "$feature_flag_called" || eventName === "$groupidentify"
         ? eventName
@@ -468,6 +493,12 @@ export abstract class DetSysAction {
         ),
       },
     });
+
+    // Mirror the event onto the trace. Prefer whichever span is active so the
+    // event lands on the operation that produced it, and fall back to the
+    // phase's root span for events recorded outside any nested span.
+    const span = otelApi.trace.getActiveSpan() ?? this.phaseSpan;
+    span?.addEvent(prefixedName, toAttributes(context, ATTR_PREFIX_EVENT));
   }
 
   /**
@@ -507,35 +538,48 @@ export abstract class DetSysAction {
   }
 
   private async executeAsync(): Promise<void> {
+    // The phase span can't open until check-in has resolved the feature flag
+    // that decides whether telemetry is exported at all, so remember when the
+    // phase really began and backdate the span to here.
+    const phaseStartTime = new Date();
+
     try {
       await this.checkIn();
+      await this.startTelemetry();
 
-      const correlationHashes = JSON.stringify(this.getCorrelationHashes());
-      process.env.DETSYS_CORRELATION = correlationHashes;
-      try {
-        await writeCorrelationHashes(correlationHashes);
-      } catch (error) {
-        this.recordEvent(EVENT_STORE_IDENTITY_FAILED, { error: String(error) });
-      }
+      this.startPhaseSpan(phaseStartTime);
 
-      if (!(await this.preflightRequireNix())) {
-        this.recordEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
-        return;
-      } else {
-        await this.preflightNixStoreInfo();
-        await this.preflightNixVersion();
-        this.addFact(FACT_NIX_STORE_TRUST, this.nixStoreTrust);
-      }
+      await this.withPhaseSpanActive(async () => {
+        const correlationHashes = JSON.stringify(this.getCorrelationHashes());
+        process.env.DETSYS_CORRELATION = correlationHashes;
+        try {
+          await writeCorrelationHashes(correlationHashes);
+        } catch (error) {
+          this.recordEvent(EVENT_STORE_IDENTITY_FAILED, {
+            error: String(error),
+          });
+        }
 
-      if (this.isMain) {
-        this.recordGroup();
-        await this.main();
+        if (!(await this.preflightRequireNix())) {
+          this.recordEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
+          return;
+        } else {
+          await this.preflightNixStoreInfo();
+          await this.preflightNixVersion();
+          this.addFact(FACT_NIX_STORE_TRUST, this.nixStoreTrust);
+        }
 
-        // Run the preflight of the nix version a second time so our "shutdown" events have updated version info.
-        await this.preflightNixVersion();
-      } else if (this.isPost) {
-        await this.post();
-      }
+        if (this.isMain) {
+          this.recordGroup();
+          await this.main();
+
+          // Run the preflight of the nix version a second time so our "shutdown" events have updated version info.
+          await this.preflightNixVersion();
+        } else if (this.isPost) {
+          await this.post();
+        }
+      });
+
       this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
     } catch (e: unknown) {
       this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
@@ -544,10 +588,14 @@ export abstract class DetSysAction {
 
       this.addFact(FACT_FINAL_EXCEPTION, reportable);
 
+      if (this.phaseSpan !== undefined) {
+        otel.recordSpanError(this.phaseSpan, e);
+      }
+
       if (this.isPost) {
-        actionsCore.warning(reportable);
+        log.warning(reportable);
       } else {
-        actionsCore.setFailed(reportable);
+        log.setFailed(reportable);
       }
 
       const doGzip = promisify(gzip);
@@ -571,12 +619,196 @@ export abstract class DetSysAction {
 
       this.recordEvent(EVENT_EXCEPTION, Object.fromEntries(exceptionContext));
     } finally {
-      if (this.isPost) {
-        await this.collectBacktraces();
-      }
+      // Still inside the phase span: backtrace collection is part of the phase,
+      // and left to run outside the span's context it would start a root span
+      // of its own, in a second trace.
+      await this.withPhaseSpanActive(async () => {
+        if (this.isPost) {
+          await this.collectBacktraces();
+        }
+      });
 
       await this.complete();
     }
+  }
+
+  /**
+   * Run `fn` with the phase's root span as the active span, so anything it
+   * starts is parented into this phase's trace.
+   */
+  private async withPhaseSpanActive<T>(fn: () => Promise<T>): Promise<T> {
+    const span = this.phaseSpan;
+
+    if (span === undefined) {
+      return await fn();
+    }
+
+    return await otelApi.context.with(
+      otelApi.trace.setSpan(otelApi.context.active(), span),
+      fn,
+    );
+  }
+
+  /**
+   * Start OpenTelemetry export, if this run is opted in.
+   *
+   * This has to run after check-in, because check-in is what resolves the
+   * feature flag. When it doesn't start, the OpenTelemetry API stays in its
+   * no-op state: every span and log record below silently does nothing, so
+   * there is no need to branch on it at the call sites.
+   */
+  private async startTelemetry(): Promise<void> {
+    const enabledByFlag =
+      this.getFeature(FEATURE_OTEL_EXPORT)?.variant === true;
+
+    // An explicitly configured endpoint opts in regardless of the flag, so the
+    // export can be exercised without waiting on a server-side rollout.
+    const enabledByConfig = otel.otlpExplicitlyConfigured();
+
+    if (!enabledByFlag && !enabledByConfig) {
+      actionsCore.debug("OpenTelemetry export is not enabled for this run.");
+      return;
+    }
+
+    const endpoint = otel.otlpEndpoint();
+    if (endpoint === undefined) {
+      actionsCore.debug(
+        "OpenTelemetry export is disabled: no OTLP endpoint resolved.",
+      );
+      return;
+    }
+
+    this.telemetry.start({
+      serviceName: this.actionOptions.name,
+      serviceVersion: pkgVersion,
+      endpoint,
+      headers: otel.otlpHeaders(),
+      requestTimeoutMs: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS,
+      resourceAttributes: this.telemetryResourceAttributes(),
+    });
+  }
+
+  /**
+   * Open the root span for this execution phase.
+   *
+   * `main` and `post` are separate processes, so the main phase publishes its
+   * span as a W3C traceparent in the Action's state and the post phase adopts
+   * it as a parent. That puts both phases of a run in one trace.
+   */
+  private startPhaseSpan(startTime: Date): otelApi.Span {
+    const parentContext = otel.contextFromTraceparent(
+      actionsCore.getState(STATE_KEY_TRACEPARENT) || undefined,
+    );
+
+    const span = otel
+      .getTracer()
+      .startSpan(
+        `${this.actionOptions.name}:${this.executionPhase}`,
+        { startTime },
+        parentContext,
+      );
+
+    // Facts collected before the span existed -- most of them are gathered in
+    // the constructor -- still describe this run, so replay them onto it.
+    for (const [key, value] of Object.entries(this.facts)) {
+      span.setAttribute(`${ATTR_PREFIX_FACT}${key}`, value);
+    }
+
+    if (this.isMain) {
+      const traceparent = otel.traceparentOf(span);
+      if (traceparent !== undefined) {
+        actionsCore.saveState(STATE_KEY_TRACEPARENT, traceparent);
+      }
+    }
+
+    this.phaseSpan = span;
+
+    return span;
+  }
+
+  /**
+   * The stable, run-scoped attributes attached to every span and log record.
+   *
+   * These carry the same hashed, non-identifying correlation data the
+   * diagnostics endpoint already receives.
+   */
+  private telemetryResourceAttributes(): otelApi.Attributes {
+    return {
+      "detsys.project": this.actionOptions.name,
+      "detsys.ids_project": this.actionOptions.idsProjectName,
+      "detsys.execution_phase": this.executionPhase,
+      "detsys.cross_phase_id": this.getCrossPhaseId(),
+      "detsys.anon_distinct_id": this.identity.$anon_distinct_id,
+      "detsys.session_id": this.identity.$session_id,
+      "detsys.correlation_source": this.identity.correlation_source,
+      "detsys.github_repository_hash": this.identity.github_repository_hash,
+      "detsys.github_organization_hash":
+        this.identity.$groups["github_organization"],
+      "detsys.github_workflow_hash": this.identity.github_workflow_hash,
+      "detsys.github_workflow_job_hash": this.identity.github_workflow_job_hash,
+      "detsys.github_workflow_run_hash": this.identity.github_workflow_run_hash,
+      "detsys.github_workflow_run_differentiator_hash":
+        this.identity.github_workflow_run_differentiator_hash,
+      "detsys.arch_os": this.archOs,
+      "detsys.nix_system": this.nixSystem,
+      "ci.provider": "github-actions",
+
+      // The feature flags this run resolved, so trace data can be sliced by
+      // the same variants the events are.
+      ...Object.fromEntries(
+        Object.entries(this.featureEventMetadata).map<
+          [string, string | boolean]
+        >(([name, variant]) => [`detsys.feature.${name}`, variant]),
+      ),
+    };
+  }
+
+  /**
+   * The W3C `traceparent` identifying the span currently in progress.
+   *
+   * Hand this to a child process -- as `$TRACEPARENT` -- so that its own
+   * OpenTelemetry data joins this Action's trace. Returns undefined when
+   * OpenTelemetry export is disabled for this run.
+   */
+  getTraceparent(): string | undefined {
+    return otel.traceparentOf(otelApi.trace.getActiveSpan() ?? this.phaseSpan);
+  }
+
+  /**
+   * Environment variables that let a spawned binary export into this Action's
+   * trace: the current `$TRACEPARENT`, and the OTLP endpoint and credentials
+   * to send to.
+   *
+   * Merge this into the environment of any child process you want traced. It
+   * is empty when OpenTelemetry export is disabled, so merging it is always
+   * safe.
+   */
+  async getTelemetryEnvironment(): Promise<Record<string, string>> {
+    if (!this.telemetry.enabled) {
+      return {};
+    }
+
+    const environment: Record<string, string> = {};
+
+    const traceparent = this.getTraceparent();
+    if (traceparent !== undefined) {
+      environment["TRACEPARENT"] = traceparent;
+    }
+
+    const endpoint = otel.otlpEndpoint();
+    if (endpoint !== undefined) {
+      environment["OTEL_EXPORTER_OTLP_ENDPOINT"] = endpoint.toString();
+    }
+
+    // Without this the child reaches the collector unauthenticated and its
+    // spans are refused. Left undefined when we have no headers of our own,
+    // so that a value the user set survives into the child.
+    const headers = otel.encodeOtlpHeaders(otel.otlpHeaders());
+    if (headers !== undefined) {
+      environment["OTEL_EXPORTER_OTLP_HEADERS"] = headers;
+    }
+
+    return environment;
   }
 
   async getClient(): Promise<Got> {
@@ -765,75 +997,86 @@ export abstract class DetSysAction {
 
     // If source-binary is set, use that. Otherwise fall back to the source-* parameters.
     if (sourceBinary !== null && sourceBinary !== "") {
-      actionsCore.debug(`Using the provided source binary at ${sourceBinary}`);
+      log.debug(`Using the provided source binary at ${sourceBinary}`);
       return sourceBinary;
     }
 
-    const expectedArtifactHash = await this.resolveExpectedArtifactHash();
+    return await otel.withSpan(
+      "fetch_artifact",
+      async () => {
+        const expectedArtifactHash = await this.resolveExpectedArtifactHash();
 
-    actionsCore.startGroup(
-      `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`,
-    );
-
-    try {
-      actionsCore.info(`Fetching from ${await this.getSourceUrl()}`);
-
-      const correlatedUrl = await this.getSourceUrl();
-      correlatedUrl.searchParams.set("ci", "github");
-      correlatedUrl.searchParams.set(
-        "correlation",
-        JSON.stringify(this.identity),
-      );
-
-      const versionCheckup = await (await this.getClient()).head(correlatedUrl);
-      if (versionCheckup.headers.etag) {
-        const v = versionCheckup.headers.etag;
-        this.addFact(FACT_SOURCE_URL_ETAG, v);
-
-        actionsCore.debug(
-          `Checking the tool cache for ${await this.getSourceUrl()} at ${v}`,
+        actionsCore.startGroup(
+          `Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`,
         );
-        const cached = await this.getCachedVersion(v, expectedArtifactHash);
-        if (cached) {
-          this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = true;
-          actionsCore.debug(`Tool cache hit.`);
-          await this.verifyArtifactHash(cached, expectedArtifactHash);
-          return cached;
-        }
-      }
-
-      this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = false;
-
-      actionsCore.debug(
-        `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`,
-      );
-
-      const destFile = this.getTemporaryName();
-
-      const fetchStream = await this.downloadFile(
-        new URL(versionCheckup.url),
-        destFile,
-      );
-
-      await this.verifyArtifactHash(destFile, expectedArtifactHash);
-
-      if (fetchStream.response?.headers.etag) {
-        const v = fetchStream.response.headers.etag;
 
         try {
-          await this.saveCachedVersion(v, destFile, expectedArtifactHash);
-        } catch (e: unknown) {
-          actionsCore.debug(`Error caching the artifact: ${stringifyError(e)}`);
-        }
-      }
+          log.info(`Fetching from ${await this.getSourceUrl()}`);
 
-      return destFile;
-    } catch (e: unknown) {
-      this.recordPlausibleTimeout(e);
-      throw e;
-    } finally {
-      actionsCore.endGroup();
-    }
+          const correlatedUrl = await this.getSourceUrl();
+          correlatedUrl.searchParams.set("ci", "github");
+          correlatedUrl.searchParams.set(
+            "correlation",
+            JSON.stringify(this.identity),
+          );
+
+          const versionCheckup = await (
+            await this.getClient()
+          ).head(correlatedUrl);
+          if (versionCheckup.headers.etag) {
+            const v = versionCheckup.headers.etag;
+            this.addFact(FACT_SOURCE_URL_ETAG, v);
+
+            log.debug(
+              `Checking the tool cache for ${await this.getSourceUrl()} at ${v}`,
+            );
+            const cached = await this.getCachedVersion(v, expectedArtifactHash);
+            if (cached) {
+              this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = true;
+              log.debug(`Tool cache hit.`);
+              await this.verifyArtifactHash(cached, expectedArtifactHash);
+              return cached;
+            }
+          }
+
+          this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = false;
+
+          log.debug(
+            `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`,
+          );
+
+          const destFile = this.getTemporaryName();
+
+          const fetchStream = await this.downloadFile(
+            new URL(versionCheckup.url),
+            destFile,
+          );
+
+          await this.verifyArtifactHash(destFile, expectedArtifactHash);
+
+          if (fetchStream.response?.headers.etag) {
+            const v = fetchStream.response.headers.etag;
+
+            try {
+              await this.saveCachedVersion(v, destFile, expectedArtifactHash);
+            } catch (e: unknown) {
+              log.debug(`Error caching the artifact: ${stringifyError(e)}`);
+            }
+          }
+
+          return destFile;
+        } catch (e: unknown) {
+          this.recordPlausibleTimeout(e);
+          throw e;
+        } finally {
+          actionsCore.endGroup();
+        }
+      },
+      {
+        "detsys.artifact": this.actionOptions.name,
+        "detsys.architecture_fetch_suffix": this.architectureFetchSuffix,
+      },
+    );
   }
 
   /**
@@ -917,6 +1160,15 @@ export abstract class DetSysAction {
     url: URL,
     destination: nodeFs.PathLike,
   ): Promise<Request> {
+    return await otel.withSpan("download_file", async () =>
+      this.download(url, destination),
+    );
+  }
+
+  private async download(
+    url: URL,
+    destination: nodeFs.PathLike,
+  ): Promise<Request> {
     const client = await this.getClient();
 
     return new Promise((resolve, reject) => {
@@ -964,8 +1216,17 @@ export abstract class DetSysAction {
   }
 
   private async complete(): Promise<void> {
+    // Recorded before the span ends, so it still lands on the trace.
     this.recordEvent(`complete_${this.executionPhase}`);
+
+    this.phaseSpan?.end();
+    this.phaseSpan = undefined;
+
     await this.submitEvents();
+
+    // The process exits as soon as we return, so anything still buffered has
+    // to go out now.
+    await this.telemetry.shutdown();
   }
 
   private async getCheckInUrl(): Promise<URL | undefined> {
@@ -1019,37 +1280,41 @@ export abstract class DetSysAction {
     version: string,
     expectedHash: string | null,
   ): Promise<undefined | string> {
-    const startCwd = process.cwd();
+    return await otel.withSpan("artifact_cache_restore", async (span) => {
+      const startCwd = process.cwd();
 
-    try {
-      const tempDir = this.getTemporaryName();
-      await mkdir(tempDir);
-      process.chdir(tempDir);
+      try {
+        const tempDir = this.getTemporaryName();
+        await mkdir(tempDir);
+        process.chdir(tempDir);
 
-      // extremely evil shit right here:
-      process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
-      delete process.env.GITHUB_WORKSPACE;
+        // extremely evil shit right here:
+        process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
+        delete process.env.GITHUB_WORKSPACE;
 
-      if (
-        await actionsCache.restoreCache(
-          [this.actionOptions.name],
-          this.cacheKey(version, expectedHash),
-          [],
-          undefined,
-          true,
-        )
-      ) {
-        this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
-        return `${tempDir}/${this.actionOptions.name}`;
+        if (
+          await actionsCache.restoreCache(
+            [this.actionOptions.name],
+            this.cacheKey(version, expectedHash),
+            [],
+            undefined,
+            true,
+          )
+        ) {
+          span.setAttribute("detsys.cache_hit", true);
+          this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
+          return `${tempDir}/${this.actionOptions.name}`;
+        }
+
+        span.setAttribute("detsys.cache_hit", false);
+        this.recordEvent(EVENT_ARTIFACT_CACHE_MISS);
+        return undefined;
+      } finally {
+        process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
+        delete process.env.GITHUB_WORKSPACE_BACKUP;
+        process.chdir(startCwd);
       }
-
-      this.recordEvent(EVENT_ARTIFACT_CACHE_MISS);
-      return undefined;
-    } finally {
-      process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
-      delete process.env.GITHUB_WORKSPACE_BACKUP;
-      process.chdir(startCwd);
-    }
+    });
   }
 
   private async saveCachedVersion(
@@ -1057,30 +1322,32 @@ export abstract class DetSysAction {
     toolPath: string,
     expectedHash: string | null,
   ): Promise<void> {
-    const startCwd = process.cwd();
+    return await otel.withSpan("artifact_cache_persist", async () => {
+      const startCwd = process.cwd();
 
-    try {
-      const tempDir = this.getTemporaryName();
-      await mkdir(tempDir);
-      process.chdir(tempDir);
-      await copyFile(toolPath, `${tempDir}/${this.actionOptions.name}`);
+      try {
+        const tempDir = this.getTemporaryName();
+        await mkdir(tempDir);
+        process.chdir(tempDir);
+        await copyFile(toolPath, `${tempDir}/${this.actionOptions.name}`);
 
-      // extremely evil shit right here:
-      process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
-      delete process.env.GITHUB_WORKSPACE;
+        // extremely evil shit right here:
+        process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
+        delete process.env.GITHUB_WORKSPACE;
 
-      await actionsCache.saveCache(
-        [this.actionOptions.name],
-        this.cacheKey(version, expectedHash),
-        undefined,
-        true,
-      );
-      this.recordEvent(EVENT_ARTIFACT_CACHE_PERSIST);
-    } finally {
-      process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
-      delete process.env.GITHUB_WORKSPACE_BACKUP;
-      process.chdir(startCwd);
-    }
+        await actionsCache.saveCache(
+          [this.actionOptions.name],
+          this.cacheKey(version, expectedHash),
+          undefined,
+          true,
+        );
+        this.recordEvent(EVENT_ARTIFACT_CACHE_PERSIST);
+      } finally {
+        process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
+        delete process.env.GITHUB_WORKSPACE_BACKUP;
+        process.chdir(startCwd);
+      }
+    });
   }
 
   private collectBacktraceSetup(): void {
@@ -1100,12 +1367,14 @@ export abstract class DetSysAction {
         return;
       }
 
-      const backtraces = await collectBacktraces(
-        this.actionOptions.binaryNamePrefixes,
-        this.actionOptions.binaryNamesDenyList,
-        parseInt(actionsCore.getState(STATE_BACKTRACE_START_TIMESTAMP)),
+      const backtraces = await otel.withSpan("collect_backtraces", async () =>
+        collectBacktraces(
+          this.actionOptions.binaryNamePrefixes,
+          this.actionOptions.binaryNamesDenyList,
+          parseInt(actionsCore.getState(STATE_BACKTRACE_START_TIMESTAMP)),
+        ),
       );
-      actionsCore.debug(`Backtraces identified: ${backtraces.size}`);
+      log.debug(`Backtraces identified: ${backtraces.size}`);
       if (backtraces.size > 0) {
         this.recordEvent(EVENT_BACKTRACES, Object.fromEntries(backtraces));
       }
@@ -1117,123 +1386,134 @@ export abstract class DetSysAction {
   }
 
   private async preflightRequireNix(): Promise<boolean> {
-    let nixLocation: string | undefined;
+    return await otel.withSpan("preflight_require_nix", async () => {
+      let nixLocation: string | undefined;
 
-    const pathParts = (process.env["PATH"] || "").split(":");
-    for (const location of pathParts) {
-      const candidateNix = path.join(location, "nix");
+      const pathParts = (process.env["PATH"] || "").split(":");
+      for (const location of pathParts) {
+        const candidateNix = path.join(location, "nix");
 
-      try {
-        await fs.access(candidateNix, fs.constants.X_OK);
-        actionsCore.debug(`Found Nix at ${candidateNix}`);
-        nixLocation = candidateNix;
-        break;
-      } catch {
-        actionsCore.debug(`Nix not at ${candidateNix}`);
+        try {
+          await fs.access(candidateNix, fs.constants.X_OK);
+          log.debug(`Found Nix at ${candidateNix}`);
+          nixLocation = candidateNix;
+          break;
+        } catch {
+          actionsCore.debug(`Nix not at ${candidateNix}`);
+        }
       }
-    }
-    this.addFact(FACT_NIX_LOCATION, nixLocation || "");
+      this.addFact(FACT_NIX_LOCATION, nixLocation || "");
 
-    if (this.actionOptions.requireNix === "ignore") {
-      return true;
-    }
+      if (this.actionOptions.requireNix === "ignore") {
+        return true;
+      }
 
-    const currentNotFoundState = actionsCore.getState(STATE_KEY_NIX_NOT_FOUND);
-    if (currentNotFoundState === STATE_NOT_FOUND) {
-      // It was previously not found, so don't run subsequent actions
+      const currentNotFoundState = actionsCore.getState(
+        STATE_KEY_NIX_NOT_FOUND,
+      );
+      if (currentNotFoundState === STATE_NOT_FOUND) {
+        // It was previously not found, so don't run subsequent actions
+        return false;
+      }
+
+      if (nixLocation !== undefined) {
+        return true;
+      }
+      actionsCore.saveState(STATE_KEY_NIX_NOT_FOUND, STATE_NOT_FOUND);
+
+      switch (this.actionOptions.requireNix) {
+        case "fail":
+          log.setFailed(
+            [
+              "This action can only be used when Nix is installed.",
+              "Add `- uses: DeterminateSystems/determinate-nix-action@v3` earlier in your workflow.",
+            ].join(" "),
+          );
+          break;
+        case "warn":
+          log.warning(
+            [
+              "This action is in no-op mode because Nix is not installed.",
+              "Add `- uses: DeterminateSystems/determinate-nix-action@v3` earlier in your workflow.",
+            ].join(" "),
+          );
+          break;
+      }
+
       return false;
-    }
-
-    if (nixLocation !== undefined) {
-      return true;
-    }
-    actionsCore.saveState(STATE_KEY_NIX_NOT_FOUND, STATE_NOT_FOUND);
-
-    switch (this.actionOptions.requireNix) {
-      case "fail":
-        actionsCore.setFailed(
-          [
-            "This action can only be used when Nix is installed.",
-            "Add `- uses: DeterminateSystems/determinate-nix-action@v3` earlier in your workflow.",
-          ].join(" "),
-        );
-        break;
-      case "warn":
-        actionsCore.warning(
-          [
-            "This action is in no-op mode because Nix is not installed.",
-            "Add `- uses: DeterminateSystems/determinate-nix-action@v3` earlier in your workflow.",
-          ].join(" "),
-        );
-        break;
-    }
-
-    return false;
+    });
   }
 
   private async preflightNixStoreInfo(): Promise<void> {
-    let output = "";
+    return await otel.withSpan("preflight_nix_store_info", async (span) => {
+      let output = "";
 
-    const options: actionsExec.ExecOptions = {};
-    options.silent = true;
-    options.listeners = {
-      stdout: (data) => {
-        output += data.toString();
-      },
-    };
+      const options: actionsExec.ExecOptions = {};
+      options.silent = true;
+      options.listeners = {
+        stdout: (data) => {
+          output += data.toString();
+        },
+      };
 
-    try {
-      output = "";
-      await actionsExec.exec("nix", ["store", "info", "--json"], options);
-      this.addFact(FACT_NIX_STORE_CHECK_METHOD, "info");
-    } catch {
       try {
-        // reset output
         output = "";
-        await actionsExec.exec("nix", ["store", "ping", "--json"], options);
-        this.addFact(FACT_NIX_STORE_CHECK_METHOD, "ping");
+        await actionsExec.exec("nix", ["store", "info", "--json"], options);
+        this.addFact(FACT_NIX_STORE_CHECK_METHOD, "info");
       } catch {
-        this.addFact(FACT_NIX_STORE_CHECK_METHOD, "none");
-        return;
-      }
-    }
-
-    try {
-      const parsed = JSON.parse(output);
-      if (parsed.trusted === true || parsed.trusted === 1) {
-        this.nixStoreTrust = "trusted";
-      } else if (parsed.trusted === false || parsed.trusted === 0) {
-        this.nixStoreTrust = "untrusted";
-      } else if (parsed.trusted !== undefined) {
-        this.addFact(
-          FACT_NIX_STORE_CHECK_ERROR,
-          `Mysterious trusted value: ${JSON.stringify(parsed.trusted)}`,
-        );
+        try {
+          // reset output
+          output = "";
+          await actionsExec.exec("nix", ["store", "ping", "--json"], options);
+          this.addFact(FACT_NIX_STORE_CHECK_METHOD, "ping");
+        } catch {
+          this.addFact(FACT_NIX_STORE_CHECK_METHOD, "none");
+          return;
+        }
       }
 
-      this.addFact(FACT_NIX_STORE_VERSION, JSON.stringify(parsed.version));
-    } catch (e: unknown) {
-      this.addFact(FACT_NIX_STORE_CHECK_ERROR, stringifyError(e));
-    }
+      try {
+        const parsed = JSON.parse(output);
+        if (parsed.trusted === true || parsed.trusted === 1) {
+          this.nixStoreTrust = "trusted";
+        } else if (parsed.trusted === false || parsed.trusted === 0) {
+          this.nixStoreTrust = "untrusted";
+        } else if (parsed.trusted !== undefined) {
+          this.addFact(
+            FACT_NIX_STORE_CHECK_ERROR,
+            `Mysterious trusted value: ${JSON.stringify(parsed.trusted)}`,
+          );
+        }
+
+        this.addFact(FACT_NIX_STORE_VERSION, JSON.stringify(parsed.version));
+      } catch (e: unknown) {
+        this.addFact(FACT_NIX_STORE_CHECK_ERROR, stringifyError(e));
+      }
+
+      span.setAttribute("detsys.nix_store_trust", this.nixStoreTrust);
+    });
   }
 
   private async preflightNixVersion(): Promise<void> {
-    let output = "unknown";
+    return await otel.withSpan("preflight_nix_version", async (span) => {
+      let output = "unknown";
 
-    try {
-      ({ stdout: output } = await actionsExec.getExecOutput(
-        "nix",
-        ["--version"],
-        {
-          silent: true,
-        },
-      ));
-      output = output.trim() || "unknown";
-    } catch {
-      // That's fine.
-    }
+      try {
+        ({ stdout: output } = await actionsExec.getExecOutput(
+          "nix",
+          ["--version"],
+          {
+            silent: true,
+          },
+        ));
+        output = output.trim() || "unknown";
+      } catch {
+        // That's fine.
+      }
 
-    this.addFact(FACT_NIX_VERSION, output);
+      this.addFact(FACT_NIX_VERSION, output);
+      span.setAttribute("detsys.nix_version", output);
+    });
   }
 
   private async submitEvents(): Promise<void> {
@@ -1277,6 +1557,41 @@ function stringifyError(error: unknown): string {
     : JSON.stringify(error);
 }
 
+/**
+ * Flatten an event context into OpenTelemetry attributes.
+ *
+ * Attributes are a flat map of primitives, so the one level of nesting an
+ * EventContext permits is joined with a dot, and undefined values are dropped
+ * rather than serialized as the string "undefined".
+ */
+function toAttributes(
+  context: EventContext,
+  prefix: string,
+): otelApi.Attributes {
+  const attributes: otelApi.Attributes = {};
+
+  const set = (
+    key: string,
+    value: boolean | string | number | undefined,
+  ): void => {
+    if (value !== undefined) {
+      attributes[`${prefix}${key}`] = value;
+    }
+  };
+
+  for (const [key, value] of Object.entries(context)) {
+    if (typeof value === "object" && value !== null) {
+      for (const [nestedKey, nestedValue] of Object.entries(value)) {
+        set(`${key}.${nestedKey}`, nestedValue);
+      }
+    } else {
+      set(key, value);
+    }
+  }
+
+  return attributes;
+}
+
 function makeOptionsConfident(
   actionOptions: ActionOptions,
 ): ConfidentActionOptions {
@@ -1318,4 +1633,20 @@ export { stringifyError } from "./errors.js";
 export { IdsHost } from "./ids-host.js";
 export type { SourceDef } from "./sourcedef.js";
 export * as inputs from "./inputs.js";
+
+/**
+ * Logging that tees to both the GitHub Actions console and OpenTelemetry.
+ * A drop-in replacement for the `@actions/core` logging functions.
+ */
+export * as log from "./log.js";
 export * as platform from "./platform.js";
+export type { LogLevel } from "./telemetry.js";
+export {
+  SCOPE_NAME,
+  contextFromTraceparent,
+  getLogger,
+  getTracer,
+  recordSpanError,
+  traceparentOf,
+  withSpan,
+} from "./telemetry.js";
