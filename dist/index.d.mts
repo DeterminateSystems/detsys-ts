@@ -1,6 +1,5 @@
 import { UUID } from "node:crypto";
 import { Got } from "got";
-
 //#region src/check-in.d.ts
 type CheckIn = {
   status: StatusSummary | null;
