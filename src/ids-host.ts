@@ -4,7 +4,7 @@
  */
 import { stringifyError } from "./errors.js";
 import * as actionsCore from "@actions/core";
-import { Got, got } from "got";
+import got, { type Got } from "got";
 import type { SrvRecord } from "node:dns";
 import { resolveSrv } from "node:dns/promises";
 

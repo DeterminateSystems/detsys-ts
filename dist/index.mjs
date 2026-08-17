@@ -1,4 +1,4 @@
-import { t as __exportAll } from "./chunk-CfYAbeIz.mjs";
+import { t as __exportAll } from "./rolldown-runtime-D7D4PA-g.mjs";
 import * as fs$1 from "node:fs";
 import { constants, createReadStream, createWriteStream, readFileSync } from "node:fs";
 import * as os$1 from "node:os";
@@ -10,7 +10,7 @@ import os from "os";
 import fs, { chmod, copyFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { gzip } from "node:zlib";
 import { createHash, randomUUID } from "node:crypto";
-import { TimeoutError, got } from "got";
+import got, { TimeoutError } from "got";
 import { resolveSrv } from "node:dns/promises";
 import * as actionsCache from "@actions/cache";
 import { exec } from "node:child_process";
@@ -44,8 +44,10 @@ function releaseInfo(infoOptions) {
 		...infoOptions
 	};
 	const searchOsReleaseFileList = osReleaseFileList(options.customFile);
-	if (os$1.type() !== "Linux") if (options.mode === "sync") return getOsInfo();
-	else return Promise.resolve(getOsInfo());
+	if (os$1.type() !== "Linux") {
+		if (options.mode === "sync") return getOsInfo();
+		else return Promise.resolve(getOsInfo());
+	}
 	if (options.mode === "sync") return readSyncOsreleaseFile(searchOsReleaseFileList, options);
 	else return Promise.resolve(readAsyncOsReleaseFile(searchOsReleaseFileList, options));
 }
@@ -300,15 +302,16 @@ async function collectBacktracesSystemd(prefixes, programNameDenyList, startTime
 		if (!Array.isArray(sussyArray)) throw new Error(`Coredump isn't an array: ${coredumpjson}`);
 		for (const sussyObject of sussyArray) {
 			const keys = Object.keys(sussyObject);
-			if (keys.includes("exe") && keys.includes("pid")) if (typeof sussyObject.exe == "string" && typeof sussyObject.pid == "number") {
-				const execParts = sussyObject.exe.split("/");
-				const binaryName = execParts[execParts.length - 1];
-				if (prefixes.some((prefix) => binaryName.startsWith(prefix)) && !programNameDenyList.includes(binaryName)) coredumps.push({
-					exe: sussyObject.exe,
-					pid: sussyObject.pid
-				});
-			} else actionsCore.debug(`Mysterious coredump entry missing exe string and/or pid number: ${JSON.stringify(sussyObject)}`);
-			else actionsCore.debug(`Mysterious coredump entry missing exe value and/or pid value: ${JSON.stringify(sussyObject)}`);
+			if (keys.includes("exe") && keys.includes("pid")) {
+				if (typeof sussyObject.exe == "string" && typeof sussyObject.pid == "number") {
+					const execParts = sussyObject.exe.split("/");
+					const binaryName = execParts[execParts.length - 1];
+					if (prefixes.some((prefix) => binaryName.startsWith(prefix)) && !programNameDenyList.includes(binaryName)) coredumps.push({
+						exe: sussyObject.exe,
+						pid: sussyObject.pid
+					});
+				} else actionsCore.debug(`Mysterious coredump entry missing exe string and/or pid number: ${JSON.stringify(sussyObject)}`);
+			} else actionsCore.debug(`Mysterious coredump entry missing exe value and/or pid value: ${JSON.stringify(sussyObject)}`);
 		}
 	} catch (innerError) {
 		actionsCore.debug(`Cannot collect backtraces: ${stringifyError(innerError)}`);
@@ -445,12 +448,14 @@ function hashEnvironmentVariables(prefix, variables) {
 	const hash = createHash("sha256");
 	for (const varName of variables) {
 		let value = process.env[varName];
-		if (value === void 0) if (OPTIONAL_VARIABLES.includes(varName)) {
-			actionsCore.debug(`Optional environment variable not set: ${varName} -- substituting with the variable name`);
-			value = varName;
-		} else {
-			actionsCore.debug(`Environment variable not set: ${varName} -- can't generate the requested identity`);
-			return;
+		if (value === void 0) {
+			if (OPTIONAL_VARIABLES.includes(varName)) {
+				actionsCore.debug(`Optional environment variable not set: ${varName} -- substituting with the variable name`);
+				value = varName;
+			} else {
+				actionsCore.debug(`Environment variable not set: ${varName} -- can't generate the requested identity`);
+				return;
+			}
 		}
 		hash.update(value);
 		hash.update("\0");
@@ -659,7 +664,8 @@ const getBoolOrUndefined = (name) => {
 * all whitespace is removed from the string before converting to an array.
 */
 const getArrayOfStrings = (name, separator) => {
-	return handleString(getString(name), separator);
+	const original = getString(name);
+	return handleString(original, separator);
 };
 /**
 * Convert a string input into an array of strings or `null` if no value is set.
@@ -747,12 +753,12 @@ function getArchOs() {
 * Get the current Nix system. Examples include `x86_64-linux` and `aarch64-darwin`.
 */
 function getNixPlatform(archOs) {
-	const mappedTo = new Map([
+	const mappedTo = (/* @__PURE__ */ new Map([
 		["X64-macOS", "x86_64-darwin"],
 		["ARM64-macOS", "aarch64-darwin"],
 		["X64-Linux", "x86_64-linux"],
 		["ARM64-Linux", "aarch64-linux"]
-	]).get(archOs);
+	])).get(archOs);
 	if (mappedTo) return mappedTo;
 	else {
 		actionsCore.error(`ArchOs (${archOs}) doesn't map to a supported Nix platform.`);
@@ -1066,7 +1072,7 @@ var DetSysAction = class {
 		if (checkin === void 0) return;
 		this.features = checkin.options;
 		for (const [key, feature] of Object.entries(this.features)) this.featureEventMetadata[key] = feature.variant;
-		const impactSymbol = new Map([
+		const impactSymbol = /* @__PURE__ */ new Map([
 			["none", "⚪"],
 			["maintenance", "🛠️"],
 			["minor", "🟡"],
@@ -1384,9 +1390,7 @@ var DetSysAction = class {
 			case "fail":
 				actionsCore.setFailed(["This action can only be used when Nix is installed.", "Add `- uses: DeterminateSystems/determinate-nix-action@v3` earlier in your workflow."].join(" "));
 				break;
-			case "warn":
-				actionsCore.warning(["This action is in no-op mode because Nix is not installed.", "Add `- uses: DeterminateSystems/determinate-nix-action@v3` earlier in your workflow."].join(" "));
-				break;
+			case "warn": actionsCore.warning(["This action is in no-op mode because Nix is not installed.", "Add `- uses: DeterminateSystems/determinate-nix-action@v3` earlier in your workflow."].join(" "));
 		}
 		return false;
 	}
