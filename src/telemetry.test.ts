@@ -89,30 +89,6 @@ describe("otlpEndpoint", () => {
   });
 });
 
-describe("otlpExplicitlyConfigured", () => {
-  // Explicit configuration opts a run into OTLP export even when the check-in
-  // feature flag is off, so that the export can be exercised without waiting
-  // on a server-side rollout.
-
-  afterEach(() => {
-    delete process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
-  });
-
-  test("is false when the environment variable is unset", () => {
-    expect(otel.otlpExplicitlyConfigured()).toBe(false);
-  });
-
-  test("is false when the environment variable is empty", () => {
-    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = "";
-    expect(otel.otlpExplicitlyConfigured()).toBe(false);
-  });
-
-  test("is true when the environment variable names an endpoint", () => {
-    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = "https://otlp.example.com";
-    expect(otel.otlpExplicitlyConfigured()).toBe(true);
-  });
-});
-
 describe("otlpHeaders", () => {
   afterEach(() => {
     delete process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
@@ -124,9 +100,9 @@ describe("otlpHeaders", () => {
     );
   });
 
-  test("sends nothing to somebody else's collector", () => {
-    // Our token is not theirs to receive, and a header set here would clobber
-    // the OTEL_EXPORTER_OTLP_HEADERS they configured for it.
+  test("sends nothing to a different collector", () => {
+    // A different collector must not receive our token.
+    // A header here would also replace the user's OTEL_EXPORTER_OTLP_HEADERS.
     process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = "https://otlp.example.com";
     expect(otel.otlpHeaders()).toStrictEqual({});
   });
@@ -148,9 +124,9 @@ describe("encodeOtlpHeaders", () => {
     expect(otel.encodeOtlpHeaders({})).toBeUndefined();
   });
 
-  test("percent-encodes values, since the reader decodes them", () => {
-    // An unencoded space would split `Bearer` from the token when the child's
-    // SDK parses this back out of the environment.
+  test("percent-encodes values, because the reader decodes them", () => {
+    // The SDK in the child process reads this value from the environment.
+    // A space that you do not encode divides `Bearer` from the token.
     expect(otel.encodeOtlpHeaders({ Authorization: "Bearer abc123" })).toBe(
       "Authorization=Bearer%20abc123",
     );

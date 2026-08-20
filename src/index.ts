@@ -63,9 +63,6 @@ const STATE_KEY_CROSS_PHASE_ID = "detsys_cross_phase_id";
 const STATE_BACKTRACE_START_TIMESTAMP = "detsys_backtrace_start_timestamp";
 const STATE_KEY_TRACEPARENT = "detsys_otel_traceparent";
 
-// The check-in feature flag that turns OTLP export on.
-const FEATURE_OTEL_EXPORT = "otel-export";
-
 // Span attribute prefixes, so trace data lines up with the facts and events
 // already sent to the diagnostics endpoint.
 const ATTR_PREFIX_FACT = "detsys.fact.";
@@ -538,9 +535,9 @@ export abstract class DetSysAction {
   }
 
   private async executeAsync(): Promise<void> {
-    // The phase span can't open until check-in has resolved the feature flag
-    // that decides whether telemetry is exported at all, so remember when the
-    // phase really began and backdate the span to here.
+    // The phase span opens only after the check-in.
+    // The check-in supplies the feature flags for the resource attributes.
+    // Thus record the true start time here and backdate the span to it.
     const phaseStartTime = new Date();
 
     try {
@@ -650,26 +647,19 @@ export abstract class DetSysAction {
   }
 
   /**
-   * Start OpenTelemetry export, if this run is opted in.
+   * Start the OpenTelemetry export.
    *
-   * This has to run after check-in, because check-in is what resolves the
-   * feature flag. When it doesn't start, the OpenTelemetry API stays in its
-   * no-op state: every span and log record below silently does nothing, so
-   * there is no need to branch on it at the call sites.
+   * All runs export their data.
+   * To stop the export, set `OTEL_EXPORTER_OTLP_ENDPOINT` to an empty value.
+   * The function then finds no endpoint and does not start the SDK.
+   * The OpenTelemetry API stays in its no-op state.
+   * Each span and log record then does nothing.
+   * Thus the call sites do not test if the export is on.
+   *
+   * This function runs after the check-in.
+   * The check-in supplies the feature flags for the resource attributes.
    */
   private async startTelemetry(): Promise<void> {
-    const enabledByFlag =
-      this.getFeature(FEATURE_OTEL_EXPORT)?.variant === true;
-
-    // An explicitly configured endpoint opts in regardless of the flag, so the
-    // export can be exercised without waiting on a server-side rollout.
-    const enabledByConfig = otel.otlpExplicitlyConfigured();
-
-    if (!enabledByFlag && !enabledByConfig) {
-      actionsCore.debug("OpenTelemetry export is not enabled for this run.");
-      return;
-    }
-
     const endpoint = otel.otlpEndpoint();
     if (endpoint === undefined) {
       actionsCore.debug(
@@ -775,13 +765,13 @@ export abstract class DetSysAction {
   }
 
   /**
-   * Environment variables that let a spawned binary export into this Action's
-   * trace: the current `$TRACEPARENT`, and the OTLP endpoint and credentials
-   * to send to.
+   * The environment variables that let a child process add data to this
+   * Action's trace.
+   * They contain the current `$TRACEPARENT`, the OTLP endpoint, and the token.
    *
-   * Merge this into the environment of any child process you want traced. It
-   * is empty when OpenTelemetry export is disabled, so merging it is always
-   * safe.
+   * Add these variables to the environment of each child process to trace.
+   * The result is empty if the OpenTelemetry export is off.
+   * Thus it is always safe to add them.
    */
   async getTelemetryEnvironment(): Promise<Record<string, string>> {
     if (!this.telemetry.enabled) {
@@ -800,9 +790,9 @@ export abstract class DetSysAction {
       environment["OTEL_EXPORTER_OTLP_ENDPOINT"] = endpoint.toString();
     }
 
-    // Without this the child reaches the collector unauthenticated and its
-    // spans are refused. Left undefined when we have no headers of our own,
-    // so that a value the user set survives into the child.
+    // The collector refuses the spans of a child process that has no token.
+    // The value stays undefined if we have no headers.
+    // The child then keeps the value that the user set.
     const headers = otel.encodeOtlpHeaders(otel.otlpHeaders());
     if (headers !== undefined) {
       environment["OTEL_EXPORTER_OTLP_HEADERS"] = headers;

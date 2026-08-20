@@ -751,22 +751,23 @@ const getStringOrUndefined = (name) => {
 /** The instrumentation scope name for everything this library emits. */
 const SCOPE_NAME = "detsys-ts";
 /**
-* The OTLP/HTTP collector every Action exports to, in the shape of
-* `OTEL_EXPORTER_OTLP_ENDPOINT`: `/v1/traces` and `/v1/logs` are appended.
+* The OTLP/HTTP collector for all Actions.
+* The exporters add `/v1/traces` and `/v1/logs` to this URL.
 *
-* This is a fixed service. It is not one of the install.determinate.systems
-* backends discovered by SRV record, so it is not subject to their failover.
+* This collector is a fixed service.
+* It is not one of the install.determinate.systems backends.
+* Thus it does not use their SRV failover.
 */
 const DEFAULT_OTLP_ENDPOINT = "https://otel.determinate.systems";
 /**
-* The token {@link DEFAULT_OTLP_ENDPOINT} authenticates with, presented as
-* `Authorization: Bearer <token>` -- the default scheme of the collector's
-* `bearertokenauth` extension.
+* The token for {@link DEFAULT_OTLP_ENDPOINT}.
+* The exporters send it as `Authorization: Bearer <token>`.
+* That is the default scheme of the collector's `bearertokenauth` extension.
 *
-* This is a write-only ingest token, and it is public: it ships in `dist/`,
-* on npm, and in every workflow that vendors this library. It buys the
-* ability to send us telemetry and nothing else. Rotate it in the collector's
-* config and here together.
+* This token is public.
+* It ships in `dist/`, on npm, and in each workflow that uses this library.
+* It permits telemetry writes and no other operation.
+* Change it in the collector configuration and in this file at the same time.
 */
 const OTLP_INGEST_TOKEN = "8bfa2d8b689352981286f0149c4e55cc0dff30a4f7a735b560e31479904a74e1";
 /**
@@ -794,12 +795,12 @@ const SEVERITY = {
 	error: SeverityNumber.ERROR
 };
 /**
-* The OTLP base endpoint to export to.
+* The OTLP base endpoint for this run.
 *
-* `OTEL_EXPORTER_OTLP_ENDPOINT` overrides {@link DEFAULT_OTLP_ENDPOINT}, which
-* makes it easy to point a run at a local collector. Setting it to an empty
-* string turns export off. An unparseable value is ignored, and the default
-* applies.
+* `OTEL_EXPORTER_OTLP_ENDPOINT` replaces {@link DEFAULT_OTLP_ENDPOINT}.
+* Use it to send the data to a local collector.
+* An empty value stops the export.
+* If the value is not a valid URL, the default endpoint applies.
 */
 function otlpEndpoint() {
 	const fromEnv = process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
@@ -812,38 +813,29 @@ function otlpEndpoint() {
 	return new URL(DEFAULT_OTLP_ENDPOINT);
 }
 /**
-* Whether `OTEL_EXPORTER_OTLP_ENDPOINT` names an endpoint.
+* The headers for each OTLP export request.
 *
-* Doing so opts a run into export regardless of the feature flag, so the
-* export can be exercised in testing without a server-side rollout.
-*/
-function otlpExplicitlyConfigured() {
-	const fromEnv = process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
-	return fromEnv !== void 0 && fromEnv !== "";
-}
-/**
-* The headers every OTLP export request carries.
-*
-* Empty unless we are exporting to {@link DEFAULT_OTLP_ENDPOINT}: a run
-* pointed at somebody else's collector has no business presenting our token.
-* Staying quiet also keeps an `OTEL_EXPORTER_OTLP_HEADERS` the user set for
-* their own collector intact, since headers given in code beat the
-* environment key by key.
+* The result is empty if the run does not export to
+* {@link DEFAULT_OTLP_ENDPOINT}.
+* Do not send our token to a different collector.
+* An empty result also keeps the user's `OTEL_EXPORTER_OTLP_HEADERS`.
+* Headers from the code replace headers from the environment key by key.
 */
 function otlpHeaders() {
 	if (otlpEndpoint()?.toString() !== new URL(DEFAULT_OTLP_ENDPOINT).toString()) return {};
 	return { Authorization: `Bearer ${OTLP_INGEST_TOKEN}` };
 }
 /**
-* Serialize headers for `OTEL_EXPORTER_OTLP_HEADERS`, which a child process's
-* own SDK reads.
+* Make the value of `OTEL_EXPORTER_OTLP_HEADERS` for a child process.
+* The SDK in the child process reads that variable.
 *
-* The variable is in W3C baggage format, and the SDK reading it back
-* percent-decodes each value -- so the space in `Bearer <token>` has to be
-* encoded here or the scheme and the token arrive as separate entries.
+* The variable uses the W3C baggage format.
+* The SDK decodes each percent-encoded value.
+* Thus you must encode the space in `Bearer <token>`.
+* If you do not encode it, the scheme and the token become two entries.
 *
-* Returns undefined when there are no headers, so the caller can leave the
-* variable unset rather than blanking one the user supplied.
+* The result is undefined if there are no headers.
+* The caller then keeps the value that the user supplied.
 */
 function encodeOtlpHeaders(headers) {
 	const encoded = Object.entries(headers).map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join(",");
@@ -1202,7 +1194,6 @@ const STATE_NOT_FOUND = "not-found";
 const STATE_KEY_CROSS_PHASE_ID = "detsys_cross_phase_id";
 const STATE_BACKTRACE_START_TIMESTAMP = "detsys_backtrace_start_timestamp";
 const STATE_KEY_TRACEPARENT = "detsys_otel_traceparent";
-const FEATURE_OTEL_EXPORT = "otel-export";
 const ATTR_PREFIX_FACT = "detsys.fact.";
 const ATTR_PREFIX_EVENT = "detsys.event.";
 const DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 1e4;
@@ -1452,20 +1443,19 @@ var DetSysAction = class {
 		return await otelApi.context.with(otelApi.trace.setSpan(otelApi.context.active(), span), fn);
 	}
 	/**
-	* Start OpenTelemetry export, if this run is opted in.
+	* Start the OpenTelemetry export.
 	*
-	* This has to run after check-in, because check-in is what resolves the
-	* feature flag. When it doesn't start, the OpenTelemetry API stays in its
-	* no-op state: every span and log record below silently does nothing, so
-	* there is no need to branch on it at the call sites.
+	* All runs export their data.
+	* To stop the export, set `OTEL_EXPORTER_OTLP_ENDPOINT` to an empty value.
+	* The function then finds no endpoint and does not start the SDK.
+	* The OpenTelemetry API stays in its no-op state.
+	* Each span and log record then does nothing.
+	* Thus the call sites do not test if the export is on.
+	*
+	* This function runs after the check-in.
+	* The check-in supplies the feature flags for the resource attributes.
 	*/
 	async startTelemetry() {
-		const enabledByFlag = this.getFeature(FEATURE_OTEL_EXPORT)?.variant === true;
-		const enabledByConfig = otlpExplicitlyConfigured();
-		if (!enabledByFlag && !enabledByConfig) {
-			actionsCore.debug("OpenTelemetry export is not enabled for this run.");
-			return;
-		}
 		const endpoint = otlpEndpoint();
 		if (endpoint === void 0) {
 			actionsCore.debug("OpenTelemetry export is disabled: no OTLP endpoint resolved.");
@@ -1536,13 +1526,13 @@ var DetSysAction = class {
 		return traceparentOf(otelApi.trace.getActiveSpan() ?? this.phaseSpan);
 	}
 	/**
-	* Environment variables that let a spawned binary export into this Action's
-	* trace: the current `$TRACEPARENT`, and the OTLP endpoint and credentials
-	* to send to.
+	* The environment variables that let a child process add data to this
+	* Action's trace.
+	* They contain the current `$TRACEPARENT`, the OTLP endpoint, and the token.
 	*
-	* Merge this into the environment of any child process you want traced. It
-	* is empty when OpenTelemetry export is disabled, so merging it is always
-	* safe.
+	* Add these variables to the environment of each child process to trace.
+	* The result is empty if the OpenTelemetry export is off.
+	* Thus it is always safe to add them.
 	*/
 	async getTelemetryEnvironment() {
 		if (!this.telemetry.enabled) return {};

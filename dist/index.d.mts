@@ -367,12 +367,17 @@ declare abstract class DetSysAction {
    */
   private withPhaseSpanActive;
   /**
-   * Start OpenTelemetry export, if this run is opted in.
+   * Start the OpenTelemetry export.
    *
-   * This has to run after check-in, because check-in is what resolves the
-   * feature flag. When it doesn't start, the OpenTelemetry API stays in its
-   * no-op state: every span and log record below silently does nothing, so
-   * there is no need to branch on it at the call sites.
+   * All runs export their data.
+   * To stop the export, set `OTEL_EXPORTER_OTLP_ENDPOINT` to an empty value.
+   * The function then finds no endpoint and does not start the SDK.
+   * The OpenTelemetry API stays in its no-op state.
+   * Each span and log record then does nothing.
+   * Thus the call sites do not test if the export is on.
+   *
+   * This function runs after the check-in.
+   * The check-in supplies the feature flags for the resource attributes.
    */
   private startTelemetry;
   /**
@@ -399,13 +404,13 @@ declare abstract class DetSysAction {
    */
   getTraceparent(): string | undefined;
   /**
-   * Environment variables that let a spawned binary export into this Action's
-   * trace: the current `$TRACEPARENT`, and the OTLP endpoint and credentials
-   * to send to.
+   * The environment variables that let a child process add data to this
+   * Action's trace.
+   * They contain the current `$TRACEPARENT`, the OTLP endpoint, and the token.
    *
-   * Merge this into the environment of any child process you want traced. It
-   * is empty when OpenTelemetry export is disabled, so merging it is always
-   * safe.
+   * Add these variables to the environment of each child process to trace.
+   * The result is empty if the OpenTelemetry export is off.
+   * Thus it is always safe to add them.
    */
   getTelemetryEnvironment(): Promise<Record<string, string>>;
   getClient(): Promise<Got>;
