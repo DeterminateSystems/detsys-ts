@@ -223,6 +223,22 @@ declare function getLogger(): Logger;
  */
 declare function traceparentOf(span: otelApi.Span | undefined): string | undefined;
 /**
+ * The W3C trace context headers of the operation in progress, for an outgoing
+ * HTTP request.
+ *
+ * Put these headers on the request.
+ * The service that answers it can then put its own work in this trace.
+ *
+ * The headers describe the span that is active now.
+ * When no span is active yet -- a request the Action makes before it opens a
+ * span of its own -- they describe the trace of the workflow job, from
+ * `$TRACEPARENT`.
+ *
+ * The result is empty when the export is off.
+ * A no-op span's context is all zeroes, and is not a valid parent.
+ */
+declare function traceContextHeaders(): Record<string, string>;
+/**
  * Rebuild a Context from a W3C `traceparent` value, so a span started in one
  * process can parent spans started in another. Falls back to the root context
  * when `traceparent` is absent or unparseable.
@@ -406,13 +422,44 @@ declare abstract class DetSysAction {
    */
   private startTelemetry;
   /**
+   * Put every Action of this workflow job in one trace.
+   *
+   * A job runs each Action as a process of its own.
+   * Thus the Actions can only agree on a trace through the job's environment.
+   * The first Action to run makes the identity of the job's span and exports it
+   * as `$TRACEPARENT`.
+   * Each later step finds it there: the other Actions, and the programs the
+   * workflow runs, such as Nix.
+   *
+   * The span itself starts and ends in the post phase of the Action that
+   * announced it.
+   * GitHub Actions runs the post phases in the reverse of the order of the main
+   * phases, thus that phase is the last one of the job.
+   * The span then covers the whole job.
+   * See {@link endJobSpan}.
+   *
+   * A `$TRACEPARENT` that is already set belongs to an earlier Action, or to the
+   * system that started the workflow.
+   * Do not change it, and join that trace.
+   */
+  private announceJobTrace;
+  /**
+   * End the job's span, if this Action is the one that announced it.
+   *
+   * The span also starts here.
+   * A span belongs to the process that ends it, and the process that made the
+   * announcement stopped long ago.
+   * See {@link announceJobTrace}.
+   */
+  private endJobSpan;
+  /**
    * Open the root span for this execution phase.
    *
    * `main` and `post` are separate processes, so the main phase publishes its
    * span as a W3C traceparent in the Action's state and the post phase adopts
    * it as a parent. That puts both phases of a run in one trace. A
-   * `$TRACEPARENT` in the environment parents the whole run into a trace that
-   * started outside this Action.
+   * `$TRACEPARENT` in the environment parents the run into the trace of the
+   * workflow job, which {@link announceJobTrace} starts.
    */
   private startPhaseSpan;
   /**
@@ -523,5 +570,5 @@ declare abstract class DetSysAction {
   private preflightNixVersion;
 }
 //#endregion
-export { ActionOptions, type CheckIn, ConfidentActionOptions, type CorrelationProperties, DetSysAction, ExecutionPhase, type Feature, FetchSuffixStyle, IdsHost, type Incident, type LogLevel, type Maintenance, NixRequirementHandling, NixStoreTrust, type Page, SCOPE_NAME, type SourceDef, type StatusSummary, contextFromTraceparent, getLogger, getTracer, inputs_d_exports as inputs, log_d_exports as log, platform_d_exports as platform, recordSpanError, stringifyError, traceparentOf, withSpan };
+export { ActionOptions, type CheckIn, ConfidentActionOptions, type CorrelationProperties, DetSysAction, ExecutionPhase, type Feature, FetchSuffixStyle, IdsHost, type Incident, type LogLevel, type Maintenance, NixRequirementHandling, NixStoreTrust, type Page, SCOPE_NAME, type SourceDef, type StatusSummary, contextFromTraceparent, getLogger, getTracer, inputs_d_exports as inputs, log_d_exports as log, platform_d_exports as platform, recordSpanError, stringifyError, traceContextHeaders, traceparentOf, withSpan };
 //# sourceMappingURL=index.d.mts.map

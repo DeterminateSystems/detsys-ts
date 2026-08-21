@@ -7,7 +7,7 @@ import * as actionsCore from "@actions/core";
 import * as exec$1 from "@actions/exec";
 import os$1 from "os";
 import fs$1, { chmod, copyFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import got, { TimeoutError } from "got";
 import { resolveSrv } from "node:dns/promises";
 import * as otelApi from "@opentelemetry/api";
@@ -901,6 +901,32 @@ function encodeOtlpHeaders(headers) {
 	return Object.entries(headers).map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join(",");
 }
 /**
+* The generator of the trace and span IDs of this run.
+*
+* It makes random IDs, as the default generator does.
+* It can also give one span an identity that you supply.
+* That is how a span that one process announces starts in a different process.
+* See {@link Telemetry.startAnnouncedSpan}.
+*/
+var PinnedIdGenerator = class {
+	/** Give the next span this identity. */
+	pin(traceId, spanId) {
+		this.traceId = traceId;
+		this.spanId = spanId;
+	}
+	/** Give each subsequent span a random identity again. */
+	unpin() {
+		this.traceId = void 0;
+		this.spanId = void 0;
+	}
+	generateTraceId() {
+		return this.traceId ?? randomHex(16);
+	}
+	generateSpanId() {
+		return this.spanId ?? randomHex(8);
+	}
+};
+/**
 * Owns the OpenTelemetry SDK's lifecycle. Constructing this does nothing on
 * its own; `start()` registers the global providers and `shutdown()` flushes
 * whatever is buffered.
@@ -926,8 +952,10 @@ var Telemetry = class {
 				...options.serviceVersion === void 0 ? {} : { [semconv.ATTR_SERVICE_VERSION]: options.serviceVersion },
 				...options.resourceAttributes
 			})).merge(otelResources.detectResources({ detectors: [otelResources.envDetector] }));
+			this.idGenerator = new PinnedIdGenerator();
 			this.tracerProvider = new sdkTrace.BasicTracerProvider({
 				resource,
+				idGenerator: this.idGenerator,
 				spanProcessors: [new sdkTrace.BatchSpanProcessor(new OTLPTraceExporter())]
 			});
 			this.loggerProvider = new sdkLogs.LoggerProvider({
@@ -943,7 +971,38 @@ var Telemetry = class {
 		} catch (e) {
 			this.tracerProvider = void 0;
 			this.loggerProvider = void 0;
+			this.idGenerator = void 0;
 			actionsCore.debug(`Failed to start OpenTelemetry export, continuing without it: ${stringifyError(e)}`);
+		}
+	}
+	/**
+	* Start the span that {@link newTraceparent} announced.
+	*
+	* A workflow job runs each Action as a process of its own.
+	* Thus a span that covers more than one Action can only start in one of them.
+	* The Action that announces such a span makes its identity known first, and
+	* starts the span itself last, in the process that runs at the end.
+	* The spans that already point at that identity then find their parent.
+	*
+	* The span starts at `startTime`, which is the moment of the announcement.
+	* It is a root span, because the announcement is the start of the trace.
+	*
+	* Returns undefined if the export is off, or if `traceparent` does not name a
+	* usable span.
+	*/
+	startAnnouncedSpan(name, traceparent, startTime) {
+		const generator = this.idGenerator;
+		const spanContext = otelApi.trace.getSpanContext(contextFromTraceparent(traceparent));
+		if (generator === void 0 || this.tracerProvider === void 0 || spanContext === void 0 || !otelApi.isSpanContextValid(spanContext)) return;
+		const tracer = this.tracerProvider.getTracer(SCOPE_NAME, "1.0");
+		try {
+			generator.pin(spanContext.traceId, spanContext.spanId);
+			return tracer.startSpan(name, {
+				startTime,
+				root: true
+			});
+		} finally {
+			generator.unpin();
 		}
 	}
 	/**
@@ -962,6 +1021,7 @@ var Telemetry = class {
 		} finally {
 			this.tracerProvider = void 0;
 			this.loggerProvider = void 0;
+			this.idGenerator = void 0;
 		}
 	}
 };
@@ -1006,6 +1066,41 @@ function traceparentOf(span) {
 	return carrier["traceparent"];
 }
 /**
+* Make the identity of a trace and of its root span, but do not start the span.
+*
+* Announce the result to each process that must join the trace.
+* Start the span itself with {@link Telemetry.startAnnouncedSpan}.
+*
+* The identity says that the trace is sampled.
+* A process that only forwards the identity cannot ask the sampler.
+* An unsampled parent would discard the work of each process that joins.
+*/
+function newTraceparent() {
+	return `00-${randomHex(16)}-${randomHex(8)}-01`;
+}
+/**
+* The W3C trace context headers of the operation in progress, for an outgoing
+* HTTP request.
+*
+* Put these headers on the request.
+* The service that answers it can then put its own work in this trace.
+*
+* The headers describe the span that is active now.
+* When no span is active yet -- a request the Action makes before it opens a
+* span of its own -- they describe the trace of the workflow job, from
+* `$TRACEPARENT`.
+*
+* The result is empty when the export is off.
+* A no-op span's context is all zeroes, and is not a valid parent.
+*/
+function traceContextHeaders() {
+	const active = otelApi.context.active();
+	const context = otelApi.trace.getSpanContext(active) === void 0 ? contextFromTraceparent(process.env["TRACEPARENT"]) : active;
+	const carrier = {};
+	PROPAGATOR.inject(context, carrier, otelApi.defaultTextMapSetter);
+	return carrier;
+}
+/**
 * Rebuild a Context from a W3C `traceparent` value, so a span started in one
 * process can parent spans started in another. Falls back to the root context
 * when `traceparent` is absent or unparseable.
@@ -1040,6 +1135,10 @@ async function withSpan(name, fn, attributes) {
 			span.end();
 		}
 	});
+}
+/** A random ID of `bytes` bytes, in the lowercase hex the W3C format uses. */
+function randomHex(bytes) {
+	return randomBytes(bytes).toString("hex");
 }
 /** Reject if `promise` has not settled within `timeoutMs`. */
 async function withTimeout(promise, timeoutMs) {
@@ -1253,6 +1352,10 @@ const STATE_NOT_FOUND = "not-found";
 const STATE_KEY_CROSS_PHASE_ID = "detsys_cross_phase_id";
 const STATE_BACKTRACE_START_TIMESTAMP = "detsys_backtrace_start_timestamp";
 const STATE_KEY_TRACEPARENT = "detsys_otel_traceparent";
+const STATE_KEY_JOB_TRACEPARENT = "detsys_otel_job_traceparent";
+const STATE_KEY_JOB_SPAN_START = "detsys_otel_job_span_start";
+const ENV_TRACEPARENT = "TRACEPARENT";
+const SPAN_JOB = "github_actions_job";
 const CHECK_IN_ENDPOINT_TIMEOUT_MS = 1e3;
 const PROGRAM_NAME_CRASH_DENY_LIST = [
 	"nix-expr-tests",
@@ -1436,6 +1539,7 @@ var DetSysAction = class {
 	async executeAsync() {
 		const phaseStartTime = /* @__PURE__ */ new Date();
 		try {
+			this.announceJobTrace(phaseStartTime);
 			await this.checkIn();
 			await this.startTelemetry();
 			this.startPhaseSpan(phaseStartTime);
@@ -1506,13 +1610,57 @@ var DetSysAction = class {
 		});
 	}
 	/**
+	* Put every Action of this workflow job in one trace.
+	*
+	* A job runs each Action as a process of its own.
+	* Thus the Actions can only agree on a trace through the job's environment.
+	* The first Action to run makes the identity of the job's span and exports it
+	* as `$TRACEPARENT`.
+	* Each later step finds it there: the other Actions, and the programs the
+	* workflow runs, such as Nix.
+	*
+	* The span itself starts and ends in the post phase of the Action that
+	* announced it.
+	* GitHub Actions runs the post phases in the reverse of the order of the main
+	* phases, thus that phase is the last one of the job.
+	* The span then covers the whole job.
+	* See {@link endJobSpan}.
+	*
+	* A `$TRACEPARENT` that is already set belongs to an earlier Action, or to the
+	* system that started the workflow.
+	* Do not change it, and join that trace.
+	*/
+	announceJobTrace(startTime) {
+		if (!this.isMain || !exportEnabled()) return;
+		if (process.env[ENV_TRACEPARENT]) return;
+		const traceparent = newTraceparent();
+		actionsCore.exportVariable(ENV_TRACEPARENT, traceparent);
+		actionsCore.saveState(STATE_KEY_JOB_TRACEPARENT, traceparent);
+		actionsCore.saveState(STATE_KEY_JOB_SPAN_START, `${startTime.getTime()}`);
+	}
+	/**
+	* End the job's span, if this Action is the one that announced it.
+	*
+	* The span also starts here.
+	* A span belongs to the process that ends it, and the process that made the
+	* announcement stopped long ago.
+	* See {@link announceJobTrace}.
+	*/
+	endJobSpan() {
+		if (!this.isPost) return;
+		const traceparent = actionsCore.getState(STATE_KEY_JOB_TRACEPARENT);
+		if (traceparent === "") return;
+		const startTime = parseInt(actionsCore.getState(STATE_KEY_JOB_SPAN_START), 10);
+		this.telemetry.startAnnouncedSpan(SPAN_JOB, traceparent, new Date(Number.isFinite(startTime) ? startTime : Date.now()))?.end();
+	}
+	/**
 	* Open the root span for this execution phase.
 	*
 	* `main` and `post` are separate processes, so the main phase publishes its
 	* span as a W3C traceparent in the Action's state and the post phase adopts
 	* it as a parent. That puts both phases of a run in one trace. A
-	* `$TRACEPARENT` in the environment parents the whole run into a trace that
-	* started outside this Action.
+	* `$TRACEPARENT` in the environment parents the run into the trace of the
+	* workflow job, which {@link announceJobTrace} starts.
 	*/
 	startPhaseSpan(startTime) {
 		const parentContext = contextFromTraceparent(actionsCore.getState(STATE_KEY_TRACEPARENT) || process.env["TRACEPARENT"] || void 0);
@@ -1853,6 +2001,7 @@ var DetSysAction = class {
 	async complete() {
 		this.phaseSpan?.end();
 		this.phaseSpan = void 0;
+		this.endJobSpan();
 		await this.telemetry.shutdown();
 	}
 	async getCheckInUrl() {
@@ -2099,6 +2248,6 @@ function makeOptionsConfident(actionOptions) {
 	return finalOpts;
 }
 //#endregion
-export { DetSysAction, IdsHost, SCOPE_NAME, contextFromTraceparent, getLogger, getTracer, inputs_exports as inputs, log_exports as log, platform_exports as platform, recordSpanError, stringifyError, traceparentOf, withSpan };
+export { DetSysAction, IdsHost, SCOPE_NAME, contextFromTraceparent, getLogger, getTracer, inputs_exports as inputs, log_exports as log, platform_exports as platform, recordSpanError, stringifyError, traceContextHeaders, traceparentOf, withSpan };
 
 //# sourceMappingURL=index.mjs.map
