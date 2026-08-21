@@ -1,5 +1,4 @@
 import * as actionsCore from "@actions/core";
-import { UUID } from "node:crypto";
 import { Got } from "got";
 import * as otelApi from "@opentelemetry/api";
 import { Attributes } from "@opentelemetry/api";
@@ -41,7 +40,12 @@ type Feature = {
 //#endregion
 //#region src/correlation.d.ts
 /**
- * JSON sent to server.
+ * The hashed, non-identifying description of this run.
+ *
+ * Two consumers fix these names. The check-in evaluates feature flags against
+ * them, and the programs an Action runs read them from
+ * `$DETSYS_CORRELATION`. The OpenTelemetry data carries the same values under
+ * `detsys.` attribute names.
  */
 type CorrelationProperties = {
   $anon_distinct_id: string;
@@ -80,6 +84,13 @@ declare class IdsHost {
   isUrlSubjectToDynamicUrls(url: URL): boolean;
   getDynamicRootUrl(): Promise<URL | undefined>;
   getRootUrl(): Promise<URL>;
+  /**
+   * The diagnostics endpoint of the current backend.
+   *
+   * This library reports nothing there: its telemetry is OpenTelemetry. The
+   * URL is for the programs an Action runs, which have diagnostics of their
+   * own.
+   */
   getDiagnosticsUrl(): Promise<URL | undefined>;
   private getUrlsByPreference;
 }
@@ -262,7 +273,6 @@ type NixStoreTrust = "trusted" | "untrusted" | "unknown";
 type ActionOptions = {
   name: string;
   idsProjectName?: string;
-  eventPrefix?: string;
   fetchStyle: FetchSuffixStyle;
   legacySourcePrefix?: string;
   requireNix: NixRequirementHandling;
@@ -276,28 +286,12 @@ type ActionOptions = {
 type ConfidentActionOptions = {
   name: string;
   idsProjectName: string;
-  eventPrefix: string;
   fetchStyle: FetchSuffixStyle;
   legacySourcePrefix?: string;
   requireNix: NixRequirementHandling;
   providedDiagnosticsUrl?: URL;
   binaryNamePrefixes: string[];
   binaryNamesDenyList: string[];
-};
-/**
- * The context attached to a recorded event. Values may nest one level deep,
- * which is how PostHog-style properties like `$group_set` are expressed.
- */
-type EventContext = Record<string, boolean | string | number | undefined | Record<string, boolean | string | number | undefined>>;
-/**
- * An event to send to the diagnostic endpoint of i.d.s.
- */
-type DiagnosticEvent = {
-  name: string;
-  distinct_id?: string;
-  uuid: UUID;
-  timestamp: Date;
-  properties: Record<string, unknown>;
 };
 declare abstract class DetSysAction {
   nixStoreTrust: NixStoreTrust;
@@ -309,23 +303,25 @@ declare abstract class DetSysAction {
   private nixSystem;
   private architectureFetchSuffix;
   private sourceParameters;
-  private facts;
-  private events;
   private identity;
   private idsHost;
   private features;
-  private featureEventMetadata;
+  private featureVariants;
   private telemetry;
+  private systemDetails;
   private phaseSpan?;
+  private pendingAttributes;
   private determineExecutionPhase;
   constructor(actionOptions: ActionOptions);
   /**
-   * Attach a file to the diagnostics data in error conditions.
+   * Attach a file to the telemetry for this run, to be emitted if the Action
+   * fails.
    *
    * The file at `location` doesn't need to exist when stapleFile is called.
    *
-   * If the file doesn't exist or is unreadable when trying to staple the attachments, the JS error will be stored in a context value at `staple_failure_{name}`.
-   * If the file is readable, the file's contents will be stored in a context value at `staple_value_{name}`.
+   * Each attachment becomes one OpenTelemetry log record, correlated to the
+   * phase's span: the file's contents as the body if it can be read, the
+   * reason it could not be read otherwise.
    */
   stapleFile(name: string, location: string): void;
   /**
@@ -341,12 +337,40 @@ declare abstract class DetSysAction {
    */
   execute(): void;
   getTemporaryName(): string;
-  addFact(key: string, value: string | boolean | number): void;
+  /**
+   * Describe this run with an attribute.
+   *
+   * The attribute lands on the phase's root span, not on whichever span
+   * happens to be active, because it describes the run as a whole. Set it
+   * whenever the value becomes known: attributes set before the span opens
+   * are replayed onto it.
+   *
+   * Namespace your keys, as OpenTelemetry expects: `detsys.nix.version`, not
+   * `nix_version`.
+   */
+  setAttribute(key: string, value: otelApi.AttributeValue): void;
+  /**
+   * The diagnostics endpoint for the programs this Action runs, such as
+   * `nix-installer` and `magic-nix-cache`.
+   *
+   * This library reports nothing there. Its own telemetry is OpenTelemetry;
+   * see {@link getTelemetryEnvironment} for putting a child process's
+   * telemetry in this run's trace.
+   */
   getDiagnosticsUrl(): Promise<URL | undefined>;
   getUniqueId(): string;
   getCrossPhaseId(): string;
   getCorrelationHashes(): CorrelationProperties;
-  recordEvent(eventName: string, context?: EventContext): void;
+  /**
+   * Record that something happened, as a span event.
+   *
+   * The event lands on whichever span is active, so that it sits on the
+   * operation that produced it, and on the phase's root span when there is no
+   * nested span in progress.
+   *
+   * Namespace your attribute keys, as OpenTelemetry expects.
+   */
+  addEvent(name: string, attributes?: otelApi.Attributes): void;
   /**
    * Unpacks the closure returned by `fetchArtifact()`, imports the
    * contents into the Nix store, and returns the path of the executable at
@@ -370,8 +394,9 @@ declare abstract class DetSysAction {
    * Start the OpenTelemetry export.
    *
    * All runs export their data.
-   * To stop the export, set `OTEL_EXPORTER_OTLP_ENDPOINT` to an empty value.
-   * The function then finds no endpoint and does not start the SDK.
+   * To stop the export, set `OTEL_SDK_DISABLED` to `true`, or set
+   * `OTEL_EXPORTER_OTLP_ENDPOINT` to an empty value.
+   * The SDK then does not start.
    * The OpenTelemetry API stays in its no-op state.
    * Each span and log record then does nothing.
    * Thus the call sites do not test if the export is on.
@@ -385,14 +410,16 @@ declare abstract class DetSysAction {
    *
    * `main` and `post` are separate processes, so the main phase publishes its
    * span as a W3C traceparent in the Action's state and the post phase adopts
-   * it as a parent. That puts both phases of a run in one trace.
+   * it as a parent. That puts both phases of a run in one trace. A
+   * `$TRACEPARENT` in the environment parents the whole run into a trace that
+   * started outside this Action.
    */
   private startPhaseSpan;
   /**
    * The stable, run-scoped attributes attached to every span and log record.
    *
-   * These carry the same hashed, non-identifying correlation data the
-   * diagnostics endpoint already receives.
+   * The correlation data here is hashed and does not identify a repository,
+   * an organization, or a person.
    */
   private telemetryResourceAttributes;
   /**
@@ -405,18 +432,37 @@ declare abstract class DetSysAction {
   getTraceparent(): string | undefined;
   /**
    * The environment variables that let a child process add data to this
-   * Action's trace.
-   * They contain the current `$TRACEPARENT`, the OTLP endpoint, and the token.
+   * Action's trace: the current `$TRACEPARENT` and the OTLP export settings.
    *
    * Add these variables to the environment of each child process to trace.
+   * A child that inherits this process's environment already has the OTLP
+   * settings; only `$TRACEPARENT` changes as the run proceeds.
+   *
    * The result is empty if the OpenTelemetry export is off.
    * Thus it is always safe to add them.
    */
   getTelemetryEnvironment(): Promise<Record<string, string>>;
   getClient(): Promise<Got>;
   private checkIn;
+  /**
+   * The variant of a feature flag this run resolved, if the check-in returned
+   * one.
+   *
+   * Every resolved variant is already a resource attribute, under
+   * `detsys.feature.`, so the telemetry can be sliced by the flags that
+   * produced it.
+   */
   getFeature(name: string): Feature | undefined;
-  private recordGroup;
+  /**
+   * The person properties the check-in evaluates feature flags against.
+   *
+   * These names are the flag-targeting contract with the feature flag
+   * service, which is why they keep their `$`-prefixed spelling. They are not
+   * telemetry: nothing here is reported anywhere. The telemetry for this run
+   * is OpenTelemetry, and it names the same values the way OpenTelemetry
+   * does.
+   */
+  private checkInPersonProperties;
   /**
    * Check in to install.determinate.systems, to accomplish three things:
    *
@@ -467,11 +513,15 @@ declare abstract class DetSysAction {
   private saveCachedVersion;
   private collectBacktraceSetup;
   private collectBacktraces;
+  /**
+   * Emit the files `stapleFile` collected, as log records correlated to this
+   * phase's span. The Action has already failed by the time this runs.
+   */
+  private emitAttachments;
   private preflightRequireNix;
   private preflightNixStoreInfo;
   private preflightNixVersion;
-  private submitEvents;
 }
 //#endregion
-export { ActionOptions, type CheckIn, ConfidentActionOptions, type CorrelationProperties, DetSysAction, DiagnosticEvent, EventContext, ExecutionPhase, type Feature, FetchSuffixStyle, IdsHost, type Incident, type LogLevel, type Maintenance, NixRequirementHandling, NixStoreTrust, type Page, SCOPE_NAME, type SourceDef, type StatusSummary, contextFromTraceparent, getLogger, getTracer, inputs_d_exports as inputs, log_d_exports as log, platform_d_exports as platform, recordSpanError, stringifyError, traceparentOf, withSpan };
+export { ActionOptions, type CheckIn, ConfidentActionOptions, type CorrelationProperties, DetSysAction, ExecutionPhase, type Feature, FetchSuffixStyle, IdsHost, type Incident, type LogLevel, type Maintenance, NixRequirementHandling, NixStoreTrust, type Page, SCOPE_NAME, type SourceDef, type StatusSummary, contextFromTraceparent, getLogger, getTracer, inputs_d_exports as inputs, log_d_exports as log, platform_d_exports as platform, recordSpanError, stringifyError, traceparentOf, withSpan };
 //# sourceMappingURL=index.d.mts.map

@@ -19,42 +19,68 @@ import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import * as actionsExec from "@actions/exec";
 import * as otelApi from "@opentelemetry/api";
+import * as semconv from "@opentelemetry/semantic-conventions";
+import * as semconvIncubating from "@opentelemetry/semantic-conventions/incubating";
 import { type Got, type Request, TimeoutError } from "got";
 import { exec } from "node:child_process";
-import type { UUID } from "node:crypto";
 import { randomUUID } from "node:crypto";
 import * as nodeFs from "node:fs";
-import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
+import fs, { chmod, copyFile, mkdir, readFile } from "node:fs/promises";
 import os, { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { gzip } from "node:zlib";
 
-const pkgVersion = "1.0";
+// Span events this library records itself. Names a caller passes to
+// `addEvent` are used as given.
+const EVENT_IDS_FAILOVER = "detsys.ids_failover";
+const EVENT_PREFLIGHT_REQUIRE_NIX_DENIED =
+  "detsys.preflight_require_nix_denied";
+const EVENT_REQUEST_TIMEOUT = "detsys.request_timeout";
+const EVENT_STORE_IDENTITY_FAILED = "detsys.store_identity_failed";
 
-const EVENT_BACKTRACES = "backtrace";
-const EVENT_EXCEPTION = "exception";
-const EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
-const EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
-const EVENT_ARTIFACT_CACHE_PERSIST = "artifact_cache_persist";
-const EVENT_PREFLIGHT_REQUIRE_NIX_DENIED = "preflight-require-nix-denied";
-const EVENT_STORE_IDENTITY_FAILED = "store_identity_failed";
+// Attributes describing the run. Where the OpenTelemetry semantic conventions
+// already name a value, they win; everything else lives under `detsys.`.
+const ATTR_PROJECT = "detsys.project";
+const ATTR_IDS_PROJECT = "detsys.ids_project";
+const ATTR_EXECUTION_PHASE = "detsys.execution_phase";
+const ATTR_CROSS_PHASE_ID = "detsys.cross_phase_id";
+const ATTR_ANONYMOUS_ID = "detsys.anonymous_id";
+const ATTR_CORRELATION_SOURCE = "detsys.correlation_source";
+const ATTR_ARCH_OS = "detsys.arch_os";
+const ATTR_NIX_SYSTEM = "detsys.nix_system";
+const ATTR_FEATURE_PREFIX = "detsys.feature.";
 
-const FACT_ARTIFACT_FETCHED_FROM_CACHE = "artifact_fetched_from_cache";
-const FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
-const FACT_FINAL_EXCEPTION = "final_exception";
-const FACT_OS = "$os";
-const FACT_OS_VERSION = "$os_version";
-const FACT_SOURCE_URL = "source_url";
-const FACT_SOURCE_URL_ETAG = "source_url_etag";
-const FACT_SOURCE_CHECKSUMS_SHA256 = "source_checksums_sha256";
-const FACT_NIX_VERSION = "nix_version";
+const ATTR_GITHUB_EVENT_NAME = "detsys.github.event_name";
+const ATTR_GITHUB_ACTION_REPOSITORY = "detsys.github.action_repository";
+const ATTR_GITHUB_REPOSITORY_HASH = "detsys.github.repository_hash";
+const ATTR_GITHUB_ORGANIZATION_HASH = "detsys.github.organization_hash";
+const ATTR_GITHUB_WORKFLOW_HASH = "detsys.github.workflow_hash";
+const ATTR_GITHUB_WORKFLOW_JOB_HASH = "detsys.github.workflow_job_hash";
+const ATTR_GITHUB_WORKFLOW_RUN_HASH = "detsys.github.workflow_run_hash";
+const ATTR_GITHUB_WORKFLOW_RUN_DIFFERENTIATOR_HASH =
+  "detsys.github.workflow_run_differentiator_hash";
 
-const FACT_NIX_LOCATION = "nix_location";
-const FACT_NIX_STORE_TRUST = "nix_store_trusted";
-const FACT_NIX_STORE_VERSION = "nix_store_version";
-const FACT_NIX_STORE_CHECK_METHOD = "nix_store_check_method";
-const FACT_NIX_STORE_CHECK_ERROR = "nix_store_check_error";
+const ATTR_ARTIFACT_NAME = "detsys.artifact.name";
+const ATTR_ARTIFACT_FETCH_SUFFIX = "detsys.artifact.fetch_suffix";
+const ATTR_ARTIFACT_CACHE_HIT = "detsys.artifact.cache_hit";
+const ATTR_SOURCE_URL = "detsys.source.url";
+const ATTR_SOURCE_ETAG = "detsys.source.etag";
+const ATTR_SOURCE_CHECKSUMS_SHA256 = "detsys.source.checksums_sha256";
+
+const ATTR_NIX_LOCATION = "detsys.nix.location";
+const ATTR_NIX_VERSION = "detsys.nix.version";
+const ATTR_NIX_STORE_TRUST = "detsys.nix.store_trust";
+const ATTR_NIX_STORE_VERSION = "detsys.nix.store_version";
+const ATTR_NIX_STORE_CHECK_METHOD = "detsys.nix.store_check_method";
+const ATTR_NIX_STORE_CHECK_ERROR = "detsys.nix.store_check_error";
+
+// Log records, not span attributes, carry crash reports and stapled files:
+// a record's body is not truncated the way an attribute value is.
+const ATTR_ATTACHMENT_NAME = "detsys.attachment.name";
+const ATTR_ATTACHMENT_PATH = "detsys.attachment.path";
+const ATTR_BACKTRACE_ID = "detsys.backtrace.id";
+const ATTR_BACKTRACE_SOURCE = "detsys.backtrace.source";
+const ATTR_BACKTRACE_PROGRAM = "detsys.backtrace.program";
 
 const STATE_KEY_EXECUTION_PHASE = "detsys_action_execution_phase";
 const STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
@@ -63,12 +89,6 @@ const STATE_KEY_CROSS_PHASE_ID = "detsys_cross_phase_id";
 const STATE_BACKTRACE_START_TIMESTAMP = "detsys_backtrace_start_timestamp";
 const STATE_KEY_TRACEPARENT = "detsys_otel_traceparent";
 
-// Span attribute prefixes, so trace data lines up with the facts and events
-// already sent to the diagnostics endpoint.
-const ATTR_PREFIX_FACT = "detsys.fact.";
-const ATTR_PREFIX_EVENT = "detsys.event.";
-
-const DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 10_000; // 10 seconds in ms
 const CHECK_IN_ENDPOINT_TIMEOUT_MS = 1_000; // 1 second in ms
 const PROGRAM_NAME_CRASH_DENY_LIST = [
   "nix-expr-tests",
@@ -117,9 +137,6 @@ export type ActionOptions = {
   // Defaults to `name`, Corresponds to the ProjectHost entry on i.d.s.
   idsProjectName?: string;
 
-  // Defaults to `action:`
-  eventPrefix?: string;
-
   // The "architecture" URL component expected by I.D.S. for the ProjectHost.
   fetchStyle: FetchSuffixStyle;
 
@@ -133,7 +150,10 @@ export type ActionOptions = {
   // The action will emit a user-visible warning instructing them to install Nix.
   requireNix: NixRequirementHandling;
 
-  // The URL suffix to send diagnostics events to.
+  // The URL suffix of the diagnostics endpoint this project's own binaries
+  // report to. This library does not report there: its telemetry is
+  // OpenTelemetry, and this only supplies `getDiagnosticsUrl()` for the
+  // programs an Action runs.
   //
   // The final URL is constructed via IDS_HOST/idsProjectName/diagnosticsSuffix.
   //
@@ -157,40 +177,12 @@ export type ActionOptions = {
 export type ConfidentActionOptions = {
   name: string;
   idsProjectName: string;
-  eventPrefix: string;
   fetchStyle: FetchSuffixStyle;
   legacySourcePrefix?: string;
   requireNix: NixRequirementHandling;
   providedDiagnosticsUrl?: URL;
   binaryNamePrefixes: string[];
   binaryNamesDenyList: string[];
-};
-
-/**
- * The context attached to a recorded event. Values may nest one level deep,
- * which is how PostHog-style properties like `$group_set` are expressed.
- */
-export type EventContext = Record<
-  string,
-  | boolean
-  | string
-  | number
-  | undefined
-  | Record<string, boolean | string | number | undefined>
->;
-
-/**
- * An event to send to the diagnostic endpoint of i.d.s.
- */
-export type DiagnosticEvent = {
-  // Note: putting a Map in here won't serialize to json properly.
-  // It'll just be {} on serialization.
-  name: string;
-  distinct_id?: string;
-  uuid: UUID;
-  timestamp: Date;
-
-  properties: Record<string, unknown>;
 };
 
 const determinateStateDir = "/var/lib/determinate";
@@ -262,17 +254,24 @@ export abstract class DetSysAction {
   private nixSystem: string;
   private architectureFetchSuffix: string;
   private sourceParameters: SourceDef;
-  private facts: Record<string, string | boolean | number>;
-  private events: DiagnosticEvent[];
   private identity: correlation.CorrelationProperties;
   private idsHost: IdsHost;
   private features: { [k: string]: Feature };
-  private featureEventMetadata: { [k: string]: string | boolean };
+  private featureVariants: { [k: string]: string | boolean };
   private telemetry: otel.Telemetry;
+
+  // The name and version of the runner's operating system, in flight from the
+  // moment the Action is constructed so that it is ready by the time the
+  // resource attributes are assembled.
+  private systemDetails: Promise<{ name: string; version: string } | undefined>;
 
   // The root span for this execution phase. Undefined until the phase span is
   // opened, and when OpenTelemetry export is disabled.
   private phaseSpan?: otelApi.Span;
+
+  // Attributes set before the phase span exists, replayed onto it when it
+  // opens.
+  private pendingAttributes: otelApi.Attributes;
 
   private determineExecutionPhase(): ExecutionPhase {
     const currentPhase = actionsCore.getState(STATE_KEY_EXECUTION_PHASE);
@@ -309,65 +308,29 @@ export abstract class DetSysAction {
     }
 
     this.features = {};
-    this.featureEventMetadata = {};
-    this.events = [];
+    this.featureVariants = {};
+    this.pendingAttributes = {};
 
     this.getCrossPhaseId();
     this.collectBacktraceSetup();
-
-    // JSON sent to server
-    /* eslint-disable camelcase */
-    this.facts = {
-      $lib: "idslib",
-      $lib_version: pkgVersion,
-      project: this.actionOptions.name,
-      ids_project: this.actionOptions.idsProjectName,
-    };
-
-    const params = [
-      ["github_action_ref", "GITHUB_ACTION_REF"],
-      ["github_action_repository", "GITHUB_ACTION_REPOSITORY"],
-      ["github_event_name", "GITHUB_EVENT_NAME"],
-      ["$os", "RUNNER_OS"],
-      ["arch", "RUNNER_ARCH"],
-    ];
-    for (const [target, env] of params) {
-      const value = process.env[env];
-      if (value) {
-        this.facts[target] = value;
-      }
-    }
 
     this.identity = correlation.identify();
     this.archOs = platform.getArchOs();
     this.nixSystem = platform.getNixPlatform(this.archOs);
 
-    this.facts.$app_name = `${this.actionOptions.name}/action`;
-    this.facts.arch_os = this.archOs;
-    this.facts.nix_system = this.nixSystem;
-
-    {
-      ghActionsCorePlatform
-        .getDetails()
-        // eslint-disable-next-line github/no-then
-        .then((details) => {
-          if (details.name !== "unknown") {
-            this.addFact(FACT_OS, details.name);
-          }
-          if (details.version !== "unknown") {
-            this.addFact(FACT_OS_VERSION, details.version);
-          }
-        })
-        // eslint-disable-next-line github/no-then
-        .catch((e: unknown) => {
-          actionsCore.debug(
-            `Failure getting platform details: ${stringifyError(e)}`,
-          );
-        });
-    }
+    this.systemDetails = ghActionsCorePlatform
+      .getDetails()
+      // eslint-disable-next-line github/no-then
+      .then((details) => ({ name: details.name, version: details.version }))
+      // eslint-disable-next-line github/no-then
+      .catch((e: unknown) => {
+        actionsCore.debug(
+          `Failure getting platform details: ${stringifyError(e)}`,
+        );
+        return undefined;
+      });
 
     this.executionPhase = this.determineExecutionPhase();
-    this.facts.execution_phase = this.executionPhase;
 
     if (this.actionOptions.fetchStyle === "gh-env-style") {
       this.architectureFetchSuffix = this.archOs;
@@ -384,17 +347,17 @@ export abstract class DetSysAction {
     this.sourceParameters = sourcedef.constructSourceParameters(
       this.actionOptions.legacySourcePrefix,
     );
-
-    this.recordEvent(`begin_${this.executionPhase}`);
   }
 
   /**
-   * Attach a file to the diagnostics data in error conditions.
+   * Attach a file to the telemetry for this run, to be emitted if the Action
+   * fails.
    *
    * The file at `location` doesn't need to exist when stapleFile is called.
    *
-   * If the file doesn't exist or is unreadable when trying to staple the attachments, the JS error will be stored in a context value at `staple_failure_{name}`.
-   * If the file is readable, the file's contents will be stored in a context value at `staple_value_{name}`.
+   * Each attachment becomes one OpenTelemetry log record, correlated to the
+   * phase's span: the file's contents as the body if it can be read, the
+   * reason it could not be read otherwise.
    */
   stapleFile(name: string, location: string): void {
     this.exceptionAttachments.set(name, location);
@@ -427,14 +390,33 @@ export abstract class DetSysAction {
     return path.join(tmpDir, `${this.actionOptions.name}-${randomUUID()}`);
   }
 
-  addFact(key: string, value: string | boolean | number): void {
-    this.facts[key] = value;
-
-    // Facts describe the run as a whole, so they belong on the phase's root
-    // span rather than on whichever span happens to be active.
-    this.phaseSpan?.setAttribute(`${ATTR_PREFIX_FACT}${key}`, value);
+  /**
+   * Describe this run with an attribute.
+   *
+   * The attribute lands on the phase's root span, not on whichever span
+   * happens to be active, because it describes the run as a whole. Set it
+   * whenever the value becomes known: attributes set before the span opens
+   * are replayed onto it.
+   *
+   * Namespace your keys, as OpenTelemetry expects: `detsys.nix.version`, not
+   * `nix_version`.
+   */
+  setAttribute(key: string, value: otelApi.AttributeValue): void {
+    if (this.phaseSpan === undefined) {
+      this.pendingAttributes[key] = value;
+    } else {
+      this.phaseSpan.setAttribute(key, value);
+    }
   }
 
+  /**
+   * The diagnostics endpoint for the programs this Action runs, such as
+   * `nix-installer` and `magic-nix-cache`.
+   *
+   * This library reports nothing there. Its own telemetry is OpenTelemetry;
+   * see {@link getTelemetryEnvironment} for putting a child process's
+   * telemetry in this run's trace.
+   */
   async getDiagnosticsUrl(): Promise<URL | undefined> {
     return await this.idsHost.getDiagnosticsUrl();
   }
@@ -463,39 +445,18 @@ export abstract class DetSysAction {
     return this.identity;
   }
 
-  recordEvent(eventName: string, context: EventContext = {}): void {
-    const prefixedName =
-      eventName === "$feature_flag_called" || eventName === "$groupidentify"
-        ? eventName
-        : `${this.actionOptions.eventPrefix}${eventName}`;
-
-    this.events.push({
-      name: prefixedName,
-
-      // Use the anon distinct ID as the distinct ID until we actually have a distinct ID in the future
-      distinct_id: this.identity.$anon_distinct_id,
-
-      // distinct_id
-      uuid: randomUUID(),
-      timestamp: new Date(),
-
-      properties: {
-        ...context,
-        ...this.identity,
-        ...this.facts,
-        ...Object.fromEntries(
-          Object.entries(this.featureEventMetadata).map<
-            [string, string | boolean]
-          >(([name, variant]) => [`$feature/${name}`, variant]),
-        ),
-      },
-    });
-
-    // Mirror the event onto the trace. Prefer whichever span is active so the
-    // event lands on the operation that produced it, and fall back to the
-    // phase's root span for events recorded outside any nested span.
+  /**
+   * Record that something happened, as a span event.
+   *
+   * The event lands on whichever span is active, so that it sits on the
+   * operation that produced it, and on the phase's root span when there is no
+   * nested span in progress.
+   *
+   * Namespace your attribute keys, as OpenTelemetry expects.
+   */
+  addEvent(name: string, attributes?: otelApi.Attributes): void {
     const span = otelApi.trace.getActiveSpan() ?? this.phaseSpan;
-    span?.addEvent(prefixedName, toAttributes(context, ATTR_PREFIX_EVENT));
+    span?.addEvent(name, attributes);
   }
 
   /**
@@ -552,39 +513,34 @@ export abstract class DetSysAction {
         try {
           await writeCorrelationHashes(correlationHashes);
         } catch (error) {
-          this.recordEvent(EVENT_STORE_IDENTITY_FAILED, {
-            error: String(error),
+          this.addEvent(EVENT_STORE_IDENTITY_FAILED, {
+            [semconv.ATTR_EXCEPTION_MESSAGE]: stringifyError(error),
           });
         }
 
         if (!(await this.preflightRequireNix())) {
-          this.recordEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
+          this.addEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
           return;
         } else {
           await this.preflightNixStoreInfo();
           await this.preflightNixVersion();
-          this.addFact(FACT_NIX_STORE_TRUST, this.nixStoreTrust);
+          this.setAttribute(ATTR_NIX_STORE_TRUST, this.nixStoreTrust);
         }
 
         if (this.isMain) {
-          this.recordGroup();
           await this.main();
 
-          // Run the preflight of the nix version a second time so our "shutdown" events have updated version info.
+          // Run the preflight of the nix version a second time so our final
+          // telemetry has updated version info.
           await this.preflightNixVersion();
         } else if (this.isPost) {
           await this.post();
         }
       });
-
-      this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
     } catch (e: unknown) {
-      this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
-
       const reportable = stringifyError(e);
 
-      this.addFact(FACT_FINAL_EXCEPTION, reportable);
-
+      // The span's status and its `exception` event say the phase failed.
       if (this.phaseSpan !== undefined) {
         otel.recordSpanError(this.phaseSpan, e);
       }
@@ -595,26 +551,9 @@ export abstract class DetSysAction {
         log.setFailed(reportable);
       }
 
-      const doGzip = promisify(gzip);
-
-      const exceptionContext: Map<string, string> = new Map();
-      for (const [attachmentLabel, filePath] of this.exceptionAttachments) {
-        try {
-          const logText = nodeFs.readFileSync(filePath);
-          const buf = await doGzip(logText);
-          exceptionContext.set(
-            `staple_value_${attachmentLabel}`,
-            buf.toString("base64"),
-          );
-        } catch (innerError: unknown) {
-          exceptionContext.set(
-            `staple_failure_${attachmentLabel}`,
-            stringifyError(innerError),
-          );
-        }
-      }
-
-      this.recordEvent(EVENT_EXCEPTION, Object.fromEntries(exceptionContext));
+      await this.withPhaseSpanActive(async () => {
+        await this.emitAttachments();
+      });
     } finally {
       // Still inside the phase span: backtrace collection is part of the phase,
       // and left to run outside the span's context it would start a root span
@@ -650,8 +589,9 @@ export abstract class DetSysAction {
    * Start the OpenTelemetry export.
    *
    * All runs export their data.
-   * To stop the export, set `OTEL_EXPORTER_OTLP_ENDPOINT` to an empty value.
-   * The function then finds no endpoint and does not start the SDK.
+   * To stop the export, set `OTEL_SDK_DISABLED` to `true`, or set
+   * `OTEL_EXPORTER_OTLP_ENDPOINT` to an empty value.
+   * The SDK then does not start.
    * The OpenTelemetry API stays in its no-op state.
    * Each span and log record then does nothing.
    * Thus the call sites do not test if the export is on.
@@ -660,21 +600,11 @@ export abstract class DetSysAction {
    * The check-in supplies the feature flags for the resource attributes.
    */
   private async startTelemetry(): Promise<void> {
-    const endpoint = otel.otlpEndpoint();
-    if (endpoint === undefined) {
-      actionsCore.debug(
-        "OpenTelemetry export is disabled: no OTLP endpoint resolved.",
-      );
-      return;
-    }
-
     this.telemetry.start({
       serviceName: this.actionOptions.name,
-      serviceVersion: pkgVersion,
-      endpoint,
-      headers: otel.otlpHeaders(),
-      requestTimeoutMs: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS,
-      resourceAttributes: this.telemetryResourceAttributes(),
+      // The Action's own version, which is the ref the workflow pinned.
+      serviceVersion: process.env["GITHUB_ACTION_REF"],
+      resourceAttributes: await this.telemetryResourceAttributes(),
     });
   }
 
@@ -683,26 +613,26 @@ export abstract class DetSysAction {
    *
    * `main` and `post` are separate processes, so the main phase publishes its
    * span as a W3C traceparent in the Action's state and the post phase adopts
-   * it as a parent. That puts both phases of a run in one trace.
+   * it as a parent. That puts both phases of a run in one trace. A
+   * `$TRACEPARENT` in the environment parents the whole run into a trace that
+   * started outside this Action.
    */
   private startPhaseSpan(startTime: Date): otelApi.Span {
     const parentContext = otel.contextFromTraceparent(
-      actionsCore.getState(STATE_KEY_TRACEPARENT) || undefined,
+      actionsCore.getState(STATE_KEY_TRACEPARENT) ||
+        process.env["TRACEPARENT"] ||
+        undefined,
     );
 
     const span = otel
       .getTracer()
       .startSpan(
         `${this.actionOptions.name}:${this.executionPhase}`,
-        { startTime },
+        { startTime, attributes: this.pendingAttributes },
         parentContext,
       );
 
-    // Facts collected before the span existed -- most of them are gathered in
-    // the constructor -- still describe this run, so replay them onto it.
-    for (const [key, value] of Object.entries(this.facts)) {
-      span.setAttribute(`${ATTR_PREFIX_FACT}${key}`, value);
-    }
+    this.pendingAttributes = {};
 
     if (this.isMain) {
       const traceparent = otel.traceparentOf(span);
@@ -719,36 +649,48 @@ export abstract class DetSysAction {
   /**
    * The stable, run-scoped attributes attached to every span and log record.
    *
-   * These carry the same hashed, non-identifying correlation data the
-   * diagnostics endpoint already receives.
+   * The correlation data here is hashed and does not identify a repository,
+   * an organization, or a person.
    */
-  private telemetryResourceAttributes(): otelApi.Attributes {
-    return {
-      "detsys.project": this.actionOptions.name,
-      "detsys.ids_project": this.actionOptions.idsProjectName,
-      "detsys.execution_phase": this.executionPhase,
-      "detsys.cross_phase_id": this.getCrossPhaseId(),
-      "detsys.anon_distinct_id": this.identity.$anon_distinct_id,
-      "detsys.session_id": this.identity.$session_id,
-      "detsys.correlation_source": this.identity.correlation_source,
-      "detsys.github_repository_hash": this.identity.github_repository_hash,
-      "detsys.github_organization_hash":
-        this.identity.$groups["github_organization"],
-      "detsys.github_workflow_hash": this.identity.github_workflow_hash,
-      "detsys.github_workflow_job_hash": this.identity.github_workflow_job_hash,
-      "detsys.github_workflow_run_hash": this.identity.github_workflow_run_hash,
-      "detsys.github_workflow_run_differentiator_hash":
-        this.identity.github_workflow_run_differentiator_hash,
-      "detsys.arch_os": this.archOs,
-      "detsys.nix_system": this.nixSystem,
-      "ci.provider": "github-actions",
+  private async telemetryResourceAttributes(): Promise<otelApi.Attributes> {
+    const details = await this.systemDetails;
 
-      // The feature flags this run resolved, so trace data can be sliced by
-      // the same variants the events are.
+    return {
+      [semconvIncubating.ATTR_OS_TYPE]: osType(),
+      [semconvIncubating.ATTR_HOST_ARCH]: hostArch(),
+      ...(details?.name === undefined || details.name === "unknown"
+        ? {}
+        : { [semconvIncubating.ATTR_OS_NAME]: details.name }),
+      ...(details?.version === undefined || details.version === "unknown"
+        ? {}
+        : { [semconvIncubating.ATTR_OS_VERSION]: details.version }),
+
+      [ATTR_PROJECT]: this.actionOptions.name,
+      [ATTR_IDS_PROJECT]: this.actionOptions.idsProjectName,
+      [ATTR_EXECUTION_PHASE]: this.executionPhase,
+      [ATTR_CROSS_PHASE_ID]: this.getCrossPhaseId(),
+      [ATTR_ANONYMOUS_ID]: this.identity.$anon_distinct_id,
+      [ATTR_CORRELATION_SOURCE]: this.identity.correlation_source,
+      [ATTR_ARCH_OS]: this.archOs,
+      [ATTR_NIX_SYSTEM]: this.nixSystem,
+
+      [ATTR_GITHUB_EVENT_NAME]: process.env["GITHUB_EVENT_NAME"],
+      [ATTR_GITHUB_ACTION_REPOSITORY]: process.env["GITHUB_ACTION_REPOSITORY"],
+      [ATTR_GITHUB_REPOSITORY_HASH]: this.identity.github_repository_hash,
+      [ATTR_GITHUB_ORGANIZATION_HASH]:
+        this.identity.$groups["github_organization"],
+      [ATTR_GITHUB_WORKFLOW_HASH]: this.identity.github_workflow_hash,
+      [ATTR_GITHUB_WORKFLOW_JOB_HASH]: this.identity.github_workflow_job_hash,
+      [ATTR_GITHUB_WORKFLOW_RUN_HASH]: this.identity.github_workflow_run_hash,
+      [ATTR_GITHUB_WORKFLOW_RUN_DIFFERENTIATOR_HASH]:
+        this.identity.github_workflow_run_differentiator_hash,
+
+      // The feature flags this run resolved, so the data can be sliced by the
+      // variants that produced it.
       ...Object.fromEntries(
-        Object.entries(this.featureEventMetadata).map<
-          [string, string | boolean]
-        >(([name, variant]) => [`detsys.feature.${name}`, variant]),
+        Object.entries(this.featureVariants).map<[string, string | boolean]>(
+          ([name, variant]) => [`${ATTR_FEATURE_PREFIX}${name}`, variant],
+        ),
       ),
     };
   }
@@ -766,10 +708,12 @@ export abstract class DetSysAction {
 
   /**
    * The environment variables that let a child process add data to this
-   * Action's trace.
-   * They contain the current `$TRACEPARENT`, the OTLP endpoint, and the token.
+   * Action's trace: the current `$TRACEPARENT` and the OTLP export settings.
    *
    * Add these variables to the environment of each child process to trace.
+   * A child that inherits this process's environment already has the OTLP
+   * settings; only `$TRACEPARENT` changes as the run proceeds.
+   *
    * The result is empty if the OpenTelemetry export is off.
    * Thus it is always safe to add them.
    */
@@ -778,24 +722,11 @@ export abstract class DetSysAction {
       return {};
     }
 
-    const environment: Record<string, string> = {};
+    const environment: Record<string, string> = otel.otlpExportEnvironment();
 
     const traceparent = this.getTraceparent();
     if (traceparent !== undefined) {
       environment["TRACEPARENT"] = traceparent;
-    }
-
-    const endpoint = otel.otlpEndpoint();
-    if (endpoint !== undefined) {
-      environment["OTEL_EXPORTER_OTLP_ENDPOINT"] = endpoint.toString();
-    }
-
-    // The collector refuses the spans of a child process that has no token.
-    // The value stays undefined if we have no headers.
-    // The child then keeps the value that the user set.
-    const headers = otel.encodeOtlpHeaders(otel.otlpHeaders());
-    if (headers !== undefined) {
-      environment["OTEL_EXPORTER_OTLP_HEADERS"] = headers;
     }
 
     return environment;
@@ -806,9 +737,9 @@ export abstract class DetSysAction {
       (incitingError: unknown, prevUrl: URL, nextUrl: URL) => {
         this.recordPlausibleTimeout(incitingError);
 
-        this.recordEvent("ids-failover", {
-          previousUrl: prevUrl.toString(),
-          nextUrl: nextUrl.toString(),
+        this.addEvent(EVENT_IDS_FAILOVER, {
+          "detsys.ids.previous_url": prevUrl.toString(),
+          "detsys.ids.next_url": nextUrl.toString(),
         });
       },
     );
@@ -822,7 +753,7 @@ export abstract class DetSysAction {
 
     this.features = checkin.options;
     for (const [key, feature] of Object.entries(this.features)) {
-      this.featureEventMetadata[key] = feature.variant;
+      this.featureVariants[key] = feature.variant;
     }
 
     const impactSymbol: Map<string, string> = new Map([
@@ -863,37 +794,71 @@ export abstract class DetSysAction {
     }
   }
 
+  /**
+   * The variant of a feature flag this run resolved, if the check-in returned
+   * one.
+   *
+   * Every resolved variant is already a resource attribute, under
+   * `detsys.feature.`, so the telemetry can be sliced by the flags that
+   * produced it.
+   */
   getFeature(name: string): Feature | undefined {
     if (!this.features.hasOwnProperty(name)) {
       return undefined;
     }
 
-    const result = this.features[name];
-    if (result === undefined) {
-      return undefined;
-    }
-
-    this.recordEvent("$feature_flag_called", {
-      $feature_flag: name,
-      $feature_flag_response: result.variant,
-    });
-
-    return result;
+    return this.features[name];
   }
 
-  private recordGroup(): void {
-    const ghorg_hash = this.identity.$groups["github_organization"];
-    const ghorg_name = process.env["GITHUB_REPOSITORY_OWNER"];
+  /**
+   * The person properties the check-in evaluates feature flags against.
+   *
+   * These names are the flag-targeting contract with the feature flag
+   * service, which is why they keep their `$`-prefixed spelling. They are not
+   * telemetry: nothing here is reported anywhere. The telemetry for this run
+   * is OpenTelemetry, and it names the same values the way OpenTelemetry
+   * does.
+   */
+  private async checkInPersonProperties(): Promise<Record<string, unknown>> {
+    /* eslint-disable camelcase */
+    const properties: Record<string, string | boolean | number> = {
+      ci: "github",
+      $lib: "idslib",
+      $lib_version: otel.LIBRARY_VERSION,
+      $app_name: `${this.actionOptions.name}/action`,
+      project: this.actionOptions.name,
+      ids_project: this.actionOptions.idsProjectName,
+      arch_os: this.archOs,
+      nix_system: this.nixSystem,
+      execution_phase: this.executionPhase,
+    };
 
-    if (ghorg_hash !== undefined && ghorg_name !== undefined) {
-      this.recordEvent("$groupidentify", {
-        $group_type: "github_organization",
-        $group_key: ghorg_hash,
-        $group_set: {
-          name: ghorg_name,
-        },
-      });
+    const fromEnvironment = [
+      ["github_action_ref", "GITHUB_ACTION_REF"],
+      ["github_action_repository", "GITHUB_ACTION_REPOSITORY"],
+      ["github_event_name", "GITHUB_EVENT_NAME"],
+      ["$os", "RUNNER_OS"],
+      ["arch", "RUNNER_ARCH"],
+    ];
+    for (const [target, variable] of fromEnvironment) {
+      const value = process.env[variable];
+      if (value) {
+        properties[target] = value;
+      }
     }
+
+    const details = await this.systemDetails;
+    if (details !== undefined) {
+      if (details.name !== "unknown") {
+        properties.$os = details.name;
+      }
+      if (details.version !== "unknown") {
+        properties.$os_version = details.version;
+      }
+    }
+    /* eslint-enable camelcase */
+
+    return { ...properties, ...this.identity };
   }
 
   /**
@@ -917,18 +882,15 @@ export abstract class DetSysAction {
       try {
         actionsCore.debug(`Preflighting via ${checkInUrl}`);
 
+        /* eslint-disable camelcase */
         const props = {
           // Use a distinct_id when we actually have one
           distinct_id: this.identity.$anon_distinct_id,
           anon_distinct_id: this.identity.$anon_distinct_id,
           groups: this.identity.$groups,
-          person_properties: {
-            ci: "github",
-
-            ...this.identity,
-            ...this.facts,
-          },
+          person_properties: await this.checkInPersonProperties(),
         };
+        /* eslint-enable camelcase */
 
         return await (
           await this.getClient()
@@ -953,20 +915,18 @@ export abstract class DetSysAction {
   private recordPlausibleTimeout(e: unknown): void {
     // see: https://github.com/sindresorhus/got/blob/895e463fa699d6f2e4b2fc01ceb3b2bb9e157f4c/documentation/8-errors.md
     if (e instanceof TimeoutError && "timings" in e && "request" in e) {
-      const reportContext: {
-        [index: string]: string | number | undefined;
-      } = {
-        url: e.request.requestUrl?.toString(),
-        retry_count: e.request.retryCount,
+      const attributes: otelApi.Attributes = {
+        [semconv.ATTR_URL_FULL]: e.request.requestUrl?.toString(),
+        [semconv.ATTR_HTTP_REQUEST_RESEND_COUNT]: e.request.retryCount,
       };
 
       for (const [key, value] of Object.entries(e.timings.phases)) {
         if (Number.isFinite(value)) {
-          reportContext[`timing_phase_${key}`] = value;
+          attributes[`detsys.http.timing.${key}`] = value;
         }
       }
 
-      this.recordEvent("timeout", reportContext);
+      this.addEvent(EVENT_REQUEST_TIMEOUT, attributes);
     }
   }
 
@@ -993,7 +953,7 @@ export abstract class DetSysAction {
 
     return await otel.withSpan(
       "fetch_artifact",
-      async () => {
+      async (span) => {
         const expectedArtifactHash = await this.resolveExpectedArtifactHash();
 
         actionsCore.startGroup(
@@ -1015,21 +975,21 @@ export abstract class DetSysAction {
           ).head(correlatedUrl);
           if (versionCheckup.headers.etag) {
             const v = versionCheckup.headers.etag;
-            this.addFact(FACT_SOURCE_URL_ETAG, v);
+            this.setAttribute(ATTR_SOURCE_ETAG, v);
 
             log.debug(
               `Checking the tool cache for ${await this.getSourceUrl()} at ${v}`,
             );
             const cached = await this.getCachedVersion(v, expectedArtifactHash);
             if (cached) {
-              this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = true;
+              span.setAttribute(ATTR_ARTIFACT_CACHE_HIT, true);
               log.debug(`Tool cache hit.`);
               await this.verifyArtifactHash(cached, expectedArtifactHash);
               return cached;
             }
           }
 
-          this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = false;
+          span.setAttribute(ATTR_ARTIFACT_CACHE_HIT, false);
 
           log.debug(
             `No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`,
@@ -1063,8 +1023,8 @@ export abstract class DetSysAction {
         }
       },
       {
-        "detsys.artifact": this.actionOptions.name,
-        "detsys.architecture_fetch_suffix": this.architectureFetchSuffix,
+        [ATTR_ARTIFACT_NAME]: this.actionOptions.name,
+        [ATTR_ARTIFACT_FETCH_SUFFIX]: this.architectureFetchSuffix,
       },
     );
   }
@@ -1092,7 +1052,7 @@ export abstract class DetSysAction {
     sourcedef.assertChecksumSourceIsPinned(this.sourceParameters);
 
     const expectedFileHash = checksumsSha256.toLowerCase();
-    this.addFact(FACT_SOURCE_CHECKSUMS_SHA256, expectedFileHash);
+    this.setAttribute(ATTR_SOURCE_CHECKSUMS_SHA256, expectedFileHash);
 
     const parsedUrl = new URL(checksumsUrl);
     const safeUrl = parsedUrl.origin + parsedUrl.pathname;
@@ -1206,13 +1166,8 @@ export abstract class DetSysAction {
   }
 
   private async complete(): Promise<void> {
-    // Recorded before the span ends, so it still lands on the trace.
-    this.recordEvent(`complete_${this.executionPhase}`);
-
     this.phaseSpan?.end();
     this.phaseSpan = undefined;
-
-    await this.submitEvents();
 
     // The process exits as soon as we return, so anything still buffered has
     // to go out now.
@@ -1234,7 +1189,7 @@ export abstract class DetSysAction {
     const p = this.sourceParameters;
 
     if (p.url) {
-      this.addFact(FACT_SOURCE_URL, p.url);
+      this.setAttribute(ATTR_SOURCE_URL, p.url);
       return new URL(p.url);
     }
 
@@ -1255,7 +1210,7 @@ export abstract class DetSysAction {
 
     fetchUrl.pathname += `/${this.architectureFetchSuffix}`;
 
-    this.addFact(FACT_SOURCE_URL, fetchUrl.toString());
+    this.setAttribute(ATTR_SOURCE_URL, fetchUrl.toString());
 
     return fetchUrl;
   }
@@ -1291,13 +1246,11 @@ export abstract class DetSysAction {
             true,
           )
         ) {
-          span.setAttribute("detsys.cache_hit", true);
-          this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
+          span.setAttribute(ATTR_ARTIFACT_CACHE_HIT, true);
           return `${tempDir}/${this.actionOptions.name}`;
         }
 
-        span.setAttribute("detsys.cache_hit", false);
-        this.recordEvent(EVENT_ARTIFACT_CACHE_MISS);
+        span.setAttribute(ATTR_ARTIFACT_CACHE_HIT, false);
         return undefined;
       } finally {
         process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
@@ -1331,7 +1284,6 @@ export abstract class DetSysAction {
           undefined,
           true,
         );
-        this.recordEvent(EVENT_ARTIFACT_CACHE_PERSIST);
       } finally {
         process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
         delete process.env.GITHUB_WORKSPACE_BACKUP;
@@ -1364,14 +1316,56 @@ export abstract class DetSysAction {
           parseInt(actionsCore.getState(STATE_BACKTRACE_START_TIMESTAMP)),
         ),
       );
-      log.debug(`Backtraces identified: ${backtraces.size}`);
-      if (backtraces.size > 0) {
-        this.recordEvent(EVENT_BACKTRACES, Object.fromEntries(backtraces));
+      log.debug(`Backtraces identified: ${backtraces.length}`);
+
+      // One log record per crash: a crash report is a document, not an
+      // attribute value, and a record's body is not truncated.
+      for (const backtrace of backtraces) {
+        const attributes: otelApi.Attributes = {
+          [ATTR_BACKTRACE_ID]: backtrace.id,
+          [ATTR_BACKTRACE_SOURCE]: backtrace.source,
+          [ATTR_BACKTRACE_PROGRAM]: backtrace.program,
+        };
+
+        if (backtrace.report !== undefined) {
+          otel.emitLogRecord("error", backtrace.report, attributes);
+        } else {
+          otel.emitLogRecord("error", `Crash report unavailable`, {
+            ...attributes,
+            [semconv.ATTR_EXCEPTION_MESSAGE]: backtrace.error,
+          });
+        }
       }
     } catch (innerError: unknown) {
       actionsCore.debug(
         `Error collecting backtraces: ${stringifyError(innerError)}`,
       );
+    }
+  }
+
+  /**
+   * Emit the files `stapleFile` collected, as log records correlated to this
+   * phase's span. The Action has already failed by the time this runs.
+   */
+  private async emitAttachments(): Promise<void> {
+    for (const [name, location] of this.exceptionAttachments) {
+      const attributes: otelApi.Attributes = {
+        [ATTR_ATTACHMENT_NAME]: name,
+        [ATTR_ATTACHMENT_PATH]: location.toString(),
+      };
+
+      try {
+        otel.emitLogRecord(
+          "error",
+          await readFile(location, "utf-8"),
+          attributes,
+        );
+      } catch (innerError: unknown) {
+        otel.emitLogRecord("error", `Attachment unavailable`, {
+          ...attributes,
+          [semconv.ATTR_EXCEPTION_MESSAGE]: stringifyError(innerError),
+        });
+      }
     }
   }
 
@@ -1392,7 +1386,7 @@ export abstract class DetSysAction {
           actionsCore.debug(`Nix not at ${candidateNix}`);
         }
       }
-      this.addFact(FACT_NIX_LOCATION, nixLocation || "");
+      this.setAttribute(ATTR_NIX_LOCATION, nixLocation || "");
 
       if (this.actionOptions.requireNix === "ignore") {
         return true;
@@ -1449,15 +1443,15 @@ export abstract class DetSysAction {
       try {
         output = "";
         await actionsExec.exec("nix", ["store", "info", "--json"], options);
-        this.addFact(FACT_NIX_STORE_CHECK_METHOD, "info");
+        this.setAttribute(ATTR_NIX_STORE_CHECK_METHOD, "info");
       } catch {
         try {
           // reset output
           output = "";
           await actionsExec.exec("nix", ["store", "ping", "--json"], options);
-          this.addFact(FACT_NIX_STORE_CHECK_METHOD, "ping");
+          this.setAttribute(ATTR_NIX_STORE_CHECK_METHOD, "ping");
         } catch {
-          this.addFact(FACT_NIX_STORE_CHECK_METHOD, "none");
+          this.setAttribute(ATTR_NIX_STORE_CHECK_METHOD, "none");
           return;
         }
       }
@@ -1469,18 +1463,21 @@ export abstract class DetSysAction {
         } else if (parsed.trusted === false || parsed.trusted === 0) {
           this.nixStoreTrust = "untrusted";
         } else if (parsed.trusted !== undefined) {
-          this.addFact(
-            FACT_NIX_STORE_CHECK_ERROR,
+          this.setAttribute(
+            ATTR_NIX_STORE_CHECK_ERROR,
             `Mysterious trusted value: ${JSON.stringify(parsed.trusted)}`,
           );
         }
 
-        this.addFact(FACT_NIX_STORE_VERSION, JSON.stringify(parsed.version));
+        this.setAttribute(
+          ATTR_NIX_STORE_VERSION,
+          JSON.stringify(parsed.version),
+        );
       } catch (e: unknown) {
-        this.addFact(FACT_NIX_STORE_CHECK_ERROR, stringifyError(e));
+        this.setAttribute(ATTR_NIX_STORE_CHECK_ERROR, stringifyError(e));
       }
 
-      span.setAttribute("detsys.nix_store_trust", this.nixStoreTrust);
+      span.setAttribute(ATTR_NIX_STORE_TRUST, this.nixStoreTrust);
     });
   }
 
@@ -1501,43 +1498,9 @@ export abstract class DetSysAction {
         // That's fine.
       }
 
-      this.addFact(FACT_NIX_VERSION, output);
-      span.setAttribute("detsys.nix_version", output);
+      this.setAttribute(ATTR_NIX_VERSION, output);
+      span.setAttribute(ATTR_NIX_VERSION, output);
     });
-  }
-
-  private async submitEvents(): Promise<void> {
-    const diagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
-    if (diagnosticsUrl === undefined) {
-      actionsCore.debug(
-        "Diagnostics are disabled. Not sending the following events:",
-      );
-      actionsCore.debug(JSON.stringify(this.events, undefined, 2));
-      return;
-    }
-
-    const batch = {
-      sent_at: new Date(),
-      batch: this.events,
-    };
-
-    try {
-      await (
-        await this.getClient()
-      ).post(diagnosticsUrl, {
-        json: batch,
-        timeout: {
-          request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS,
-        },
-      });
-    } catch (err: unknown) {
-      this.recordPlausibleTimeout(err);
-
-      actionsCore.debug(
-        `Error submitting diagnostics event to ${diagnosticsUrl}: ${stringifyError(err)}`,
-      );
-    }
-    this.events = [];
   }
 }
 
@@ -1548,38 +1511,37 @@ function stringifyError(error: unknown): string {
 }
 
 /**
- * Flatten an event context into OpenTelemetry attributes.
- *
- * Attributes are a flat map of primitives, so the one level of nesting an
- * EventContext permits is joined with a dot, and undefined values are dropped
- * rather than serialized as the string "undefined".
+ * The runner's operating system, as `os.type` spells it.
  */
-function toAttributes(
-  context: EventContext,
-  prefix: string,
-): otelApi.Attributes {
-  const attributes: otelApi.Attributes = {};
-
-  const set = (
-    key: string,
-    value: boolean | string | number | undefined,
-  ): void => {
-    if (value !== undefined) {
-      attributes[`${prefix}${key}`] = value;
-    }
-  };
-
-  for (const [key, value] of Object.entries(context)) {
-    if (typeof value === "object" && value !== null) {
-      for (const [nestedKey, nestedValue] of Object.entries(value)) {
-        set(`${key}.${nestedKey}`, nestedValue);
-      }
-    } else {
-      set(key, value);
-    }
+function osType(): string {
+  switch (ghActionsCorePlatform.platform) {
+    case "win32":
+      return semconvIncubating.OS_TYPE_VALUE_WINDOWS;
+    case "darwin":
+      return semconvIncubating.OS_TYPE_VALUE_DARWIN;
+    case "linux":
+      return semconvIncubating.OS_TYPE_VALUE_LINUX;
+    default:
+      return ghActionsCorePlatform.platform;
   }
+}
 
-  return attributes;
+/**
+ * The runner's architecture, as `host.arch` spells it.
+ */
+function hostArch(): string {
+  switch (ghActionsCorePlatform.arch) {
+    case "x64":
+      return semconvIncubating.HOST_ARCH_VALUE_AMD64;
+    case "arm64":
+      return semconvIncubating.HOST_ARCH_VALUE_ARM64;
+    case "ia32":
+      return semconvIncubating.HOST_ARCH_VALUE_X86;
+    case "arm":
+      return semconvIncubating.HOST_ARCH_VALUE_ARM32;
+    default:
+      return ghActionsCorePlatform.arch;
+  }
 }
 
 function makeOptionsConfident(
@@ -1590,7 +1552,6 @@ function makeOptionsConfident(
   const finalOpts: ConfidentActionOptions = {
     name: actionOptions.name,
     idsProjectName,
-    eventPrefix: actionOptions.eventPrefix || "action:",
     fetchStyle: actionOptions.fetchStyle,
     legacySourcePrefix: actionOptions.legacySourcePrefix,
     requireNix: actionOptions.requireNix,

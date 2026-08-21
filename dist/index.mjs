@@ -7,21 +7,21 @@ import * as actionsCore from "@actions/core";
 import * as exec$1 from "@actions/exec";
 import os$1 from "os";
 import fs$1, { chmod, copyFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
-import { gzip } from "node:zlib";
 import { createHash, randomUUID } from "node:crypto";
 import got, { TimeoutError } from "got";
 import { resolveSrv } from "node:dns/promises";
 import * as otelApi from "@opentelemetry/api";
 import { SeverityNumber, logs } from "@opentelemetry/api-logs";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
-import { W3CTraceContextPropagator } from "@opentelemetry/core";
+import * as otelCore from "@opentelemetry/core";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { resourceFromAttributes } from "@opentelemetry/resources";
+import * as otelResources from "@opentelemetry/resources";
 import * as sdkLogs from "@opentelemetry/sdk-logs";
 import * as sdkTrace from "@opentelemetry/sdk-trace-base";
 import * as semconv from "@opentelemetry/semantic-conventions";
 import * as actionsCache from "@actions/cache";
+import * as semconvIncubating from "@opentelemetry/semantic-conventions/incubating";
 import { exec } from "node:child_process";
 import path from "node:path";
 //#region src/linux-release-info.ts
@@ -250,10 +250,10 @@ const START_SLOP_SECONDS = 5;
 async function collectBacktraces(prefixes, programNameDenyList, startTimestampMs) {
 	if (isMacOS) return await collectBacktracesMacOS(prefixes, programNameDenyList, startTimestampMs);
 	if (isLinux) return await collectBacktracesSystemd(prefixes, programNameDenyList, startTimestampMs);
-	return /* @__PURE__ */ new Map();
+	return [];
 }
 async function collectBacktracesMacOS(prefixes, programNameDenyList, startTimestampMs) {
-	const backtraces = /* @__PURE__ */ new Map();
+	const backtraces = [];
 	try {
 		const { stdout: logJson } = await exec$1.getExecOutput("log", [
 			"show",
@@ -284,21 +284,25 @@ async function collectBacktracesMacOS(prefixes, programNameDenyList, startTimest
 		}).filter((fileName) => {
 			return !fileName.endsWith(".diag");
 		});
-		const doGzip = promisify(gzip);
 		for (const fileName of fileNames) try {
-			if ((await stat(`${dir}/${fileName}`)).ctimeMs >= startTimestampMs) {
-				const buf = await doGzip(await readFile(`${dir}/${fileName}`));
-				backtraces.set(`backtrace_value_${source}_${fileName}`, buf.toString("base64"));
-			}
+			if ((await stat(`${dir}/${fileName}`)).ctimeMs >= startTimestampMs) backtraces.push({
+				id: fileName,
+				source,
+				report: await readFile(`${dir}/${fileName}`, "utf-8")
+			});
 		} catch (innerError) {
-			backtraces.set(`backtrace_failure_${source}_${fileName}`, stringifyError(innerError));
+			backtraces.push({
+				id: fileName,
+				source,
+				error: stringifyError(innerError)
+			});
 		}
 	}
 	return backtraces;
 }
 async function collectBacktracesSystemd(prefixes, programNameDenyList, startTimestampMs) {
 	const sinceSeconds = Math.ceil((Date.now() - startTimestampMs) / 1e3) + START_SLOP_SECONDS;
-	const backtraces = /* @__PURE__ */ new Map();
+	const backtraces = [];
 	const coredumps = [];
 	try {
 		const { stdout: coredumpjson } = await exec$1.getExecOutput("coredumpctl", [
@@ -326,13 +330,21 @@ async function collectBacktracesSystemd(prefixes, programNameDenyList, startTime
 		actionsCore.debug(`Cannot collect backtraces: ${stringifyError(innerError)}`);
 		return backtraces;
 	}
-	const doGzip = promisify(gzip);
 	for (const coredump of coredumps) try {
-		const { stdout: logText } = await exec$1.getExecOutput("coredumpctl", ["info", `${coredump.pid}`], { silent: true });
-		const buf = await doGzip(logText);
-		backtraces.set(`backtrace_value_${coredump.pid}`, buf.toString("base64"));
+		const { stdout: report } = await exec$1.getExecOutput("coredumpctl", ["info", `${coredump.pid}`], { silent: true });
+		backtraces.push({
+			id: `${coredump.pid}`,
+			source: "coredumpctl",
+			program: coredump.exe,
+			report
+		});
 	} catch (innerError) {
-		backtraces.set(`backtrace_failure_${coredump.pid}`, stringifyError(innerError));
+		backtraces.push({
+			id: `${coredump.pid}`,
+			source: "coredumpctl",
+			program: coredump.exe,
+			error: stringifyError(innerError)
+		});
 	}
 	return backtraces;
 }
@@ -553,6 +565,13 @@ var IdsHost = class {
 		if (url === void 0) return new URL(DEFAULT_IDS_HOST);
 		return url;
 	}
+	/**
+	* The diagnostics endpoint of the current backend.
+	*
+	* This library reports nothing there: its telemetry is OpenTelemetry. The
+	* URL is for the programs an Action runs, which have diagnostics of their
+	* own.
+	*/
 	async getDiagnosticsUrl() {
 		if (this.runtimeDiagnosticsUrl === "") return;
 		if (this.runtimeDiagnosticsUrl !== "-" && this.runtimeDiagnosticsUrl !== void 0) try {
@@ -744,9 +763,12 @@ const getStringOrUndefined = (name) => {
 *
 * The OpenTelemetry API is a no-op until a provider is registered globally.
 * That means instrumentation call sites -- spans, log records -- can be
-* written unconditionally: when export is disabled (no endpoint, or the
-* feature flag is off) they cost nothing and no branching is needed at the
-* call site.
+* written unconditionally: when export is disabled they cost nothing and no
+* branching is needed at the call site.
+*
+* The SDK configures itself from the standard `OTEL_*` environment variables.
+* This module only supplies defaults for the variables the user has not set,
+* so every documented OpenTelemetry knob works here as it does anywhere else.
 */
 /** The instrumentation scope name for everything this library emits. */
 const SCOPE_NAME = "detsys-ts";
@@ -776,8 +798,21 @@ const OTLP_INGEST_TOKEN = "8bfa2d8b689352981286f0149c4e55cc0dff30a4f7a735b560e31
 * hard ceiling on how much a slow collector can delay a workflow.
 */
 const SHUTDOWN_TIMEOUT_MS = 5e3;
-/** Truncate any single span attribute longer than this. */
-const MAX_ATTRIBUTE_VALUE_LENGTH = 8192;
+/**
+* The default for `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT`.
+*
+* The SDK's own default is unlimited. Attributes here can carry pasted
+* command output and other unbounded text, which the collector should not
+* have to absorb, so cap them. File-sized payloads go out as log records
+* instead: a log record's body is not an attribute and is not truncated.
+*/
+const DEFAULT_ATTRIBUTE_VALUE_LENGTH_LIMIT = 8192;
+/** The OTLP environment variables a child process inherits from this run. */
+const OTLP_EXPORT_VARIABLES = [
+	"OTEL_EXPORTER_OTLP_ENDPOINT",
+	"OTEL_EXPORTER_OTLP_HEADERS",
+	"OTEL_EXPORTER_OTLP_COMPRESSION"
+];
 /**
 * Our own propagator instance, rather than the global one.
 *
@@ -786,7 +821,7 @@ const MAX_ATTRIBUTE_VALUE_LENGTH = 8192;
 * start-up ordering. Owning an instance keeps {@link traceparentOf} and {@link
 * contextFromTraceparent} correct no matter when they're called.
 */
-const PROPAGATOR = new W3CTraceContextPropagator();
+const PROPAGATOR = new otelCore.W3CTraceContextPropagator();
 const SEVERITY = {
 	debug: SeverityNumber.DEBUG,
 	info: SeverityNumber.INFO,
@@ -795,51 +830,75 @@ const SEVERITY = {
 	error: SeverityNumber.ERROR
 };
 /**
-* The OTLP base endpoint for this run.
+* Whether this run exports telemetry at all.
 *
-* `OTEL_EXPORTER_OTLP_ENDPOINT` replaces {@link DEFAULT_OTLP_ENDPOINT}.
-* Use it to send the data to a local collector.
-* An empty value stops the export.
-* If the value is not a valid URL, the default endpoint applies.
+* `OTEL_SDK_DISABLED=true` is the standard way to turn the export off. An
+* empty `OTEL_EXPORTER_OTLP_ENDPOINT` does the same, which is what this
+* library documented before `OTEL_SDK_DISABLED` was in the specification.
 */
-function otlpEndpoint() {
-	const fromEnv = process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
-	if (fromEnv === "") return;
-	if (fromEnv !== void 0) try {
-		return new URL(fromEnv);
-	} catch (e) {
-		actionsCore.info(`OTEL_EXPORTER_OTLP_ENDPOINT ignored: not a valid URL: ${stringifyError(e)}`);
+function exportEnabled() {
+	if (otelCore.getBooleanFromEnv("OTEL_SDK_DISABLED")) return false;
+	const endpoint = process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
+	if (endpoint !== void 0 && endpoint.trim() === "") return false;
+	return true;
+}
+/**
+* Fill in the `OTEL_*` variables this run needs and the user has not set.
+*
+* From here on the exporters read their whole configuration from the
+* environment, exactly as they would in any other OpenTelemetry program.
+* Child processes inherit the same variables, so their telemetry reaches the
+* same collector without any further arrangement.
+*/
+function applyOtlpEnvironmentDefaults() {
+	if (otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_ENDPOINT") === void 0) process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = DEFAULT_OTLP_ENDPOINT;
+	if (exportsToDefaultCollector()) {
+		const headers = otelCore.parseKeyPairsIntoRecord(otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_HEADERS"));
+		if (!Object.keys(headers).some((name) => name.toLowerCase() === "authorization")) {
+			headers["Authorization"] = `Bearer ${OTLP_INGEST_TOKEN}`;
+			process.env["OTEL_EXPORTER_OTLP_HEADERS"] = encodeOtlpHeaders(headers);
+		}
 	}
-	return new URL(DEFAULT_OTLP_ENDPOINT);
+	if (otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_COMPRESSION") === void 0) process.env["OTEL_EXPORTER_OTLP_COMPRESSION"] = "gzip";
+	if (otelCore.getNumberFromEnv("OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT") === void 0) process.env["OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT"] = `${DEFAULT_ATTRIBUTE_VALUE_LENGTH_LIMIT}`;
 }
 /**
-* The headers for each OTLP export request.
+* Whether this run sends its data to {@link DEFAULT_OTLP_ENDPOINT}.
 *
-* The result is empty if the run does not export to
-* {@link DEFAULT_OTLP_ENDPOINT}.
-* Do not send our token to a different collector.
-* An empty result also keeps the user's `OTEL_EXPORTER_OTLP_HEADERS`.
-* Headers from the code replace headers from the environment key by key.
+* Only that collector gets {@link OTLP_INGEST_TOKEN}. A collector the user
+* chose must not receive our credentials.
 */
-function otlpHeaders() {
-	if (otlpEndpoint()?.toString() !== new URL(DEFAULT_OTLP_ENDPOINT).toString()) return {};
-	return { Authorization: `Bearer ${OTLP_INGEST_TOKEN}` };
+function exportsToDefaultCollector() {
+	const endpoint = otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_ENDPOINT");
+	if (endpoint === void 0) return false;
+	try {
+		return new URL(endpoint).toString() === new URL(DEFAULT_OTLP_ENDPOINT).toString();
+	} catch {
+		return false;
+	}
 }
 /**
-* Make the value of `OTEL_EXPORTER_OTLP_HEADERS` for a child process.
-* The SDK in the child process reads that variable.
+* The OTLP variables in the environment, for a child process that does not
+* inherit ours.
+*/
+function otlpExportEnvironment() {
+	const environment = {};
+	for (const name of OTLP_EXPORT_VARIABLES) {
+		const value = otelCore.getStringFromEnv(name);
+		if (value !== void 0) environment[name] = value;
+	}
+	return environment;
+}
+/**
+* Make the value of `OTEL_EXPORTER_OTLP_HEADERS`.
 *
 * The variable uses the W3C baggage format.
-* The SDK decodes each percent-encoded value.
+* The reader decodes each percent-encoded value.
 * Thus you must encode the space in `Bearer <token>`.
 * If you do not encode it, the scheme and the token become two entries.
-*
-* The result is undefined if there are no headers.
-* The caller then keeps the value that the user supplied.
 */
 function encodeOtlpHeaders(headers) {
-	const encoded = Object.entries(headers).map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join(",");
-	return encoded === "" ? void 0 : encoded;
+	return Object.entries(headers).map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join(",");
 }
 /**
 * Owns the OpenTelemetry SDK's lifecycle. Constructing this does nothing on
@@ -852,45 +911,35 @@ var Telemetry = class {
 		return this.tracerProvider !== void 0;
 	}
 	/**
-	* Register the global tracer and logger providers, pointed at `endpoint`.
+	* Register the global tracer and logger providers.
 	*
 	* Safe to call at most once. If it throws, telemetry stays disabled and the
 	* Action carries on: instrumentation degrades to the API's no-ops rather
 	* than failing the workflow.
 	*/
 	start(options) {
-		if (this.enabled) return;
+		if (this.enabled || !exportEnabled()) return;
 		try {
-			const resource = resourceFromAttributes({
+			applyOtlpEnvironmentDefaults();
+			const resource = otelResources.defaultResource().merge(otelResources.resourceFromAttributes({
 				[semconv.ATTR_SERVICE_NAME]: options.serviceName,
-				[semconv.ATTR_SERVICE_VERSION]: options.serviceVersion,
+				...options.serviceVersion === void 0 ? {} : { [semconv.ATTR_SERVICE_VERSION]: options.serviceVersion },
 				...options.resourceAttributes
-			});
-			const exporterOptions = {
-				timeoutMillis: options.requestTimeoutMs,
-				headers: options.headers
-			};
+			})).merge(otelResources.detectResources({ detectors: [otelResources.envDetector] }));
 			this.tracerProvider = new sdkTrace.BasicTracerProvider({
 				resource,
-				spanLimits: { attributeValueLengthLimit: MAX_ATTRIBUTE_VALUE_LENGTH },
-				spanProcessors: [new sdkTrace.BatchSpanProcessor(new OTLPTraceExporter({
-					url: signalUrl(options.endpoint, "v1/traces").toString(),
-					...exporterOptions
-				}))]
+				spanProcessors: [new sdkTrace.BatchSpanProcessor(new OTLPTraceExporter())]
 			});
 			this.loggerProvider = new sdkLogs.LoggerProvider({
 				resource,
-				logRecordLimits: { attributeValueLengthLimit: MAX_ATTRIBUTE_VALUE_LENGTH },
-				processors: [new sdkLogs.BatchLogRecordProcessor({ exporter: new OTLPLogExporter({
-					url: signalUrl(options.endpoint, "v1/logs").toString(),
-					...exporterOptions
-				}) })]
+				logRecordLimits: { attributeValueLengthLimit: otelCore.getNumberFromEnv("OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT") },
+				processors: [new sdkLogs.BatchLogRecordProcessor({ exporter: new OTLPLogExporter() })]
 			});
 			otelApi.context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
 			otelApi.propagation.setGlobalPropagator(PROPAGATOR);
 			otelApi.trace.setGlobalTracerProvider(this.tracerProvider);
 			logs.setGlobalLoggerProvider(this.loggerProvider);
-			actionsCore.debug(`OpenTelemetry export enabled to ${options.endpoint}`);
+			actionsCore.debug(`OpenTelemetry export enabled to ${otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_ENDPOINT")}`);
 		} catch (e) {
 			this.tracerProvider = void 0;
 			this.loggerProvider = void 0;
@@ -921,14 +970,14 @@ var Telemetry = class {
 * Telemetry.start} has run, so this is always safe to call.
 */
 function getTracer() {
-	return otelApi.trace.getTracer(SCOPE_NAME);
+	return otelApi.trace.getTracer(SCOPE_NAME, "1.0");
 }
 /**
 * The logger for this library. Returns a no-op logger until {@link
 * Telemetry.start} has run, so this is always safe to call.
 */
 function getLogger() {
-	return logs.getLogger(SCOPE_NAME);
+	return logs.getLogger(SCOPE_NAME, "1.0");
 }
 /**
 * Emit a log record at `level`, correlated to whatever span is currently
@@ -991,12 +1040,6 @@ async function withSpan(name, fn, attributes) {
 			span.end();
 		}
 	});
-}
-/** Join a signal-specific path onto an OTLP base endpoint. */
-function signalUrl(base, signalPath) {
-	const url = new URL(base);
-	url.pathname = `${url.pathname.replace(/\/$/, "")}/${signalPath}`;
-	return url;
 }
 /** Reject if `promise` has not settled within `timeoutMs`. */
 async function withTimeout(promise, timeoutMs) {
@@ -1166,37 +1209,50 @@ function noisilyGetInput(suffix, legacyPrefix) {
 * @packageDocumentation
 * Determinate Systems' TypeScript library for creating GitHub Actions logic.
 */
-const pkgVersion = "1.0";
-const EVENT_BACKTRACES = "backtrace";
-const EVENT_EXCEPTION = "exception";
-const EVENT_ARTIFACT_CACHE_HIT = "artifact_cache_hit";
-const EVENT_ARTIFACT_CACHE_MISS = "artifact_cache_miss";
-const EVENT_ARTIFACT_CACHE_PERSIST = "artifact_cache_persist";
-const EVENT_PREFLIGHT_REQUIRE_NIX_DENIED = "preflight-require-nix-denied";
-const EVENT_STORE_IDENTITY_FAILED = "store_identity_failed";
-const FACT_ARTIFACT_FETCHED_FROM_CACHE = "artifact_fetched_from_cache";
-const FACT_ENDED_WITH_EXCEPTION = "ended_with_exception";
-const FACT_FINAL_EXCEPTION = "final_exception";
-const FACT_OS = "$os";
-const FACT_OS_VERSION = "$os_version";
-const FACT_SOURCE_URL = "source_url";
-const FACT_SOURCE_URL_ETAG = "source_url_etag";
-const FACT_SOURCE_CHECKSUMS_SHA256 = "source_checksums_sha256";
-const FACT_NIX_VERSION = "nix_version";
-const FACT_NIX_LOCATION = "nix_location";
-const FACT_NIX_STORE_TRUST = "nix_store_trusted";
-const FACT_NIX_STORE_VERSION = "nix_store_version";
-const FACT_NIX_STORE_CHECK_METHOD = "nix_store_check_method";
-const FACT_NIX_STORE_CHECK_ERROR = "nix_store_check_error";
+const EVENT_IDS_FAILOVER = "detsys.ids_failover";
+const EVENT_PREFLIGHT_REQUIRE_NIX_DENIED = "detsys.preflight_require_nix_denied";
+const EVENT_REQUEST_TIMEOUT = "detsys.request_timeout";
+const EVENT_STORE_IDENTITY_FAILED = "detsys.store_identity_failed";
+const ATTR_PROJECT = "detsys.project";
+const ATTR_IDS_PROJECT = "detsys.ids_project";
+const ATTR_EXECUTION_PHASE = "detsys.execution_phase";
+const ATTR_CROSS_PHASE_ID = "detsys.cross_phase_id";
+const ATTR_ANONYMOUS_ID = "detsys.anonymous_id";
+const ATTR_CORRELATION_SOURCE = "detsys.correlation_source";
+const ATTR_ARCH_OS = "detsys.arch_os";
+const ATTR_NIX_SYSTEM = "detsys.nix_system";
+const ATTR_FEATURE_PREFIX = "detsys.feature.";
+const ATTR_GITHUB_EVENT_NAME = "detsys.github.event_name";
+const ATTR_GITHUB_ACTION_REPOSITORY = "detsys.github.action_repository";
+const ATTR_GITHUB_REPOSITORY_HASH = "detsys.github.repository_hash";
+const ATTR_GITHUB_ORGANIZATION_HASH = "detsys.github.organization_hash";
+const ATTR_GITHUB_WORKFLOW_HASH = "detsys.github.workflow_hash";
+const ATTR_GITHUB_WORKFLOW_JOB_HASH = "detsys.github.workflow_job_hash";
+const ATTR_GITHUB_WORKFLOW_RUN_HASH = "detsys.github.workflow_run_hash";
+const ATTR_GITHUB_WORKFLOW_RUN_DIFFERENTIATOR_HASH = "detsys.github.workflow_run_differentiator_hash";
+const ATTR_ARTIFACT_NAME = "detsys.artifact.name";
+const ATTR_ARTIFACT_FETCH_SUFFIX = "detsys.artifact.fetch_suffix";
+const ATTR_ARTIFACT_CACHE_HIT = "detsys.artifact.cache_hit";
+const ATTR_SOURCE_URL = "detsys.source.url";
+const ATTR_SOURCE_ETAG = "detsys.source.etag";
+const ATTR_SOURCE_CHECKSUMS_SHA256 = "detsys.source.checksums_sha256";
+const ATTR_NIX_LOCATION = "detsys.nix.location";
+const ATTR_NIX_VERSION = "detsys.nix.version";
+const ATTR_NIX_STORE_TRUST = "detsys.nix.store_trust";
+const ATTR_NIX_STORE_VERSION = "detsys.nix.store_version";
+const ATTR_NIX_STORE_CHECK_METHOD = "detsys.nix.store_check_method";
+const ATTR_NIX_STORE_CHECK_ERROR = "detsys.nix.store_check_error";
+const ATTR_ATTACHMENT_NAME = "detsys.attachment.name";
+const ATTR_ATTACHMENT_PATH = "detsys.attachment.path";
+const ATTR_BACKTRACE_ID = "detsys.backtrace.id";
+const ATTR_BACKTRACE_SOURCE = "detsys.backtrace.source";
+const ATTR_BACKTRACE_PROGRAM = "detsys.backtrace.program";
 const STATE_KEY_EXECUTION_PHASE = "detsys_action_execution_phase";
 const STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
 const STATE_NOT_FOUND = "not-found";
 const STATE_KEY_CROSS_PHASE_ID = "detsys_cross_phase_id";
 const STATE_BACKTRACE_START_TIMESTAMP = "detsys_backtrace_start_timestamp";
 const STATE_KEY_TRACEPARENT = "detsys_otel_traceparent";
-const ATTR_PREFIX_FACT = "detsys.fact.";
-const ATTR_PREFIX_EVENT = "detsys.event.";
-const DIAGNOSTIC_ENDPOINT_TIMEOUT_MS = 1e4;
 const CHECK_IN_ENDPOINT_TIMEOUT_MS = 1e3;
 const PROGRAM_NAME_CRASH_DENY_LIST = [
 	"nix-expr-tests",
@@ -1254,54 +1310,35 @@ var DetSysAction = class {
 			process.env["ACTIONS_ID_TOKEN_REQUEST_TOKEN"] = void 0;
 		}
 		this.features = {};
-		this.featureEventMetadata = {};
-		this.events = [];
+		this.featureVariants = {};
+		this.pendingAttributes = {};
 		this.getCrossPhaseId();
 		this.collectBacktraceSetup();
-		this.facts = {
-			$lib: "idslib",
-			$lib_version: pkgVersion,
-			project: this.actionOptions.name,
-			ids_project: this.actionOptions.idsProjectName
-		};
-		for (const [target, env] of [
-			["github_action_ref", "GITHUB_ACTION_REF"],
-			["github_action_repository", "GITHUB_ACTION_REPOSITORY"],
-			["github_event_name", "GITHUB_EVENT_NAME"],
-			["$os", "RUNNER_OS"],
-			["arch", "RUNNER_ARCH"]
-		]) {
-			const value = process.env[env];
-			if (value) this.facts[target] = value;
-		}
 		this.identity = identify();
 		this.archOs = getArchOs();
 		this.nixSystem = getNixPlatform(this.archOs);
-		this.facts.$app_name = `${this.actionOptions.name}/action`;
-		this.facts.arch_os = this.archOs;
-		this.facts.nix_system = this.nixSystem;
-		getDetails().then((details) => {
-			if (details.name !== "unknown") this.addFact(FACT_OS, details.name);
-			if (details.version !== "unknown") this.addFact(FACT_OS_VERSION, details.version);
-		}).catch((e) => {
+		this.systemDetails = getDetails().then((details) => ({
+			name: details.name,
+			version: details.version
+		})).catch((e) => {
 			actionsCore.debug(`Failure getting platform details: ${stringifyError$1(e)}`);
 		});
 		this.executionPhase = this.determineExecutionPhase();
-		this.facts.execution_phase = this.executionPhase;
 		if (this.actionOptions.fetchStyle === "gh-env-style") this.architectureFetchSuffix = this.archOs;
 		else if (this.actionOptions.fetchStyle === "nix-style") this.architectureFetchSuffix = this.nixSystem;
 		else if (this.actionOptions.fetchStyle === "universal") this.architectureFetchSuffix = "universal";
 		else throw new Error(`fetchStyle ${this.actionOptions.fetchStyle} is not a valid style`);
 		this.sourceParameters = constructSourceParameters(this.actionOptions.legacySourcePrefix);
-		this.recordEvent(`begin_${this.executionPhase}`);
 	}
 	/**
-	* Attach a file to the diagnostics data in error conditions.
+	* Attach a file to the telemetry for this run, to be emitted if the Action
+	* fails.
 	*
 	* The file at `location` doesn't need to exist when stapleFile is called.
 	*
-	* If the file doesn't exist or is unreadable when trying to staple the attachments, the JS error will be stored in a context value at `staple_failure_{name}`.
-	* If the file is readable, the file's contents will be stored in a context value at `staple_value_{name}`.
+	* Each attachment becomes one OpenTelemetry log record, correlated to the
+	* phase's span: the file's contents as the body if it can be read, the
+	* reason it could not be read otherwise.
 	*/
 	stapleFile(name, location) {
 		this.exceptionAttachments.set(name, location);
@@ -1319,10 +1356,29 @@ var DetSysAction = class {
 		const tmpDir = process.env["RUNNER_TEMP"] || tmpdir();
 		return path.join(tmpDir, `${this.actionOptions.name}-${randomUUID()}`);
 	}
-	addFact(key, value) {
-		this.facts[key] = value;
-		this.phaseSpan?.setAttribute(`${ATTR_PREFIX_FACT}${key}`, value);
+	/**
+	* Describe this run with an attribute.
+	*
+	* The attribute lands on the phase's root span, not on whichever span
+	* happens to be active, because it describes the run as a whole. Set it
+	* whenever the value becomes known: attributes set before the span opens
+	* are replayed onto it.
+	*
+	* Namespace your keys, as OpenTelemetry expects: `detsys.nix.version`, not
+	* `nix_version`.
+	*/
+	setAttribute(key, value) {
+		if (this.phaseSpan === void 0) this.pendingAttributes[key] = value;
+		else this.phaseSpan.setAttribute(key, value);
 	}
+	/**
+	* The diagnostics endpoint for the programs this Action runs, such as
+	* `nix-installer` and `magic-nix-cache`.
+	*
+	* This library reports nothing there. Its own telemetry is OpenTelemetry;
+	* see {@link getTelemetryEnvironment} for putting a child process's
+	* telemetry in this run's trace.
+	*/
 	async getDiagnosticsUrl() {
 		return await this.idsHost.getDiagnosticsUrl();
 	}
@@ -1340,21 +1396,17 @@ var DetSysAction = class {
 	getCorrelationHashes() {
 		return this.identity;
 	}
-	recordEvent(eventName, context = {}) {
-		const prefixedName = eventName === "$feature_flag_called" || eventName === "$groupidentify" ? eventName : `${this.actionOptions.eventPrefix}${eventName}`;
-		this.events.push({
-			name: prefixedName,
-			distinct_id: this.identity.$anon_distinct_id,
-			uuid: randomUUID(),
-			timestamp: /* @__PURE__ */ new Date(),
-			properties: {
-				...context,
-				...this.identity,
-				...this.facts,
-				...Object.fromEntries(Object.entries(this.featureEventMetadata).map(([name, variant]) => [`$feature/${name}`, variant]))
-			}
-		});
-		(otelApi.trace.getActiveSpan() ?? this.phaseSpan)?.addEvent(prefixedName, toAttributes(context, ATTR_PREFIX_EVENT));
+	/**
+	* Record that something happened, as a span event.
+	*
+	* The event lands on whichever span is active, so that it sits on the
+	* operation that produced it, and on the phase's root span when there is no
+	* nested span in progress.
+	*
+	* Namespace your attribute keys, as OpenTelemetry expects.
+	*/
+	addEvent(name, attributes) {
+		(otelApi.trace.getActiveSpan() ?? this.phaseSpan)?.addEvent(name, attributes);
 	}
 	/**
 	* Unpacks the closure returned by `fetchArtifact()`, imports the
@@ -1393,39 +1445,29 @@ var DetSysAction = class {
 				try {
 					await writeCorrelationHashes(correlationHashes);
 				} catch (error) {
-					this.recordEvent(EVENT_STORE_IDENTITY_FAILED, { error: String(error) });
+					this.addEvent(EVENT_STORE_IDENTITY_FAILED, { [semconv.ATTR_EXCEPTION_MESSAGE]: stringifyError$1(error) });
 				}
 				if (!await this.preflightRequireNix()) {
-					this.recordEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
+					this.addEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
 					return;
 				} else {
 					await this.preflightNixStoreInfo();
 					await this.preflightNixVersion();
-					this.addFact(FACT_NIX_STORE_TRUST, this.nixStoreTrust);
+					this.setAttribute(ATTR_NIX_STORE_TRUST, this.nixStoreTrust);
 				}
 				if (this.isMain) {
-					this.recordGroup();
 					await this.main();
 					await this.preflightNixVersion();
 				} else if (this.isPost) await this.post();
 			});
-			this.addFact(FACT_ENDED_WITH_EXCEPTION, false);
 		} catch (e) {
-			this.addFact(FACT_ENDED_WITH_EXCEPTION, true);
 			const reportable = stringifyError$1(e);
-			this.addFact(FACT_FINAL_EXCEPTION, reportable);
 			if (this.phaseSpan !== void 0) recordSpanError(this.phaseSpan, e);
 			if (this.isPost) warning(reportable);
 			else setFailed(reportable);
-			const doGzip = promisify(gzip);
-			const exceptionContext = /* @__PURE__ */ new Map();
-			for (const [attachmentLabel, filePath] of this.exceptionAttachments) try {
-				const buf = await doGzip(nodeFs.readFileSync(filePath));
-				exceptionContext.set(`staple_value_${attachmentLabel}`, buf.toString("base64"));
-			} catch (innerError) {
-				exceptionContext.set(`staple_failure_${attachmentLabel}`, stringifyError$1(innerError));
-			}
-			this.recordEvent(EVENT_EXCEPTION, Object.fromEntries(exceptionContext));
+			await this.withPhaseSpanActive(async () => {
+				await this.emitAttachments();
+			});
 		} finally {
 			await this.withPhaseSpanActive(async () => {
 				if (this.isPost) await this.collectBacktraces();
@@ -1446,8 +1488,9 @@ var DetSysAction = class {
 	* Start the OpenTelemetry export.
 	*
 	* All runs export their data.
-	* To stop the export, set `OTEL_EXPORTER_OTLP_ENDPOINT` to an empty value.
-	* The function then finds no endpoint and does not start the SDK.
+	* To stop the export, set `OTEL_SDK_DISABLED` to `true`, or set
+	* `OTEL_EXPORTER_OTLP_ENDPOINT` to an empty value.
+	* The SDK then does not start.
 	* The OpenTelemetry API stays in its no-op state.
 	* Each span and log record then does nothing.
 	* Thus the call sites do not test if the export is on.
@@ -1456,18 +1499,10 @@ var DetSysAction = class {
 	* The check-in supplies the feature flags for the resource attributes.
 	*/
 	async startTelemetry() {
-		const endpoint = otlpEndpoint();
-		if (endpoint === void 0) {
-			actionsCore.debug("OpenTelemetry export is disabled: no OTLP endpoint resolved.");
-			return;
-		}
 		this.telemetry.start({
 			serviceName: this.actionOptions.name,
-			serviceVersion: pkgVersion,
-			endpoint,
-			headers: otlpHeaders(),
-			requestTimeoutMs: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS,
-			resourceAttributes: this.telemetryResourceAttributes()
+			serviceVersion: process.env["GITHUB_ACTION_REF"],
+			resourceAttributes: await this.telemetryResourceAttributes()
 		});
 	}
 	/**
@@ -1475,12 +1510,17 @@ var DetSysAction = class {
 	*
 	* `main` and `post` are separate processes, so the main phase publishes its
 	* span as a W3C traceparent in the Action's state and the post phase adopts
-	* it as a parent. That puts both phases of a run in one trace.
+	* it as a parent. That puts both phases of a run in one trace. A
+	* `$TRACEPARENT` in the environment parents the whole run into a trace that
+	* started outside this Action.
 	*/
 	startPhaseSpan(startTime) {
-		const parentContext = contextFromTraceparent(actionsCore.getState(STATE_KEY_TRACEPARENT) || void 0);
-		const span = getTracer().startSpan(`${this.actionOptions.name}:${this.executionPhase}`, { startTime }, parentContext);
-		for (const [key, value] of Object.entries(this.facts)) span.setAttribute(`${ATTR_PREFIX_FACT}${key}`, value);
+		const parentContext = contextFromTraceparent(actionsCore.getState(STATE_KEY_TRACEPARENT) || process.env["TRACEPARENT"] || void 0);
+		const span = getTracer().startSpan(`${this.actionOptions.name}:${this.executionPhase}`, {
+			startTime,
+			attributes: this.pendingAttributes
+		}, parentContext);
+		this.pendingAttributes = {};
 		if (this.isMain) {
 			const traceparent = traceparentOf(span);
 			if (traceparent !== void 0) actionsCore.saveState(STATE_KEY_TRACEPARENT, traceparent);
@@ -1491,28 +1531,33 @@ var DetSysAction = class {
 	/**
 	* The stable, run-scoped attributes attached to every span and log record.
 	*
-	* These carry the same hashed, non-identifying correlation data the
-	* diagnostics endpoint already receives.
+	* The correlation data here is hashed and does not identify a repository,
+	* an organization, or a person.
 	*/
-	telemetryResourceAttributes() {
+	async telemetryResourceAttributes() {
+		const details = await this.systemDetails;
 		return {
-			"detsys.project": this.actionOptions.name,
-			"detsys.ids_project": this.actionOptions.idsProjectName,
-			"detsys.execution_phase": this.executionPhase,
-			"detsys.cross_phase_id": this.getCrossPhaseId(),
-			"detsys.anon_distinct_id": this.identity.$anon_distinct_id,
-			"detsys.session_id": this.identity.$session_id,
-			"detsys.correlation_source": this.identity.correlation_source,
-			"detsys.github_repository_hash": this.identity.github_repository_hash,
-			"detsys.github_organization_hash": this.identity.$groups["github_organization"],
-			"detsys.github_workflow_hash": this.identity.github_workflow_hash,
-			"detsys.github_workflow_job_hash": this.identity.github_workflow_job_hash,
-			"detsys.github_workflow_run_hash": this.identity.github_workflow_run_hash,
-			"detsys.github_workflow_run_differentiator_hash": this.identity.github_workflow_run_differentiator_hash,
-			"detsys.arch_os": this.archOs,
-			"detsys.nix_system": this.nixSystem,
-			"ci.provider": "github-actions",
-			...Object.fromEntries(Object.entries(this.featureEventMetadata).map(([name, variant]) => [`detsys.feature.${name}`, variant]))
+			[semconvIncubating.ATTR_OS_TYPE]: osType(),
+			[semconvIncubating.ATTR_HOST_ARCH]: hostArch(),
+			...details?.name === void 0 || details.name === "unknown" ? {} : { [semconvIncubating.ATTR_OS_NAME]: details.name },
+			...details?.version === void 0 || details.version === "unknown" ? {} : { [semconvIncubating.ATTR_OS_VERSION]: details.version },
+			[ATTR_PROJECT]: this.actionOptions.name,
+			[ATTR_IDS_PROJECT]: this.actionOptions.idsProjectName,
+			[ATTR_EXECUTION_PHASE]: this.executionPhase,
+			[ATTR_CROSS_PHASE_ID]: this.getCrossPhaseId(),
+			[ATTR_ANONYMOUS_ID]: this.identity.$anon_distinct_id,
+			[ATTR_CORRELATION_SOURCE]: this.identity.correlation_source,
+			[ATTR_ARCH_OS]: this.archOs,
+			[ATTR_NIX_SYSTEM]: this.nixSystem,
+			[ATTR_GITHUB_EVENT_NAME]: process.env["GITHUB_EVENT_NAME"],
+			[ATTR_GITHUB_ACTION_REPOSITORY]: process.env["GITHUB_ACTION_REPOSITORY"],
+			[ATTR_GITHUB_REPOSITORY_HASH]: this.identity.github_repository_hash,
+			[ATTR_GITHUB_ORGANIZATION_HASH]: this.identity.$groups["github_organization"],
+			[ATTR_GITHUB_WORKFLOW_HASH]: this.identity.github_workflow_hash,
+			[ATTR_GITHUB_WORKFLOW_JOB_HASH]: this.identity.github_workflow_job_hash,
+			[ATTR_GITHUB_WORKFLOW_RUN_HASH]: this.identity.github_workflow_run_hash,
+			[ATTR_GITHUB_WORKFLOW_RUN_DIFFERENTIATOR_HASH]: this.identity.github_workflow_run_differentiator_hash,
+			...Object.fromEntries(Object.entries(this.featureVariants).map(([name, variant]) => [`${ATTR_FEATURE_PREFIX}${name}`, variant]))
 		};
 	}
 	/**
@@ -1527,30 +1572,28 @@ var DetSysAction = class {
 	}
 	/**
 	* The environment variables that let a child process add data to this
-	* Action's trace.
-	* They contain the current `$TRACEPARENT`, the OTLP endpoint, and the token.
+	* Action's trace: the current `$TRACEPARENT` and the OTLP export settings.
 	*
 	* Add these variables to the environment of each child process to trace.
+	* A child that inherits this process's environment already has the OTLP
+	* settings; only `$TRACEPARENT` changes as the run proceeds.
+	*
 	* The result is empty if the OpenTelemetry export is off.
 	* Thus it is always safe to add them.
 	*/
 	async getTelemetryEnvironment() {
 		if (!this.telemetry.enabled) return {};
-		const environment = {};
+		const environment = otlpExportEnvironment();
 		const traceparent = this.getTraceparent();
 		if (traceparent !== void 0) environment["TRACEPARENT"] = traceparent;
-		const endpoint = otlpEndpoint();
-		if (endpoint !== void 0) environment["OTEL_EXPORTER_OTLP_ENDPOINT"] = endpoint.toString();
-		const headers = encodeOtlpHeaders(otlpHeaders());
-		if (headers !== void 0) environment["OTEL_EXPORTER_OTLP_HEADERS"] = headers;
 		return environment;
 	}
 	async getClient() {
 		return await this.idsHost.getGot((incitingError, prevUrl, nextUrl) => {
 			this.recordPlausibleTimeout(incitingError);
-			this.recordEvent("ids-failover", {
-				previousUrl: prevUrl.toString(),
-				nextUrl: nextUrl.toString()
+			this.addEvent(EVENT_IDS_FAILOVER, {
+				"detsys.ids.previous_url": prevUrl.toString(),
+				"detsys.ids.next_url": nextUrl.toString()
 			});
 		});
 	}
@@ -1558,7 +1601,7 @@ var DetSysAction = class {
 		const checkin = await this.requestCheckIn();
 		if (checkin === void 0) return;
 		this.features = checkin.options;
-		for (const [key, feature] of Object.entries(this.features)) this.featureEventMetadata[key] = feature.variant;
+		for (const [key, feature] of Object.entries(this.features)) this.featureVariants[key] = feature.variant;
 		const impactSymbol = /* @__PURE__ */ new Map([
 			["none", "⚪"],
 			["maintenance", "🛠️"],
@@ -1579,24 +1622,58 @@ var DetSysAction = class {
 			}
 		}
 	}
+	/**
+	* The variant of a feature flag this run resolved, if the check-in returned
+	* one.
+	*
+	* Every resolved variant is already a resource attribute, under
+	* `detsys.feature.`, so the telemetry can be sliced by the flags that
+	* produced it.
+	*/
 	getFeature(name) {
 		if (!this.features.hasOwnProperty(name)) return;
-		const result = this.features[name];
-		if (result === void 0) return;
-		this.recordEvent("$feature_flag_called", {
-			$feature_flag: name,
-			$feature_flag_response: result.variant
-		});
-		return result;
+		return this.features[name];
 	}
-	recordGroup() {
-		const ghorg_hash = this.identity.$groups["github_organization"];
-		const ghorg_name = process.env["GITHUB_REPOSITORY_OWNER"];
-		if (ghorg_hash !== void 0 && ghorg_name !== void 0) this.recordEvent("$groupidentify", {
-			$group_type: "github_organization",
-			$group_key: ghorg_hash,
-			$group_set: { name: ghorg_name }
-		});
+	/**
+	* The person properties the check-in evaluates feature flags against.
+	*
+	* These names are the flag-targeting contract with the feature flag
+	* service, which is why they keep their `$`-prefixed spelling. They are not
+	* telemetry: nothing here is reported anywhere. The telemetry for this run
+	* is OpenTelemetry, and it names the same values the way OpenTelemetry
+	* does.
+	*/
+	async checkInPersonProperties() {
+		const properties = {
+			ci: "github",
+			$lib: "idslib",
+			$lib_version: "1.0",
+			$app_name: `${this.actionOptions.name}/action`,
+			project: this.actionOptions.name,
+			ids_project: this.actionOptions.idsProjectName,
+			arch_os: this.archOs,
+			nix_system: this.nixSystem,
+			execution_phase: this.executionPhase
+		};
+		for (const [target, variable] of [
+			["github_action_ref", "GITHUB_ACTION_REF"],
+			["github_action_repository", "GITHUB_ACTION_REPOSITORY"],
+			["github_event_name", "GITHUB_EVENT_NAME"],
+			["$os", "RUNNER_OS"],
+			["arch", "RUNNER_ARCH"]
+		]) {
+			const value = process.env[variable];
+			if (value) properties[target] = value;
+		}
+		const details = await this.systemDetails;
+		if (details !== void 0) {
+			if (details.name !== "unknown") properties.$os = details.name;
+			if (details.version !== "unknown") properties.$os_version = details.version;
+		}
+		return {
+			...properties,
+			...this.identity
+		};
 	}
 	/**
 	* Check in to install.determinate.systems, to accomplish three things:
@@ -1615,11 +1692,7 @@ var DetSysAction = class {
 					distinct_id: this.identity.$anon_distinct_id,
 					anon_distinct_id: this.identity.$anon_distinct_id,
 					groups: this.identity.$groups,
-					person_properties: {
-						ci: "github",
-						...this.identity,
-						...this.facts
-					}
+					person_properties: await this.checkInPersonProperties()
 				};
 				return await (await this.getClient()).post(checkInUrl, {
 					json: props,
@@ -1634,12 +1707,12 @@ var DetSysAction = class {
 	}
 	recordPlausibleTimeout(e) {
 		if (e instanceof TimeoutError && "timings" in e && "request" in e) {
-			const reportContext = {
-				url: e.request.requestUrl?.toString(),
-				retry_count: e.request.retryCount
+			const attributes = {
+				[semconv.ATTR_URL_FULL]: e.request.requestUrl?.toString(),
+				[semconv.ATTR_HTTP_REQUEST_RESEND_COUNT]: e.request.retryCount
 			};
-			for (const [key, value] of Object.entries(e.timings.phases)) if (Number.isFinite(value)) reportContext[`timing_phase_${key}`] = value;
-			this.recordEvent("timeout", reportContext);
+			for (const [key, value] of Object.entries(e.timings.phases)) if (Number.isFinite(value)) attributes[`detsys.http.timing.${key}`] = value;
+			this.addEvent(EVENT_REQUEST_TIMEOUT, attributes);
 		}
 	}
 	/**
@@ -1660,7 +1733,7 @@ var DetSysAction = class {
 			debug(`Using the provided source binary at ${sourceBinary}`);
 			return sourceBinary;
 		}
-		return await withSpan("fetch_artifact", async () => {
+		return await withSpan("fetch_artifact", async (span) => {
 			const expectedArtifactHash = await this.resolveExpectedArtifactHash();
 			actionsCore.startGroup(`Downloading ${this.actionOptions.name} for ${this.architectureFetchSuffix}`);
 			try {
@@ -1671,17 +1744,17 @@ var DetSysAction = class {
 				const versionCheckup = await (await this.getClient()).head(correlatedUrl);
 				if (versionCheckup.headers.etag) {
 					const v = versionCheckup.headers.etag;
-					this.addFact(FACT_SOURCE_URL_ETAG, v);
+					this.setAttribute(ATTR_SOURCE_ETAG, v);
 					debug(`Checking the tool cache for ${await this.getSourceUrl()} at ${v}`);
 					const cached = await this.getCachedVersion(v, expectedArtifactHash);
 					if (cached) {
-						this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = true;
+						span.setAttribute(ATTR_ARTIFACT_CACHE_HIT, true);
 						debug(`Tool cache hit.`);
 						await this.verifyArtifactHash(cached, expectedArtifactHash);
 						return cached;
 					}
 				}
-				this.facts[FACT_ARTIFACT_FETCHED_FROM_CACHE] = false;
+				span.setAttribute(ATTR_ARTIFACT_CACHE_HIT, false);
 				debug(`No match from the cache, re-fetching from the redirect: ${versionCheckup.url}`);
 				const destFile = this.getTemporaryName();
 				const fetchStream = await this.downloadFile(new URL(versionCheckup.url), destFile);
@@ -1702,8 +1775,8 @@ var DetSysAction = class {
 				actionsCore.endGroup();
 			}
 		}, {
-			"detsys.artifact": this.actionOptions.name,
-			"detsys.architecture_fetch_suffix": this.architectureFetchSuffix
+			[ATTR_ARTIFACT_NAME]: this.actionOptions.name,
+			[ATTR_ARTIFACT_FETCH_SUFFIX]: this.architectureFetchSuffix
 		});
 	}
 	/**
@@ -1720,7 +1793,7 @@ var DetSysAction = class {
 		if (checksumsUrl === null || checksumsSha256 === null) throw new Error("`source-checksums-url` and `source-checksums-sha256` must be set together");
 		assertChecksumSourceIsPinned(this.sourceParameters);
 		const expectedFileHash = checksumsSha256.toLowerCase();
-		this.addFact(FACT_SOURCE_CHECKSUMS_SHA256, expectedFileHash);
+		this.setAttribute(ATTR_SOURCE_CHECKSUMS_SHA256, expectedFileHash);
 		const parsedUrl = new URL(checksumsUrl);
 		const safeUrl = parsedUrl.origin + parsedUrl.pathname;
 		actionsCore.info(`Fetching checksums file from ${safeUrl}`);
@@ -1778,10 +1851,8 @@ var DetSysAction = class {
 		});
 	}
 	async complete() {
-		this.recordEvent(`complete_${this.executionPhase}`);
 		this.phaseSpan?.end();
 		this.phaseSpan = void 0;
-		await this.submitEvents();
 		await this.telemetry.shutdown();
 	}
 	async getCheckInUrl() {
@@ -1793,7 +1864,7 @@ var DetSysAction = class {
 	async getSourceUrl() {
 		const p = this.sourceParameters;
 		if (p.url) {
-			this.addFact(FACT_SOURCE_URL, p.url);
+			this.setAttribute(ATTR_SOURCE_URL, p.url);
 			return new URL(p.url);
 		}
 		const fetchUrl = await this.idsHost.getRootUrl();
@@ -1804,7 +1875,7 @@ var DetSysAction = class {
 		else if (p.revision) fetchUrl.pathname += `/rev/${p.revision}`;
 		else fetchUrl.pathname += `/stable`;
 		fetchUrl.pathname += `/${this.architectureFetchSuffix}`;
-		this.addFact(FACT_SOURCE_URL, fetchUrl.toString());
+		this.setAttribute(ATTR_SOURCE_URL, fetchUrl.toString());
 		return fetchUrl;
 	}
 	cacheKey(version, expectedHash) {
@@ -1822,12 +1893,10 @@ var DetSysAction = class {
 				process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
 				delete process.env.GITHUB_WORKSPACE;
 				if (await actionsCache.restoreCache([this.actionOptions.name], this.cacheKey(version, expectedHash), [], void 0, true)) {
-					span.setAttribute("detsys.cache_hit", true);
-					this.recordEvent(EVENT_ARTIFACT_CACHE_HIT);
+					span.setAttribute(ATTR_ARTIFACT_CACHE_HIT, true);
 					return `${tempDir}/${this.actionOptions.name}`;
 				}
-				span.setAttribute("detsys.cache_hit", false);
-				this.recordEvent(EVENT_ARTIFACT_CACHE_MISS);
+				span.setAttribute(ATTR_ARTIFACT_CACHE_HIT, false);
 				return;
 			} finally {
 				process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
@@ -1847,7 +1916,6 @@ var DetSysAction = class {
 				process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
 				delete process.env.GITHUB_WORKSPACE;
 				await actionsCache.saveCache([this.actionOptions.name], this.cacheKey(version, expectedHash), void 0, true);
-				this.recordEvent(EVENT_ARTIFACT_CACHE_PERSIST);
 			} finally {
 				process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
 				delete process.env.GITHUB_WORKSPACE_BACKUP;
@@ -1865,10 +1933,41 @@ var DetSysAction = class {
 		try {
 			if (process.env.DETSYS_BACKTRACE_COLLECTOR !== this.getCrossPhaseId()) return;
 			const backtraces = await withSpan("collect_backtraces", async () => collectBacktraces(this.actionOptions.binaryNamePrefixes, this.actionOptions.binaryNamesDenyList, parseInt(actionsCore.getState(STATE_BACKTRACE_START_TIMESTAMP))));
-			debug(`Backtraces identified: ${backtraces.size}`);
-			if (backtraces.size > 0) this.recordEvent(EVENT_BACKTRACES, Object.fromEntries(backtraces));
+			debug(`Backtraces identified: ${backtraces.length}`);
+			for (const backtrace of backtraces) {
+				const attributes = {
+					[ATTR_BACKTRACE_ID]: backtrace.id,
+					[ATTR_BACKTRACE_SOURCE]: backtrace.source,
+					[ATTR_BACKTRACE_PROGRAM]: backtrace.program
+				};
+				if (backtrace.report !== void 0) emitLogRecord("error", backtrace.report, attributes);
+				else emitLogRecord("error", `Crash report unavailable`, {
+					...attributes,
+					[semconv.ATTR_EXCEPTION_MESSAGE]: backtrace.error
+				});
+			}
 		} catch (innerError) {
 			actionsCore.debug(`Error collecting backtraces: ${stringifyError$1(innerError)}`);
+		}
+	}
+	/**
+	* Emit the files `stapleFile` collected, as log records correlated to this
+	* phase's span. The Action has already failed by the time this runs.
+	*/
+	async emitAttachments() {
+		for (const [name, location] of this.exceptionAttachments) {
+			const attributes = {
+				[ATTR_ATTACHMENT_NAME]: name,
+				[ATTR_ATTACHMENT_PATH]: location.toString()
+			};
+			try {
+				emitLogRecord("error", await readFile(location, "utf-8"), attributes);
+			} catch (innerError) {
+				emitLogRecord("error", `Attachment unavailable`, {
+					...attributes,
+					[semconv.ATTR_EXCEPTION_MESSAGE]: stringifyError$1(innerError)
+				});
+			}
 		}
 	}
 	async preflightRequireNix() {
@@ -1886,7 +1985,7 @@ var DetSysAction = class {
 					actionsCore.debug(`Nix not at ${candidateNix}`);
 				}
 			}
-			this.addFact(FACT_NIX_LOCATION, nixLocation || "");
+			this.setAttribute(ATTR_NIX_LOCATION, nixLocation || "");
 			if (this.actionOptions.requireNix === "ignore") return true;
 			if (actionsCore.getState(STATE_KEY_NIX_NOT_FOUND) === STATE_NOT_FOUND) return false;
 			if (nixLocation !== void 0) return true;
@@ -1915,7 +2014,7 @@ var DetSysAction = class {
 					"info",
 					"--json"
 				], options);
-				this.addFact(FACT_NIX_STORE_CHECK_METHOD, "info");
+				this.setAttribute(ATTR_NIX_STORE_CHECK_METHOD, "info");
 			} catch {
 				try {
 					output = "";
@@ -1924,9 +2023,9 @@ var DetSysAction = class {
 						"ping",
 						"--json"
 					], options);
-					this.addFact(FACT_NIX_STORE_CHECK_METHOD, "ping");
+					this.setAttribute(ATTR_NIX_STORE_CHECK_METHOD, "ping");
 				} catch {
-					this.addFact(FACT_NIX_STORE_CHECK_METHOD, "none");
+					this.setAttribute(ATTR_NIX_STORE_CHECK_METHOD, "none");
 					return;
 				}
 			}
@@ -1934,12 +2033,12 @@ var DetSysAction = class {
 				const parsed = JSON.parse(output);
 				if (parsed.trusted === true || parsed.trusted === 1) this.nixStoreTrust = "trusted";
 				else if (parsed.trusted === false || parsed.trusted === 0) this.nixStoreTrust = "untrusted";
-				else if (parsed.trusted !== void 0) this.addFact(FACT_NIX_STORE_CHECK_ERROR, `Mysterious trusted value: ${JSON.stringify(parsed.trusted)}`);
-				this.addFact(FACT_NIX_STORE_VERSION, JSON.stringify(parsed.version));
+				else if (parsed.trusted !== void 0) this.setAttribute(ATTR_NIX_STORE_CHECK_ERROR, `Mysterious trusted value: ${JSON.stringify(parsed.trusted)}`);
+				this.setAttribute(ATTR_NIX_STORE_VERSION, JSON.stringify(parsed.version));
 			} catch (e) {
-				this.addFact(FACT_NIX_STORE_CHECK_ERROR, stringifyError$1(e));
+				this.setAttribute(ATTR_NIX_STORE_CHECK_ERROR, stringifyError$1(e));
 			}
-			span.setAttribute("detsys.nix_store_trust", this.nixStoreTrust);
+			span.setAttribute(ATTR_NIX_STORE_TRUST, this.nixStoreTrust);
 		});
 	}
 	async preflightNixVersion() {
@@ -1949,58 +2048,42 @@ var DetSysAction = class {
 				({stdout: output} = await exec$1.getExecOutput("nix", ["--version"], { silent: true }));
 				output = output.trim() || "unknown";
 			} catch {}
-			this.addFact(FACT_NIX_VERSION, output);
-			span.setAttribute("detsys.nix_version", output);
+			this.setAttribute(ATTR_NIX_VERSION, output);
+			span.setAttribute(ATTR_NIX_VERSION, output);
 		});
-	}
-	async submitEvents() {
-		const diagnosticsUrl = await this.idsHost.getDiagnosticsUrl();
-		if (diagnosticsUrl === void 0) {
-			actionsCore.debug("Diagnostics are disabled. Not sending the following events:");
-			actionsCore.debug(JSON.stringify(this.events, void 0, 2));
-			return;
-		}
-		const batch = {
-			sent_at: /* @__PURE__ */ new Date(),
-			batch: this.events
-		};
-		try {
-			await (await this.getClient()).post(diagnosticsUrl, {
-				json: batch,
-				timeout: { request: DIAGNOSTIC_ENDPOINT_TIMEOUT_MS }
-			});
-		} catch (err) {
-			this.recordPlausibleTimeout(err);
-			actionsCore.debug(`Error submitting diagnostics event to ${diagnosticsUrl}: ${stringifyError$1(err)}`);
-		}
-		this.events = [];
 	}
 };
 function stringifyError$1(error) {
 	return error instanceof Error || typeof error == "string" ? error.toString() : JSON.stringify(error);
 }
 /**
-* Flatten an event context into OpenTelemetry attributes.
-*
-* Attributes are a flat map of primitives, so the one level of nesting an
-* EventContext permits is joined with a dot, and undefined values are dropped
-* rather than serialized as the string "undefined".
+* The runner's operating system, as `os.type` spells it.
 */
-function toAttributes(context, prefix) {
-	const attributes = {};
-	const set = (key, value) => {
-		if (value !== void 0) attributes[`${prefix}${key}`] = value;
-	};
-	for (const [key, value] of Object.entries(context)) if (typeof value === "object" && value !== null) for (const [nestedKey, nestedValue] of Object.entries(value)) set(`${key}.${nestedKey}`, nestedValue);
-	else set(key, value);
-	return attributes;
+function osType() {
+	switch (platform) {
+		case "win32": return semconvIncubating.OS_TYPE_VALUE_WINDOWS;
+		case "darwin": return semconvIncubating.OS_TYPE_VALUE_DARWIN;
+		case "linux": return semconvIncubating.OS_TYPE_VALUE_LINUX;
+		default: return platform;
+	}
+}
+/**
+* The runner's architecture, as `host.arch` spells it.
+*/
+function hostArch() {
+	switch (arch) {
+		case "x64": return semconvIncubating.HOST_ARCH_VALUE_AMD64;
+		case "arm64": return semconvIncubating.HOST_ARCH_VALUE_ARM64;
+		case "ia32": return semconvIncubating.HOST_ARCH_VALUE_X86;
+		case "arm": return semconvIncubating.HOST_ARCH_VALUE_ARM32;
+		default: return arch;
+	}
 }
 function makeOptionsConfident(actionOptions) {
 	const idsProjectName = actionOptions.idsProjectName ?? actionOptions.name;
 	const finalOpts = {
 		name: actionOptions.name,
 		idsProjectName,
-		eventPrefix: actionOptions.eventPrefix || "action:",
 		fetchStyle: actionOptions.fetchStyle,
 		legacySourcePrefix: actionOptions.legacySourcePrefix,
 		requireNix: actionOptions.requireNix,

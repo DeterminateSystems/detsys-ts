@@ -7,17 +7,38 @@ import { stringifyError } from "./errors.js";
 import * as actionsCore from "@actions/core";
 import * as exec from "@actions/exec";
 import { readFile, readdir, stat } from "node:fs/promises";
-import { promisify } from "node:util";
-import { gzip } from "node:zlib";
 
 // Give a few seconds buffer, capturing traces that happened a few seconds earlier.
 const START_SLOP_SECONDS = 5;
+
+/**
+ * One crash of one program, as the operating system recorded it.
+ *
+ * Exactly one of `report` and `error` is set: either we read the crash report
+ * or we can say why we could not.
+ */
+export type Backtrace = {
+  /** Identifies the crash: the report's file name on macOS, the PID on Linux. */
+  id: string;
+
+  /** Where the report came from: `system`, `user`, or `coredumpctl`. */
+  source: string;
+
+  /** The program that crashed, when the operating system names it. */
+  program?: string;
+
+  /** The crash report itself. */
+  report?: string;
+
+  /** Why the crash report could not be read. */
+  error?: string;
+};
 
 export async function collectBacktraces(
   prefixes: string[],
   programNameDenyList: string[],
   startTimestampMs: number,
-): Promise<Map<string, string>> {
+): Promise<Backtrace[]> {
   if (isMacOS) {
     return await collectBacktracesMacOS(
       prefixes,
@@ -33,15 +54,15 @@ export async function collectBacktraces(
     );
   }
 
-  return new Map();
+  return [];
 }
 
 export async function collectBacktracesMacOS(
   prefixes: string[],
   programNameDenyList: string[],
   startTimestampMs: number,
-): Promise<Map<string, string>> {
-  const backtraces: Map<string, string> = new Map();
+): Promise<Backtrace[]> {
+  const backtraces: Backtrace[] = [];
 
   try {
     const { stdout: logJson } = await exec.getExecOutput(
@@ -102,22 +123,21 @@ export async function collectBacktracesMacOS(
         return !fileName.endsWith(".diag");
       });
 
-    const doGzip = promisify(gzip);
     for (const fileName of fileNames) {
       try {
         if ((await stat(`${dir}/${fileName}`)).ctimeMs >= startTimestampMs) {
-          const logText = await readFile(`${dir}/${fileName}`);
-          const buf = await doGzip(logText);
-          backtraces.set(
-            `backtrace_value_${source}_${fileName}`,
-            buf.toString("base64"),
-          );
+          backtraces.push({
+            id: fileName,
+            source,
+            report: await readFile(`${dir}/${fileName}`, "utf-8"),
+          });
         }
       } catch (innerError: unknown) {
-        backtraces.set(
-          `backtrace_failure_${source}_${fileName}`,
-          stringifyError(innerError),
-        );
+        backtraces.push({
+          id: fileName,
+          source,
+          error: stringifyError(innerError),
+        });
       }
     }
   }
@@ -134,10 +154,10 @@ export async function collectBacktracesSystemd(
   prefixes: string[],
   programNameDenyList: string[],
   startTimestampMs: number,
-): Promise<Map<string, string>> {
+): Promise<Backtrace[]> {
   const sinceSeconds =
     Math.ceil((Date.now() - startTimestampMs) / 1000) + START_SLOP_SECONDS;
-  const backtraces: Map<string, string> = new Map();
+  const backtraces: Backtrace[] = [];
 
   const coredumps: SystemdCoreDumpInfo[] = [];
 
@@ -194,10 +214,9 @@ export async function collectBacktracesSystemd(
     return backtraces;
   }
 
-  const doGzip = promisify(gzip);
   for (const coredump of coredumps) {
     try {
-      const { stdout: logText } = await exec.getExecOutput(
+      const { stdout: report } = await exec.getExecOutput(
         "coredumpctl",
         ["info", `${coredump.pid}`],
         {
@@ -205,13 +224,19 @@ export async function collectBacktracesSystemd(
         },
       );
 
-      const buf = await doGzip(logText);
-      backtraces.set(`backtrace_value_${coredump.pid}`, buf.toString("base64"));
+      backtraces.push({
+        id: `${coredump.pid}`,
+        source: "coredumpctl",
+        program: coredump.exe,
+        report,
+      });
     } catch (innerError: unknown) {
-      backtraces.set(
-        `backtrace_failure_${coredump.pid}`,
-        stringifyError(innerError),
-      );
+      backtraces.push({
+        id: `${coredump.pid}`,
+        source: "coredumpctl",
+        program: coredump.exe,
+        error: stringifyError(innerError),
+      });
     }
   }
 
