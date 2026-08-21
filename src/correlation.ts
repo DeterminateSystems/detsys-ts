@@ -5,7 +5,12 @@ const OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 
 /* eslint-disable camelcase */
 /**
- * JSON sent to server.
+ * The hashed, non-identifying description of this run.
+ *
+ * Two consumers fix these names. The check-in evaluates feature flags against
+ * them, and the programs an Action runs read them from
+ * `$DETSYS_CORRELATION`. The OpenTelemetry data carries the same values under
+ * `detsys.` attribute names.
  */
 export type CorrelationProperties = {
   $anon_distinct_id: string;

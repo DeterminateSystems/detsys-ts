@@ -4,25 +4,31 @@
  *
  * The OpenTelemetry API is a no-op until a provider is registered globally.
  * That means instrumentation call sites -- spans, log records -- can be
- * written unconditionally: when export is disabled (no endpoint, or the
- * feature flag is off) they cost nothing and no branching is needed at the
- * call site.
+ * written unconditionally: when export is disabled they cost nothing and no
+ * branching is needed at the call site.
+ *
+ * The SDK configures itself from the standard `OTEL_*` environment variables.
+ * This module only supplies defaults for the variables the user has not set,
+ * so every documented OpenTelemetry knob works here as it does anywhere else.
  */
 import { stringifyError } from "./errors.js";
 import * as actionsCore from "@actions/core";
 import * as otelApi from "@opentelemetry/api";
 import { type Logger, SeverityNumber, logs } from "@opentelemetry/api-logs";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
-import { W3CTraceContextPropagator } from "@opentelemetry/core";
+import * as otelCore from "@opentelemetry/core";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { resourceFromAttributes } from "@opentelemetry/resources";
+import * as otelResources from "@opentelemetry/resources";
 import * as sdkLogs from "@opentelemetry/sdk-logs";
 import * as sdkTrace from "@opentelemetry/sdk-trace-base";
 import * as semconv from "@opentelemetry/semantic-conventions";
 
 /** The instrumentation scope name for everything this library emits. */
 export const SCOPE_NAME = "detsys-ts";
+
+/** The version reported as the instrumentation scope's version. */
+export const LIBRARY_VERSION = "1.0";
 
 /**
  * The OTLP/HTTP collector for all Actions.
@@ -54,8 +60,22 @@ const OTLP_INGEST_TOKEN =
  */
 const SHUTDOWN_TIMEOUT_MS = 5_000;
 
-/** Truncate any single span attribute longer than this. */
-const MAX_ATTRIBUTE_VALUE_LENGTH = 8_192;
+/**
+ * The default for `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT`.
+ *
+ * The SDK's own default is unlimited. Attributes here can carry pasted
+ * command output and other unbounded text, which the collector should not
+ * have to absorb, so cap them. File-sized payloads go out as log records
+ * instead: a log record's body is not an attribute and is not truncated.
+ */
+const DEFAULT_ATTRIBUTE_VALUE_LENGTH_LIMIT = 8_192;
+
+/** The OTLP environment variables a child process inherits from this run. */
+const OTLP_EXPORT_VARIABLES = [
+  "OTEL_EXPORTER_OTLP_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_HEADERS",
+  "OTEL_EXPORTER_OTLP_COMPRESSION",
+] as const;
 
 /**
  * Our own propagator instance, rather than the global one.
@@ -65,7 +85,7 @@ const MAX_ATTRIBUTE_VALUE_LENGTH = 8_192;
  * start-up ordering. Owning an instance keeps {@link traceparentOf} and {@link
  * contextFromTraceparent} correct no matter when they're called.
  */
-const PROPAGATOR = new W3CTraceContextPropagator();
+const PROPAGATOR = new otelCore.W3CTraceContextPropagator();
 
 /** The severities we map GitHub Actions' log levels onto. */
 export type LogLevel = "debug" | "info" | "notice" | "warning" | "error";
@@ -79,95 +99,136 @@ const SEVERITY: Record<LogLevel, SeverityNumber> = {
 };
 
 export type TelemetryOptions = {
+  /** The `service.name` for this run, unless `OTEL_SERVICE_NAME` overrides it. */
   serviceName: string;
-  serviceVersion: string;
 
-  /**
-   * The OTLP/HTTP base URL.
-   * The exporters add `/v1/traces` and `/v1/logs` to it.
-   */
-  endpoint: URL;
+  /** The `service.version` for this run, when it is known. */
+  serviceVersion?: string;
 
-  /** Attributes for this run, added to each span and log record. */
+  /** Resource attributes for this run, added to each span and log record. */
   resourceAttributes: otelApi.Attributes;
-
-  /** Headers for each OTLP export request. */
-  headers: Record<string, string>;
-
-  /** How long a single OTLP export request may take. */
-  requestTimeoutMs: number;
 };
 
 /**
- * The OTLP base endpoint for this run.
+ * Whether this run exports telemetry at all.
  *
- * `OTEL_EXPORTER_OTLP_ENDPOINT` replaces {@link DEFAULT_OTLP_ENDPOINT}.
- * Use it to send the data to a local collector.
- * An empty value stops the export.
- * If the value is not a valid URL, the default endpoint applies.
+ * `OTEL_SDK_DISABLED=true` is the standard way to turn the export off. An
+ * empty `OTEL_EXPORTER_OTLP_ENDPOINT` does the same, which is what this
+ * library documented before `OTEL_SDK_DISABLED` was in the specification.
  */
-export function otlpEndpoint(): URL | undefined {
-  const fromEnv = process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
-
-  if (fromEnv === "") {
-    return undefined;
+export function exportEnabled(): boolean {
+  if (otelCore.getBooleanFromEnv("OTEL_SDK_DISABLED")) {
+    return false;
   }
 
-  if (fromEnv !== undefined) {
-    try {
-      return new URL(fromEnv);
-    } catch (e: unknown) {
-      actionsCore.info(
-        `OTEL_EXPORTER_OTLP_ENDPOINT ignored: not a valid URL: ${stringifyError(e)}`,
-      );
+  const endpoint = process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
+  if (endpoint !== undefined && endpoint.trim() === "") {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Fill in the `OTEL_*` variables this run needs and the user has not set.
+ *
+ * From here on the exporters read their whole configuration from the
+ * environment, exactly as they would in any other OpenTelemetry program.
+ * Child processes inherit the same variables, so their telemetry reaches the
+ * same collector without any further arrangement.
+ */
+export function applyOtlpEnvironmentDefaults(): void {
+  if (otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_ENDPOINT") === undefined) {
+    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = DEFAULT_OTLP_ENDPOINT;
+  }
+
+  if (exportsToDefaultCollector()) {
+    // The collector refuses data that carries no token. Leave a token the
+    // user supplied alone: theirs is the one they meant to use.
+    const headers = otelCore.parseKeyPairsIntoRecord(
+      otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_HEADERS"),
+    );
+
+    const authorized = Object.keys(headers).some(
+      (name) => name.toLowerCase() === "authorization",
+    );
+
+    if (!authorized) {
+      headers["Authorization"] = `Bearer ${OTLP_INGEST_TOKEN}`;
+      process.env["OTEL_EXPORTER_OTLP_HEADERS"] = encodeOtlpHeaders(headers);
     }
   }
 
-  return new URL(DEFAULT_OTLP_ENDPOINT);
-}
-
-/**
- * The headers for each OTLP export request.
- *
- * The result is empty if the run does not export to
- * {@link DEFAULT_OTLP_ENDPOINT}.
- * Do not send our token to a different collector.
- * An empty result also keeps the user's `OTEL_EXPORTER_OTLP_HEADERS`.
- * Headers from the code replace headers from the environment key by key.
- */
-export function otlpHeaders(): Record<string, string> {
-  const endpoint = otlpEndpoint();
-
-  if (endpoint?.toString() !== new URL(DEFAULT_OTLP_ENDPOINT).toString()) {
-    return {};
+  if (
+    otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_COMPRESSION") === undefined
+  ) {
+    // Crash reports and installer logs go out as log records, so the bodies
+    // are large and highly compressible.
+    process.env["OTEL_EXPORTER_OTLP_COMPRESSION"] = "gzip";
   }
 
-  return { Authorization: `Bearer ${OTLP_INGEST_TOKEN}` };
+  if (
+    otelCore.getNumberFromEnv("OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT") === undefined
+  ) {
+    process.env["OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT"] =
+      `${DEFAULT_ATTRIBUTE_VALUE_LENGTH_LIMIT}`;
+  }
 }
 
 /**
- * Make the value of `OTEL_EXPORTER_OTLP_HEADERS` for a child process.
- * The SDK in the child process reads that variable.
+ * Whether this run sends its data to {@link DEFAULT_OTLP_ENDPOINT}.
+ *
+ * Only that collector gets {@link OTLP_INGEST_TOKEN}. A collector the user
+ * chose must not receive our credentials.
+ */
+function exportsToDefaultCollector(): boolean {
+  const endpoint = otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_ENDPOINT");
+
+  if (endpoint === undefined) {
+    return false;
+  }
+
+  try {
+    return (
+      new URL(endpoint).toString() === new URL(DEFAULT_OTLP_ENDPOINT).toString()
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The OTLP variables in the environment, for a child process that does not
+ * inherit ours.
+ */
+export function otlpExportEnvironment(): Record<string, string> {
+  const environment: Record<string, string> = {};
+
+  for (const name of OTLP_EXPORT_VARIABLES) {
+    const value = otelCore.getStringFromEnv(name);
+    if (value !== undefined) {
+      environment[name] = value;
+    }
+  }
+
+  return environment;
+}
+
+/**
+ * Make the value of `OTEL_EXPORTER_OTLP_HEADERS`.
  *
  * The variable uses the W3C baggage format.
- * The SDK decodes each percent-encoded value.
+ * The reader decodes each percent-encoded value.
  * Thus you must encode the space in `Bearer <token>`.
  * If you do not encode it, the scheme and the token become two entries.
- *
- * The result is undefined if there are no headers.
- * The caller then keeps the value that the user supplied.
  */
-export function encodeOtlpHeaders(
-  headers: Record<string, string>,
-): string | undefined {
-  const encoded = Object.entries(headers)
+export function encodeOtlpHeaders(headers: Record<string, string>): string {
+  return Object.entries(headers)
     .map(
       ([name, value]) =>
         `${encodeURIComponent(name)}=${encodeURIComponent(value)}`,
     )
     .join(",");
-
-  return encoded === "" ? undefined : encoded;
 }
 
 /**
@@ -185,59 +246,60 @@ export class Telemetry {
   }
 
   /**
-   * Register the global tracer and logger providers, pointed at `endpoint`.
+   * Register the global tracer and logger providers.
    *
    * Safe to call at most once. If it throws, telemetry stays disabled and the
    * Action carries on: instrumentation degrades to the API's no-ops rather
    * than failing the workflow.
    */
   start(options: TelemetryOptions): void {
-    if (this.enabled) {
+    if (this.enabled || !exportEnabled()) {
       return;
     }
 
     try {
-      const resource = resourceFromAttributes({
-        [semconv.ATTR_SERVICE_NAME]: options.serviceName,
-        [semconv.ATTR_SERVICE_VERSION]: options.serviceVersion,
-        ...options.resourceAttributes,
-      });
+      applyOtlpEnvironmentDefaults();
 
-      const exporterOptions = {
-        timeoutMillis: options.requestTimeoutMs,
-        headers: options.headers,
-      };
+      // `envDetector` comes last, so `OTEL_SERVICE_NAME` and
+      // `OTEL_RESOURCE_ATTRIBUTES` win over what the Action decided.
+      const resource = otelResources
+        .defaultResource()
+        .merge(
+          otelResources.resourceFromAttributes({
+            [semconv.ATTR_SERVICE_NAME]: options.serviceName,
+            ...(options.serviceVersion === undefined
+              ? {}
+              : { [semconv.ATTR_SERVICE_VERSION]: options.serviceVersion }),
+            ...options.resourceAttributes,
+          }),
+        )
+        .merge(
+          otelResources.detectResources({
+            detectors: [otelResources.envDetector],
+          }),
+        );
 
+      // The exporters read the endpoint, the headers, the compression, and
+      // the timeouts from the environment.
       this.tracerProvider = new sdkTrace.BasicTracerProvider({
         resource,
-        // Recorded events can carry large payloads -- stapled log files are
-        // gzipped and base64'd into the exception event, and can run to
-        // megabytes. Traces are the wrong place for those, so truncate rather
-        // than ship them: the diagnostics endpoint still gets them in full.
-        spanLimits: {
-          attributeValueLengthLimit: MAX_ATTRIBUTE_VALUE_LENGTH,
-        },
         spanProcessors: [
-          new sdkTrace.BatchSpanProcessor(
-            new OTLPTraceExporter({
-              url: signalUrl(options.endpoint, "v1/traces").toString(),
-              ...exporterOptions,
-            }),
-          ),
+          new sdkTrace.BatchSpanProcessor(new OTLPTraceExporter()),
         ],
       });
 
       this.loggerProvider = new sdkLogs.LoggerProvider({
         resource,
+        // Unlike the tracer provider, this one does not read the limit from
+        // the environment itself.
         logRecordLimits: {
-          attributeValueLengthLimit: MAX_ATTRIBUTE_VALUE_LENGTH,
+          attributeValueLengthLimit: otelCore.getNumberFromEnv(
+            "OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT",
+          ),
         },
         processors: [
           new sdkLogs.BatchLogRecordProcessor({
-            exporter: new OTLPLogExporter({
-              url: signalUrl(options.endpoint, "v1/logs").toString(),
-              ...exporterOptions,
-            }),
+            exporter: new OTLPLogExporter(),
           }),
         ],
       });
@@ -252,7 +314,9 @@ export class Telemetry {
       otelApi.trace.setGlobalTracerProvider(this.tracerProvider);
       logs.setGlobalLoggerProvider(this.loggerProvider);
 
-      actionsCore.debug(`OpenTelemetry export enabled to ${options.endpoint}`);
+      actionsCore.debug(
+        `OpenTelemetry export enabled to ${otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_ENDPOINT")}`,
+      );
     } catch (e: unknown) {
       this.tracerProvider = undefined;
       this.loggerProvider = undefined;
@@ -298,7 +362,7 @@ export class Telemetry {
  * Telemetry.start} has run, so this is always safe to call.
  */
 export function getTracer(): otelApi.Tracer {
-  return otelApi.trace.getTracer(SCOPE_NAME);
+  return otelApi.trace.getTracer(SCOPE_NAME, LIBRARY_VERSION);
 }
 
 /**
@@ -306,7 +370,7 @@ export function getTracer(): otelApi.Tracer {
  * Telemetry.start} has run, so this is always safe to call.
  */
 export function getLogger(): Logger {
-  return logs.getLogger(SCOPE_NAME);
+  return logs.getLogger(SCOPE_NAME, LIBRARY_VERSION);
 }
 
 /**
@@ -407,13 +471,6 @@ export async function withSpan<T>(
       }
     },
   );
-}
-
-/** Join a signal-specific path onto an OTLP base endpoint. */
-function signalUrl(base: URL, signalPath: string): URL {
-  const url = new URL(base);
-  url.pathname = `${url.pathname.replace(/\/$/, "")}/${signalPath}`;
-  return url;
 }
 
 /** Reject if `promise` has not settled within `timeoutMs`. */

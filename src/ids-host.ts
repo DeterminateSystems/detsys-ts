@@ -166,6 +166,13 @@ export class IdsHost {
     return url;
   }
 
+  /**
+   * The diagnostics endpoint of the current backend.
+   *
+   * This library reports nothing there: its telemetry is OpenTelemetry. The
+   * URL is for the programs an Action runs, which have diagnostics of their
+   * own.
+   */
   async getDiagnosticsUrl(): Promise<URL | undefined> {
     if (this.runtimeDiagnosticsUrl === "") {
       // User specifically set the diagnostics URL to an empty string
