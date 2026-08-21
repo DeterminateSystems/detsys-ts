@@ -1,8 +1,8 @@
 import * as actionsCore from "@actions/core";
-import { Got } from "got";
 import * as otelApi from "@opentelemetry/api";
 import { Attributes } from "@opentelemetry/api";
 import { Logger } from "@opentelemetry/api-logs";
+import { Got } from "got";
 //#region src/check-in.d.ts
 type CheckIn = {
   status: StatusSummary | null;

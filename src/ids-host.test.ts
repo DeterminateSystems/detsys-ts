@@ -1,6 +1,9 @@
 import * as idsHost from "./ids-host.js";
+import { newTraceparent } from "./telemetry.js";
 import type { SrvRecord } from "node:dns";
-import { assert, describe, expect, test } from "vitest";
+import { type Server, createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { afterEach, assert, describe, expect, test } from "vitest";
 
 function mkRecord(
   weight: number,
@@ -18,6 +21,54 @@ function mkRecord(
 async function mkPromise<T>(lookup: () => T): Promise<T> {
   return lookup();
 }
+
+describe("the trace context of a request", () => {
+  let server: Server | undefined;
+
+  afterEach(async () => {
+    delete process.env["TRACEPARENT"];
+    server?.close();
+    server = undefined;
+  });
+
+  // The client is the one the Actions use for every request they make, such
+  // as the check-in and the artifact download. The header puts the work the
+  // service does for the request in the trace of the workflow job.
+  async function traceparentOfOneRequest(): Promise<string | undefined> {
+    let received: string | undefined;
+
+    const listener = createServer((request, response) => {
+      received = request.headers["traceparent"];
+      response.end("");
+    });
+    server = listener;
+
+    await new Promise<void>((resolve) => {
+      listener.listen(0, "127.0.0.1", resolve);
+    });
+
+    const { port } = listener.address() as AddressInfo;
+
+    const host = new idsHost.IdsHost("test", undefined, undefined);
+    // An empty list keeps the client away from the SRV lookup.
+    host.setPrioritizedUrls([]);
+
+    await (await host.getGot()).get(`http://127.0.0.1:${port}/`);
+
+    return received;
+  }
+
+  test("is the trace of the job when no span is in progress", async () => {
+    const traceparent = newTraceparent();
+    process.env["TRACEPARENT"] = traceparent;
+
+    expect(await traceparentOfOneRequest()).toBe(traceparent);
+  });
+
+  test("is absent when there is no trace to join", async () => {
+    expect(await traceparentOfOneRequest()).toBeUndefined();
+  });
+});
 
 describe("isUrlSubjectToDynamicUrls", () => {
   type TestCase = {

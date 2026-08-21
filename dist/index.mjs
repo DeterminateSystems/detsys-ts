@@ -8,8 +8,6 @@ import * as exec$1 from "@actions/exec";
 import os$1 from "os";
 import fs$1, { chmod, copyFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import got, { TimeoutError } from "got";
-import { resolveSrv } from "node:dns/promises";
 import * as otelApi from "@opentelemetry/api";
 import { SeverityNumber, logs } from "@opentelemetry/api-logs";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
@@ -20,6 +18,8 @@ import * as otelResources from "@opentelemetry/resources";
 import * as sdkLogs from "@opentelemetry/sdk-logs";
 import * as sdkTrace from "@opentelemetry/sdk-trace-base";
 import * as semconv from "@opentelemetry/semantic-conventions";
+import got, { TimeoutError } from "got";
+import { resolveSrv } from "node:dns/promises";
 import * as actionsCache from "@actions/cache";
 import * as semconvIncubating from "@opentelemetry/semantic-conventions/incubating";
 import { exec } from "node:child_process";
@@ -484,278 +484,6 @@ function hashEnvironmentVariables(prefix, variables) {
 	return `${prefix}-${hash.digest("hex")}`;
 }
 //#endregion
-//#region src/ids-host.ts
-/**
-* @packageDocumentation
-* Identifies and discovers backend servers for install.determinate.systems
-*/
-const DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
-const ALLOWED_SUFFIXES = [".install.determinate.systems", ".install.detsys.dev"];
-const DEFAULT_IDS_HOST = "https://install.determinate.systems";
-const LOOKUP = process.env["IDS_LOOKUP"] ?? DEFAULT_LOOKUP;
-const DEFAULT_TIMEOUT = 1e4;
-/**
-* Host information for install.determinate.systems.
-*/
-var IdsHost = class {
-	constructor(idsProjectName, diagnosticsSuffix, runtimeDiagnosticsUrl, timeout = DEFAULT_TIMEOUT) {
-		this.idsProjectName = idsProjectName;
-		this.diagnosticsSuffix = diagnosticsSuffix;
-		this.runtimeDiagnosticsUrl = runtimeDiagnosticsUrl;
-		this.client = void 0;
-		this.timeout = timeout;
-	}
-	async getGot(recordFailoverCallback) {
-		if (this.client === void 0) this.client = got.extend({
-			timeout: { request: this.timeout },
-			retry: {
-				limit: Math.max((await this.getUrlsByPreference()).length, 3),
-				methods: ["GET", "HEAD"]
-			},
-			hooks: {
-				beforeRetry: [async (error, retryCount) => {
-					const prevUrl = await this.getRootUrl();
-					this.markCurrentHostBroken();
-					const nextUrl = await this.getRootUrl();
-					if (recordFailoverCallback !== void 0) recordFailoverCallback(error, prevUrl, nextUrl);
-					actionsCore.info(`Retrying after error ${error.code}, retry #: ${retryCount}`);
-				}],
-				beforeRequest: [async (options) => {
-					const currentUrl = options.url;
-					if (this.isUrlSubjectToDynamicUrls(currentUrl)) {
-						const newUrl = new URL(currentUrl);
-						newUrl.host = (await this.getRootUrl()).host;
-						options.url = newUrl;
-						actionsCore.debug(`Transmuted ${currentUrl} into ${newUrl}`);
-					} else actionsCore.debug(`No transmutations on ${currentUrl}`);
-				}]
-			}
-		});
-		return this.client;
-	}
-	markCurrentHostBroken() {
-		this.prioritizedURLs?.shift();
-	}
-	setPrioritizedUrls(urls) {
-		this.prioritizedURLs = urls;
-	}
-	isUrlSubjectToDynamicUrls(url) {
-		if (url.origin === DEFAULT_IDS_HOST) return true;
-		for (const suffix of ALLOWED_SUFFIXES) if (url.host.endsWith(suffix)) return true;
-		return false;
-	}
-	async getDynamicRootUrl() {
-		const idsHost = process.env["IDS_HOST"];
-		if (idsHost !== void 0) try {
-			return new URL(idsHost);
-		} catch (err) {
-			actionsCore.error(`IDS_HOST environment variable is not a valid URL. Ignoring. ${stringifyError(err)}`);
-		}
-		let url = void 0;
-		try {
-			url = (await this.getUrlsByPreference())[0];
-		} catch (err) {
-			actionsCore.error(`Error collecting IDS URLs by preference: ${stringifyError(err)}`);
-		}
-		if (url === void 0) return;
-		else return new URL(url);
-	}
-	async getRootUrl() {
-		const url = await this.getDynamicRootUrl();
-		if (url === void 0) return new URL(DEFAULT_IDS_HOST);
-		return url;
-	}
-	/**
-	* The diagnostics endpoint of the current backend.
-	*
-	* This library reports nothing there: its telemetry is OpenTelemetry. The
-	* URL is for the programs an Action runs, which have diagnostics of their
-	* own.
-	*/
-	async getDiagnosticsUrl() {
-		if (this.runtimeDiagnosticsUrl === "") return;
-		if (this.runtimeDiagnosticsUrl !== "-" && this.runtimeDiagnosticsUrl !== void 0) try {
-			return new URL(this.runtimeDiagnosticsUrl);
-		} catch (err) {
-			actionsCore.info(`User-provided diagnostic endpoint ignored: not a valid URL: ${stringifyError(err)}`);
-		}
-		try {
-			const diagnosticUrl = await this.getRootUrl();
-			diagnosticUrl.pathname += "events/batch";
-			return diagnosticUrl;
-		} catch (err) {
-			actionsCore.info(`Generated diagnostic endpoint ignored, and diagnostics are disabled: not a valid URL: ${stringifyError(err)}`);
-			return;
-		}
-	}
-	async getUrlsByPreference() {
-		if (this.prioritizedURLs === void 0) this.prioritizedURLs = orderRecordsByPriorityWeight(await discoverServiceRecords()).flatMap((record) => recordToUrl(record) || []);
-		return this.prioritizedURLs;
-	}
-};
-function recordToUrl(record) {
-	const urlStr = `https://${record.name}:${record.port}`;
-	try {
-		return new URL(urlStr);
-	} catch (err) {
-		actionsCore.debug(`Record ${JSON.stringify(record)} produced an invalid URL: ${urlStr} (${err})`);
-		return;
-	}
-}
-async function discoverServiceRecords() {
-	return await discoverServicesStub(resolveSrv(LOOKUP), 1e3);
-}
-async function discoverServicesStub(lookup, timeout) {
-	const defaultFallback = new Promise((resolve, _reject) => {
-		setTimeout(resolve, timeout, []);
-	});
-	let records;
-	try {
-		records = await Promise.race([lookup, defaultFallback]);
-	} catch (reason) {
-		actionsCore.debug(`Error resolving SRV records: ${stringifyError(reason)}`);
-		records = [];
-	}
-	const acceptableRecords = records.filter((record) => {
-		for (const suffix of ALLOWED_SUFFIXES) if (record.name.endsWith(suffix)) return true;
-		actionsCore.debug(`Unacceptable domain due to an invalid suffix: ${record.name}`);
-		return false;
-	});
-	if (acceptableRecords.length === 0) actionsCore.debug(`No records found for ${LOOKUP}`);
-	else actionsCore.debug(`Resolved ${LOOKUP} to ${JSON.stringify(acceptableRecords)}`);
-	return acceptableRecords;
-}
-function orderRecordsByPriorityWeight(records) {
-	const byPriorityWeight = /* @__PURE__ */ new Map();
-	for (const record of records) {
-		const existing = byPriorityWeight.get(record.priority);
-		if (existing) existing.push(record);
-		else byPriorityWeight.set(record.priority, [record]);
-	}
-	const prioritizedRecords = [];
-	const keys = Array.from(byPriorityWeight.keys()).sort((a, b) => a - b);
-	for (const priority of keys) {
-		const recordsByPrio = byPriorityWeight.get(priority);
-		if (recordsByPrio === void 0) continue;
-		prioritizedRecords.push(...weightedRandom(recordsByPrio));
-	}
-	return prioritizedRecords;
-}
-function weightedRandom(records) {
-	const scratchRecords = records.slice();
-	const result = [];
-	while (scratchRecords.length > 0) {
-		const weights = [];
-		for (let i = 0; i < scratchRecords.length; i++) weights.push(scratchRecords[i].weight + (i > 0 ? scratchRecords[i - 1].weight : 0));
-		const point = Math.random() * weights[weights.length - 1];
-		for (let selectedIndex = 0; selectedIndex < weights.length; selectedIndex++) if (weights[selectedIndex] > point) {
-			result.push(scratchRecords.splice(selectedIndex, 1)[0]);
-			break;
-		}
-	}
-	return result;
-}
-//#endregion
-//#region src/inputs.ts
-/**
-* @packageDocumentation
-* Helpers for getting values from an Action's configuration.
-*/
-var inputs_exports = /* @__PURE__ */ __exportAll({
-	getArrayOfStrings: () => getArrayOfStrings,
-	getArrayOfStringsOrNull: () => getArrayOfStringsOrNull,
-	getBool: () => getBool,
-	getBoolOrUndefined: () => getBoolOrUndefined,
-	getMultilineStringOrNull: () => getMultilineStringOrNull,
-	getNumberOrNull: () => getNumberOrNull,
-	getNumberOrUndefined: () => getNumberOrUndefined,
-	getString: () => getString,
-	getStringOrNull: () => getStringOrNull,
-	getStringOrUndefined: () => getStringOrUndefined,
-	handleString: () => handleString
-});
-/**
-* Get a Boolean input from the Action's configuration by name.
-*/
-const getBool = (name) => {
-	return actionsCore.getBooleanInput(name);
-};
-/**
-* Get a Boolean input from the Action's configuration by name, or undefined if it is unset.
-*/
-const getBoolOrUndefined = (name) => {
-	if (getStringOrUndefined(name) === void 0) return;
-	return actionsCore.getBooleanInput(name);
-};
-/**
-* Convert a comma-separated string input into an array of strings. If `comma` is selected,
-* all whitespace is removed from the string before converting to an array.
-*/
-const getArrayOfStrings = (name, separator) => {
-	const original = getString(name);
-	return handleString(original, separator);
-};
-/**
-* Convert a string input into an array of strings or `null` if no value is set.
-*/
-const getArrayOfStringsOrNull = (name, separator) => {
-	const original = getStringOrNull(name);
-	if (original === null) return null;
-	else return handleString(original, separator);
-};
-const handleString = (input, separator) => {
-	const sepChar = separator === "comma" ? "," : /\s+/;
-	const trimmed = input.trim();
-	if (trimmed === "") return [];
-	return trimmed.split(sepChar).map((s) => s.trim());
-};
-/**
-* Get a multi-line string input from the Action's configuration by name or return `null` if not set.
-*/
-const getMultilineStringOrNull = (name) => {
-	const value = actionsCore.getMultilineInput(name);
-	if (value.length === 0) return null;
-	else return value;
-};
-/**
-* Get a number input from the Action's configuration by name or return `null` if not set.
-*/
-const getNumberOrNull = (name) => {
-	const value = actionsCore.getInput(name);
-	if (value === "") return null;
-	else return Number(value);
-};
-/**
-* Get a Number input from the Action's configuration by name, or undefined if it is unset.
-*/
-const getNumberOrUndefined = (name) => {
-	const value = getStringOrUndefined(name);
-	if (value === void 0) return;
-	return Number(value);
-};
-/**
-* Get a string input from the Action's configuration.
-*/
-const getString = (name) => {
-	return actionsCore.getInput(name);
-};
-/**
-* Get a string input from the Action's configuration by name or return `null` if not set.
-*/
-const getStringOrNull = (name) => {
-	const value = actionsCore.getInput(name);
-	if (value === "") return null;
-	else return value;
-};
-/**
-* Get a string input from the Action's configuration by name or return `undefined` if not set.
-*/
-const getStringOrUndefined = (name) => {
-	const value = actionsCore.getInput(name);
-	if (value === "") return;
-	else return value;
-};
-//#endregion
 //#region src/telemetry.ts
 /**
 * @packageDocumentation
@@ -1151,6 +879,279 @@ async function withTimeout(promise, timeoutMs) {
 		if (timer !== void 0) clearTimeout(timer);
 	}
 }
+//#endregion
+//#region src/ids-host.ts
+/**
+* @packageDocumentation
+* Identifies and discovers backend servers for install.determinate.systems
+*/
+const DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
+const ALLOWED_SUFFIXES = [".install.determinate.systems", ".install.detsys.dev"];
+const DEFAULT_IDS_HOST = "https://install.determinate.systems";
+const LOOKUP = process.env["IDS_LOOKUP"] ?? DEFAULT_LOOKUP;
+const DEFAULT_TIMEOUT = 1e4;
+/**
+* Host information for install.determinate.systems.
+*/
+var IdsHost = class {
+	constructor(idsProjectName, diagnosticsSuffix, runtimeDiagnosticsUrl, timeout = DEFAULT_TIMEOUT) {
+		this.idsProjectName = idsProjectName;
+		this.diagnosticsSuffix = diagnosticsSuffix;
+		this.runtimeDiagnosticsUrl = runtimeDiagnosticsUrl;
+		this.client = void 0;
+		this.timeout = timeout;
+	}
+	async getGot(recordFailoverCallback) {
+		if (this.client === void 0) this.client = got.extend({
+			timeout: { request: this.timeout },
+			retry: {
+				limit: Math.max((await this.getUrlsByPreference()).length, 3),
+				methods: ["GET", "HEAD"]
+			},
+			hooks: {
+				beforeRetry: [async (error, retryCount) => {
+					const prevUrl = await this.getRootUrl();
+					this.markCurrentHostBroken();
+					const nextUrl = await this.getRootUrl();
+					if (recordFailoverCallback !== void 0) recordFailoverCallback(error, prevUrl, nextUrl);
+					actionsCore.info(`Retrying after error ${error.code}, retry #: ${retryCount}`);
+				}],
+				beforeRequest: [async (options) => {
+					for (const [name, value] of Object.entries(traceContextHeaders())) options.headers[name] = value;
+					const currentUrl = options.url;
+					if (this.isUrlSubjectToDynamicUrls(currentUrl)) {
+						const newUrl = new URL(currentUrl);
+						newUrl.host = (await this.getRootUrl()).host;
+						options.url = newUrl;
+						actionsCore.debug(`Transmuted ${currentUrl} into ${newUrl}`);
+					} else actionsCore.debug(`No transmutations on ${currentUrl}`);
+				}]
+			}
+		});
+		return this.client;
+	}
+	markCurrentHostBroken() {
+		this.prioritizedURLs?.shift();
+	}
+	setPrioritizedUrls(urls) {
+		this.prioritizedURLs = urls;
+	}
+	isUrlSubjectToDynamicUrls(url) {
+		if (url.origin === DEFAULT_IDS_HOST) return true;
+		for (const suffix of ALLOWED_SUFFIXES) if (url.host.endsWith(suffix)) return true;
+		return false;
+	}
+	async getDynamicRootUrl() {
+		const idsHost = process.env["IDS_HOST"];
+		if (idsHost !== void 0) try {
+			return new URL(idsHost);
+		} catch (err) {
+			actionsCore.error(`IDS_HOST environment variable is not a valid URL. Ignoring. ${stringifyError(err)}`);
+		}
+		let url = void 0;
+		try {
+			url = (await this.getUrlsByPreference())[0];
+		} catch (err) {
+			actionsCore.error(`Error collecting IDS URLs by preference: ${stringifyError(err)}`);
+		}
+		if (url === void 0) return;
+		else return new URL(url);
+	}
+	async getRootUrl() {
+		const url = await this.getDynamicRootUrl();
+		if (url === void 0) return new URL(DEFAULT_IDS_HOST);
+		return url;
+	}
+	/**
+	* The diagnostics endpoint of the current backend.
+	*
+	* This library reports nothing there: its telemetry is OpenTelemetry. The
+	* URL is for the programs an Action runs, which have diagnostics of their
+	* own.
+	*/
+	async getDiagnosticsUrl() {
+		if (this.runtimeDiagnosticsUrl === "") return;
+		if (this.runtimeDiagnosticsUrl !== "-" && this.runtimeDiagnosticsUrl !== void 0) try {
+			return new URL(this.runtimeDiagnosticsUrl);
+		} catch (err) {
+			actionsCore.info(`User-provided diagnostic endpoint ignored: not a valid URL: ${stringifyError(err)}`);
+		}
+		try {
+			const diagnosticUrl = await this.getRootUrl();
+			diagnosticUrl.pathname += "events/batch";
+			return diagnosticUrl;
+		} catch (err) {
+			actionsCore.info(`Generated diagnostic endpoint ignored, and diagnostics are disabled: not a valid URL: ${stringifyError(err)}`);
+			return;
+		}
+	}
+	async getUrlsByPreference() {
+		if (this.prioritizedURLs === void 0) this.prioritizedURLs = orderRecordsByPriorityWeight(await discoverServiceRecords()).flatMap((record) => recordToUrl(record) || []);
+		return this.prioritizedURLs;
+	}
+};
+function recordToUrl(record) {
+	const urlStr = `https://${record.name}:${record.port}`;
+	try {
+		return new URL(urlStr);
+	} catch (err) {
+		actionsCore.debug(`Record ${JSON.stringify(record)} produced an invalid URL: ${urlStr} (${err})`);
+		return;
+	}
+}
+async function discoverServiceRecords() {
+	return await discoverServicesStub(resolveSrv(LOOKUP), 1e3);
+}
+async function discoverServicesStub(lookup, timeout) {
+	const defaultFallback = new Promise((resolve, _reject) => {
+		setTimeout(resolve, timeout, []);
+	});
+	let records;
+	try {
+		records = await Promise.race([lookup, defaultFallback]);
+	} catch (reason) {
+		actionsCore.debug(`Error resolving SRV records: ${stringifyError(reason)}`);
+		records = [];
+	}
+	const acceptableRecords = records.filter((record) => {
+		for (const suffix of ALLOWED_SUFFIXES) if (record.name.endsWith(suffix)) return true;
+		actionsCore.debug(`Unacceptable domain due to an invalid suffix: ${record.name}`);
+		return false;
+	});
+	if (acceptableRecords.length === 0) actionsCore.debug(`No records found for ${LOOKUP}`);
+	else actionsCore.debug(`Resolved ${LOOKUP} to ${JSON.stringify(acceptableRecords)}`);
+	return acceptableRecords;
+}
+function orderRecordsByPriorityWeight(records) {
+	const byPriorityWeight = /* @__PURE__ */ new Map();
+	for (const record of records) {
+		const existing = byPriorityWeight.get(record.priority);
+		if (existing) existing.push(record);
+		else byPriorityWeight.set(record.priority, [record]);
+	}
+	const prioritizedRecords = [];
+	const keys = Array.from(byPriorityWeight.keys()).sort((a, b) => a - b);
+	for (const priority of keys) {
+		const recordsByPrio = byPriorityWeight.get(priority);
+		if (recordsByPrio === void 0) continue;
+		prioritizedRecords.push(...weightedRandom(recordsByPrio));
+	}
+	return prioritizedRecords;
+}
+function weightedRandom(records) {
+	const scratchRecords = records.slice();
+	const result = [];
+	while (scratchRecords.length > 0) {
+		const weights = [];
+		for (let i = 0; i < scratchRecords.length; i++) weights.push(scratchRecords[i].weight + (i > 0 ? scratchRecords[i - 1].weight : 0));
+		const point = Math.random() * weights[weights.length - 1];
+		for (let selectedIndex = 0; selectedIndex < weights.length; selectedIndex++) if (weights[selectedIndex] > point) {
+			result.push(scratchRecords.splice(selectedIndex, 1)[0]);
+			break;
+		}
+	}
+	return result;
+}
+//#endregion
+//#region src/inputs.ts
+/**
+* @packageDocumentation
+* Helpers for getting values from an Action's configuration.
+*/
+var inputs_exports = /* @__PURE__ */ __exportAll({
+	getArrayOfStrings: () => getArrayOfStrings,
+	getArrayOfStringsOrNull: () => getArrayOfStringsOrNull,
+	getBool: () => getBool,
+	getBoolOrUndefined: () => getBoolOrUndefined,
+	getMultilineStringOrNull: () => getMultilineStringOrNull,
+	getNumberOrNull: () => getNumberOrNull,
+	getNumberOrUndefined: () => getNumberOrUndefined,
+	getString: () => getString,
+	getStringOrNull: () => getStringOrNull,
+	getStringOrUndefined: () => getStringOrUndefined,
+	handleString: () => handleString
+});
+/**
+* Get a Boolean input from the Action's configuration by name.
+*/
+const getBool = (name) => {
+	return actionsCore.getBooleanInput(name);
+};
+/**
+* Get a Boolean input from the Action's configuration by name, or undefined if it is unset.
+*/
+const getBoolOrUndefined = (name) => {
+	if (getStringOrUndefined(name) === void 0) return;
+	return actionsCore.getBooleanInput(name);
+};
+/**
+* Convert a comma-separated string input into an array of strings. If `comma` is selected,
+* all whitespace is removed from the string before converting to an array.
+*/
+const getArrayOfStrings = (name, separator) => {
+	const original = getString(name);
+	return handleString(original, separator);
+};
+/**
+* Convert a string input into an array of strings or `null` if no value is set.
+*/
+const getArrayOfStringsOrNull = (name, separator) => {
+	const original = getStringOrNull(name);
+	if (original === null) return null;
+	else return handleString(original, separator);
+};
+const handleString = (input, separator) => {
+	const sepChar = separator === "comma" ? "," : /\s+/;
+	const trimmed = input.trim();
+	if (trimmed === "") return [];
+	return trimmed.split(sepChar).map((s) => s.trim());
+};
+/**
+* Get a multi-line string input from the Action's configuration by name or return `null` if not set.
+*/
+const getMultilineStringOrNull = (name) => {
+	const value = actionsCore.getMultilineInput(name);
+	if (value.length === 0) return null;
+	else return value;
+};
+/**
+* Get a number input from the Action's configuration by name or return `null` if not set.
+*/
+const getNumberOrNull = (name) => {
+	const value = actionsCore.getInput(name);
+	if (value === "") return null;
+	else return Number(value);
+};
+/**
+* Get a Number input from the Action's configuration by name, or undefined if it is unset.
+*/
+const getNumberOrUndefined = (name) => {
+	const value = getStringOrUndefined(name);
+	if (value === void 0) return;
+	return Number(value);
+};
+/**
+* Get a string input from the Action's configuration.
+*/
+const getString = (name) => {
+	return actionsCore.getInput(name);
+};
+/**
+* Get a string input from the Action's configuration by name or return `null` if not set.
+*/
+const getStringOrNull = (name) => {
+	const value = actionsCore.getInput(name);
+	if (value === "") return null;
+	else return value;
+};
+/**
+* Get a string input from the Action's configuration by name or return `undefined` if not set.
+*/
+const getStringOrUndefined = (name) => {
+	const value = actionsCore.getInput(name);
+	if (value === "") return;
+	else return value;
+};
 //#endregion
 //#region src/log.ts
 /**

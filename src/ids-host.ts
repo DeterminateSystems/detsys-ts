@@ -3,6 +3,7 @@
  * Identifies and discovers backend servers for install.determinate.systems
  */
 import { stringifyError } from "./errors.js";
+import { traceContextHeaders } from "./telemetry.js";
 import * as actionsCore from "@actions/core";
 import got, { type Got } from "got";
 import type { SrvRecord } from "node:dns";
@@ -80,6 +81,14 @@ export class IdsHost {
 
           beforeRequest: [
             async (options) => {
+              // Send the trace context, so the service puts the work it does
+              // for this request in this Action's trace.
+              for (const [name, value] of Object.entries(
+                traceContextHeaders(),
+              )) {
+                options.headers[name] = value;
+              }
+
               // The getter always returns a URL, even though the setter accepts a string
               const currentUrl: URL = options.url as URL;
 
