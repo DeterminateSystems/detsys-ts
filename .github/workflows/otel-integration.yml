@@ -51,8 +51,9 @@ jobs:
       - name: Start the Magic Nix Cache
         uses: DeterminateSystems/magic-nix-cache-action@grahamc/otel
 
-      # Determinate Nix reads $TRACEPARENT, so this build joins the trace the
-      # installer started.
+      # The first Action of the job exports the job's trace as $TRACEPARENT.
+      # Determinate Nix reads that variable, so this build joins that trace,
+      # with each Action of the job.
       - name: Build the dev shell
         run: nix develop --command node --version
 
