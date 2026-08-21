@@ -88,6 +88,15 @@ const STATE_NOT_FOUND = "not-found";
 const STATE_KEY_CROSS_PHASE_ID = "detsys_cross_phase_id";
 const STATE_BACKTRACE_START_TIMESTAMP = "detsys_backtrace_start_timestamp";
 const STATE_KEY_TRACEPARENT = "detsys_otel_traceparent";
+const STATE_KEY_JOB_TRACEPARENT = "detsys_otel_job_traceparent";
+const STATE_KEY_JOB_SPAN_START = "detsys_otel_job_span_start";
+
+// The standard variable that carries the trace context between programs.
+// Every step of the job reads it, and so does each program the steps run.
+const ENV_TRACEPARENT = "TRACEPARENT";
+
+// The span that covers the whole workflow job, and thus every Action in it.
+const SPAN_JOB = "github_actions_job";
 
 const CHECK_IN_ENDPOINT_TIMEOUT_MS = 1_000; // 1 second in ms
 const PROGRAM_NAME_CRASH_DENY_LIST = [
@@ -502,6 +511,10 @@ export abstract class DetSysAction {
     const phaseStartTime = new Date();
 
     try {
+      // The announcement comes first, so that even the check-in's HTTP
+      // request is part of the job's trace.
+      this.announceJobTrace(phaseStartTime);
+
       await this.checkIn();
       await this.startTelemetry();
 
@@ -610,13 +623,85 @@ export abstract class DetSysAction {
   }
 
   /**
+   * Put every Action of this workflow job in one trace.
+   *
+   * A job runs each Action as a process of its own.
+   * Thus the Actions can only agree on a trace through the job's environment.
+   * The first Action to run makes the identity of the job's span and exports it
+   * as `$TRACEPARENT`.
+   * Each later step finds it there: the other Actions, and the programs the
+   * workflow runs, such as Nix.
+   *
+   * The span itself starts and ends in the post phase of the Action that
+   * announced it.
+   * GitHub Actions runs the post phases in the reverse of the order of the main
+   * phases, thus that phase is the last one of the job.
+   * The span then covers the whole job.
+   * See {@link endJobSpan}.
+   *
+   * A `$TRACEPARENT` that is already set belongs to an earlier Action, or to the
+   * system that started the workflow.
+   * Do not change it, and join that trace.
+   */
+  private announceJobTrace(startTime: Date): void {
+    if (!this.isMain || !otel.exportEnabled()) {
+      return;
+    }
+
+    if (process.env[ENV_TRACEPARENT]) {
+      return;
+    }
+
+    const traceparent = otel.newTraceparent();
+
+    // `exportVariable` sets the variable in this process, and in each
+    // subsequent step of the job.
+    actionsCore.exportVariable(ENV_TRACEPARENT, traceparent);
+
+    actionsCore.saveState(STATE_KEY_JOB_TRACEPARENT, traceparent);
+    actionsCore.saveState(STATE_KEY_JOB_SPAN_START, `${startTime.getTime()}`);
+  }
+
+  /**
+   * End the job's span, if this Action is the one that announced it.
+   *
+   * The span also starts here.
+   * A span belongs to the process that ends it, and the process that made the
+   * announcement stopped long ago.
+   * See {@link announceJobTrace}.
+   */
+  private endJobSpan(): void {
+    if (!this.isPost) {
+      return;
+    }
+
+    const traceparent = actionsCore.getState(STATE_KEY_JOB_TRACEPARENT);
+    if (traceparent === "") {
+      return;
+    }
+
+    const startTime = parseInt(
+      actionsCore.getState(STATE_KEY_JOB_SPAN_START),
+      10,
+    );
+
+    this.telemetry
+      .startAnnouncedSpan(
+        SPAN_JOB,
+        traceparent,
+        new Date(Number.isFinite(startTime) ? startTime : Date.now()),
+      )
+      ?.end();
+  }
+
+  /**
    * Open the root span for this execution phase.
    *
    * `main` and `post` are separate processes, so the main phase publishes its
    * span as a W3C traceparent in the Action's state and the post phase adopts
    * it as a parent. That puts both phases of a run in one trace. A
-   * `$TRACEPARENT` in the environment parents the whole run into a trace that
-   * started outside this Action.
+   * `$TRACEPARENT` in the environment parents the run into the trace of the
+   * workflow job, which {@link announceJobTrace} starts.
    */
   private startPhaseSpan(startTime: Date): otelApi.Span {
     const parentContext = otel.contextFromTraceparent(
@@ -1170,6 +1255,9 @@ export abstract class DetSysAction {
     this.phaseSpan?.end();
     this.phaseSpan = undefined;
 
+    // The job's span contains this phase, so it ends after this phase does.
+    this.endJobSpan();
+
     // The process exits as soon as we return, so anything still buffered has
     // to go out now.
     await this.telemetry.shutdown();
@@ -1599,6 +1687,7 @@ export {
   getLogger,
   getTracer,
   recordSpanError,
+  traceContextHeaders,
   traceparentOf,
   withSpan,
 } from "./telemetry.js";

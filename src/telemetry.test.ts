@@ -55,6 +55,54 @@ test("contextFromTraceparent falls back to the root context on junk input", () =
   ).toBe(undefined);
 });
 
+describe("newTraceparent", () => {
+  test("announces a sampled trace in the W3C format", () => {
+    expect(otel.newTraceparent()).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/);
+  });
+
+  test("announces a different trace each time", () => {
+    expect(otel.newTraceparent()).not.toBe(otel.newTraceparent());
+  });
+
+  test("announces an identity the reader recovers", () => {
+    const traceparent = otel.newTraceparent();
+    const spanContext = trace.getSpanContext(
+      otel.contextFromTraceparent(traceparent),
+    );
+
+    expect(spanContext).toBeDefined();
+    expect(traceparent).toContain(spanContext?.traceId);
+    expect(traceparent).toContain(spanContext?.spanId);
+  });
+});
+
+describe("traceContextHeaders", () => {
+  afterEach(() => {
+    delete process.env["TRACEPARENT"];
+  });
+
+  test("are empty when there is no trace to join", () => {
+    // No provider is registered, so the active span is a no-op whose context
+    // is all zeroes. Sending it would strand the service in a bogus trace.
+    expect(otel.traceContextHeaders()).toStrictEqual({});
+  });
+
+  test("carry the trace of the job when no span is active", () => {
+    // The Action makes requests before it opens a span of its own. The job's
+    // trace is what puts those requests somewhere sensible.
+    const traceparent = otel.newTraceparent();
+    process.env["TRACEPARENT"] = traceparent;
+
+    expect(otel.traceContextHeaders()).toStrictEqual({ traceparent });
+  });
+
+  test("ignore a traceparent that is not usable", () => {
+    process.env["TRACEPARENT"] = "not-a-traceparent";
+
+    expect(otel.traceContextHeaders()).toStrictEqual({});
+  });
+});
+
 describe("exportEnabled", () => {
   afterEach(() => {
     delete process.env["OTEL_SDK_DISABLED"];

@@ -1,4 +1,4 @@
-import { Telemetry, getTracer, traceparentOf } from "./telemetry.js";
+import * as otel from "./telemetry.js";
 import { isSpanContextValid } from "@opentelemetry/api";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -24,14 +24,14 @@ describe("Telemetry", () => {
     process.env["OTEL_SDK_DISABLED"] = "true";
     process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
 
-    const telemetry = new Telemetry();
+    const telemetry = new otel.Telemetry();
     telemetry.start({ serviceName: "test", resourceAttributes: {} });
 
     expect(telemetry.enabled).toBe(false);
     // A disabled run configures nothing, so a child process inherits nothing.
     expect(process.env["OTEL_EXPORTER_OTLP_HEADERS"]).toBeUndefined();
 
-    const span = getTracer().startSpan("nobody-is-listening");
+    const span = otel.getTracer().startSpan("nobody-is-listening");
     expect(span.isRecording()).toBe(false);
     span.end();
 
@@ -44,7 +44,7 @@ describe("Telemetry", () => {
     // refused connection, and the shutdown timeout is what ends the test.
     process.env["OTEL_EXPORTER_OTLP_TIMEOUT"] = "100";
 
-    const telemetry = new Telemetry();
+    const telemetry = new otel.Telemetry();
     telemetry.start({
       serviceName: "test",
       serviceVersion: "v1",
@@ -55,20 +55,77 @@ describe("Telemetry", () => {
     expect(process.env["OTEL_EXPORTER_OTLP_COMPRESSION"]).toBe("gzip");
     expect(process.env["OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT"]).toBe("8192");
 
-    const span = getTracer().startSpan("recorded");
+    const span = otel.getTracer().startSpan("recorded");
     expect(span.isRecording()).toBe(true);
     expect(isSpanContextValid(span.spanContext())).toBe(true);
-    expect(traceparentOf(span)).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/);
+    expect(otel.traceparentOf(span)).toMatch(
+      /^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/,
+    );
     span.end();
 
     // A collector that refuses the connection must not fail the workflow.
     await expect(telemetry.shutdown()).resolves.toBeUndefined();
   });
 
+  test("an announced span starts with the identity it was given", async () => {
+    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
+    process.env["OTEL_EXPORTER_OTLP_TIMEOUT"] = "100";
+
+    const telemetry = new otel.Telemetry();
+    telemetry.start({ serviceName: "test", resourceAttributes: {} });
+
+    // This is the identity another Action of the same job announced.
+    const traceparent = otel.newTraceparent();
+    const startTime = new Date(Date.now() - 60_000);
+
+    const span = telemetry.startAnnouncedSpan(
+      "github_actions_job",
+      traceparent,
+      startTime,
+    );
+
+    expect(otel.traceparentOf(span)).toBe(traceparent);
+    span?.end();
+
+    // The identity belongs to that one span. Everything after it is its own.
+    const next = otel.getTracer().startSpan("afterward");
+    expect(otel.traceparentOf(next)).not.toBe(traceparent);
+    next.end();
+
+    await telemetry.shutdown();
+  });
+
+  test("an announced span that is not usable is skipped", () => {
+    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
+
+    const telemetry = new otel.Telemetry();
+    telemetry.start({ serviceName: "test", resourceAttributes: {} });
+
+    expect(
+      telemetry.startAnnouncedSpan("job", "not-a-traceparent", new Date()),
+    ).toBeUndefined();
+  });
+
+  test("the trace context headers describe the span in progress", async () => {
+    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
+    process.env["OTEL_EXPORTER_OTLP_TIMEOUT"] = "100";
+
+    const telemetry = new otel.Telemetry();
+    telemetry.start({ serviceName: "test", resourceAttributes: {} });
+
+    await otel.withSpan("request", async (span) => {
+      expect(otel.traceContextHeaders()["traceparent"]).toBe(
+        otel.traceparentOf(span),
+      );
+    });
+
+    await telemetry.shutdown();
+  });
+
   test("starting twice is a no-op", () => {
     process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
 
-    const telemetry = new Telemetry();
+    const telemetry = new otel.Telemetry();
     telemetry.start({ serviceName: "test", resourceAttributes: {} });
     expect(() =>
       telemetry.start({ serviceName: "test", resourceAttributes: {} }),
