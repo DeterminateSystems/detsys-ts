@@ -230,9 +230,9 @@ declare function traceparentOf(span: otelApi.Span | undefined): string | undefin
  * The service that answers it can then put its own work in this trace.
  *
  * The headers describe the span that is active now.
- * When no span is active yet -- a request the Action makes before it opens a
- * span of its own -- they describe the trace of the workflow job, from
- * `$TRACEPARENT`.
+ * When no span is active yet -- a request the Action makes before it starts a
+ * span of its own -- they describe the span that `$TRACEPARENT` names, which is
+ * the span the Action announced, or the span of the workflow job.
  *
  * The result is empty when the export is off.
  * A no-op span's context is all zeroes, and is not a valid parent.
@@ -326,6 +326,9 @@ declare abstract class DetSysAction {
   private telemetry;
   private systemDetails;
   private phaseSpan?;
+  private phaseTraceparent?;
+  private phaseParentTraceparent?;
+  private checkInTiming?;
   private pendingAttributes;
   private determineExecutionPhase;
   constructor(actionOptions: ActionOptions);
@@ -453,15 +456,43 @@ declare abstract class DetSysAction {
    */
   private endJobSpan;
   /**
-   * Open the root span for this execution phase.
+   * Make the identity of a span that starts later, and point each request made
+   * until then at it.
    *
-   * `main` and `post` are separate processes, so the main phase publishes its
-   * span as a W3C traceparent in the Action's state and the post phase adopts
-   * it as a parent. That puts both phases of a run in one trace. A
-   * `$TRACEPARENT` in the environment parents the run into the trace of the
-   * workflow job, which {@link announceJobTrace} starts.
+   * The variable changes in this process only.
+   * The later steps of the job keep the identity of the job's span.
+   */
+  private announceSpan;
+  /**
+   * Announce the identity of this phase's span.
+   *
+   * The span cannot start until the SDK does, and the SDK cannot start until
+   * the check-in supplies the feature flags.
+   * Thus this Action makes requests before it has a span of its own.
+   * The announcement gives those requests the identity that the span starts
+   * with later, so that the work the servers do for them is part of this
+   * Action, and not of the workflow job.
+   *
+   * `main` and `post` are separate processes.
+   * Thus the main phase saves its identity in the Action's state, and the post
+   * phase makes its span a child of it.
+   * A `$TRACEPARENT` in the environment is the span of the workflow job, or of
+   * the system that started the workflow.
+   */
+  private announcePhaseSpan;
+  /**
+   * Start the root span of this execution phase, with the identity that {@link
+   * announcePhaseSpan} announced.
+   *
+   * The span starts at the moment the phase did, and thus covers the check-in
+   * and the start of the SDK, which both come before it.
    */
   private startPhaseSpan;
+  /**
+   * Start and end the span for the check-in, which ran before the SDK could
+   * record it.
+   */
+  private startCheckInSpan;
   /**
    * The stable, run-scoped attributes attached to every span and log record.
    *
@@ -491,6 +522,11 @@ declare abstract class DetSysAction {
   getTelemetryEnvironment(): Promise<Record<string, string>>;
   getClient(): Promise<Got>;
   private checkIn;
+  /**
+   * Check in, and tell the user about the incidents and the maintenance the
+   * check-in reports.
+   */
+  private checkInAndReport;
   /**
    * The variant of a feature flag this run resolved, if the check-in returned
    * one.

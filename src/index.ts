@@ -98,6 +98,9 @@ const ENV_TRACEPARENT = "TRACEPARENT";
 // The span that covers the whole workflow job, and thus every Action in it.
 const SPAN_JOB = "github_actions_job";
 
+// The check-in, which happens before this Action can record anything.
+const SPAN_CHECK_IN = "check_in";
+
 const CHECK_IN_ENDPOINT_TIMEOUT_MS = 1_000; // 1 second in ms
 const PROGRAM_NAME_CRASH_DENY_LIST = [
   "nix-expr-tests",
@@ -277,6 +280,19 @@ export abstract class DetSysAction {
   // The root span for this execution phase. Undefined until the phase span is
   // opened, and when OpenTelemetry export is disabled.
   private phaseSpan?: otelApi.Span;
+
+  // The identity of the phase's span, and of its parent, which this Action
+  // announces before either span can start.
+  private phaseTraceparent?: string;
+  private phaseParentTraceparent?: string;
+
+  // When the check-in ran, and under which identity, for the span that starts
+  // once the SDK does.
+  private checkInTiming?: {
+    traceparent: string;
+    startTime: Date;
+    endTime: Date;
+  };
 
   // Attributes set before the phase span exists, replayed onto it when it
   // opens.
@@ -511,14 +527,17 @@ export abstract class DetSysAction {
     const phaseStartTime = new Date();
 
     try {
-      // The announcement comes first, so that even the check-in's HTTP
-      // request is part of the job's trace.
+      // The announcements come first.
+      // The check-in runs before this Action can record anything, and these
+      // give it, and the servers that answer it, a place in the trace.
       this.announceJobTrace(phaseStartTime);
+      this.announcePhaseSpan();
 
       await this.checkIn();
       await this.startTelemetry();
 
       this.startPhaseSpan(phaseStartTime);
+      this.startCheckInSpan();
 
       await this.withPhaseSpanActive(async () => {
         const correlationHashes = JSON.stringify(this.getCorrelationHashes());
@@ -695,29 +714,72 @@ export abstract class DetSysAction {
   }
 
   /**
-   * Open the root span for this execution phase.
+   * Make the identity of a span that starts later, and point each request made
+   * until then at it.
    *
-   * `main` and `post` are separate processes, so the main phase publishes its
-   * span as a W3C traceparent in the Action's state and the post phase adopts
-   * it as a parent. That puts both phases of a run in one trace. A
-   * `$TRACEPARENT` in the environment parents the run into the trace of the
-   * workflow job, which {@link announceJobTrace} starts.
+   * The variable changes in this process only.
+   * The later steps of the job keep the identity of the job's span.
    */
-  private startPhaseSpan(startTime: Date): otelApi.Span {
-    const parentContext = otel.contextFromTraceparent(
+  private announceSpan(parent: string | undefined): string | undefined {
+    if (!otel.exportEnabled()) {
+      return undefined;
+    }
+
+    const traceparent = otel.newTraceparent(parent);
+    process.env[ENV_TRACEPARENT] = traceparent;
+
+    return traceparent;
+  }
+
+  /**
+   * Announce the identity of this phase's span.
+   *
+   * The span cannot start until the SDK does, and the SDK cannot start until
+   * the check-in supplies the feature flags.
+   * Thus this Action makes requests before it has a span of its own.
+   * The announcement gives those requests the identity that the span starts
+   * with later, so that the work the servers do for them is part of this
+   * Action, and not of the workflow job.
+   *
+   * `main` and `post` are separate processes.
+   * Thus the main phase saves its identity in the Action's state, and the post
+   * phase makes its span a child of it.
+   * A `$TRACEPARENT` in the environment is the span of the workflow job, or of
+   * the system that started the workflow.
+   */
+  private announcePhaseSpan(): void {
+    this.phaseParentTraceparent =
       actionsCore.getState(STATE_KEY_TRACEPARENT) ||
-        process.env["TRACEPARENT"] ||
-        undefined,
+      process.env[ENV_TRACEPARENT] ||
+      undefined;
+
+    this.phaseTraceparent = this.announceSpan(this.phaseParentTraceparent);
+  }
+
+  /**
+   * Start the root span of this execution phase, with the identity that {@link
+   * announcePhaseSpan} announced.
+   *
+   * The span starts at the moment the phase did, and thus covers the check-in
+   * and the start of the SDK, which both come before it.
+   */
+  private startPhaseSpan(startTime: Date): void {
+    if (this.phaseTraceparent === undefined) {
+      return;
+    }
+
+    const span = this.telemetry.startAnnouncedSpan(
+      `${this.actionOptions.name}:${this.executionPhase}`,
+      this.phaseTraceparent,
+      startTime,
+      otel.contextFromTraceparent(this.phaseParentTraceparent),
     );
 
-    const span = otel
-      .getTracer()
-      .startSpan(
-        `${this.actionOptions.name}:${this.executionPhase}`,
-        { startTime, attributes: this.pendingAttributes },
-        parentContext,
-      );
+    if (span === undefined) {
+      return;
+    }
 
+    span.setAttributes(this.pendingAttributes);
     this.pendingAttributes = {};
 
     if (this.isMain) {
@@ -728,8 +790,27 @@ export abstract class DetSysAction {
     }
 
     this.phaseSpan = span;
+  }
 
-    return span;
+  /**
+   * Start and end the span for the check-in, which ran before the SDK could
+   * record it.
+   */
+  private startCheckInSpan(): void {
+    const timing = this.checkInTiming;
+
+    if (timing === undefined || this.phaseSpan === undefined) {
+      return;
+    }
+
+    this.telemetry
+      .startAnnouncedSpan(
+        SPAN_CHECK_IN,
+        timing.traceparent,
+        timing.startTime,
+        otelApi.trace.setSpan(otelApi.context.active(), this.phaseSpan),
+      )
+      ?.end(timing.endTime);
   }
 
   /**
@@ -832,6 +913,31 @@ export abstract class DetSysAction {
   }
 
   private async checkIn(): Promise<void> {
+    // The span for this starts once the SDK does. Until then the announcement
+    // is what puts the check-in, and the work the server does for it, inside
+    // this phase.
+    const traceparent = this.announceSpan(this.phaseTraceparent);
+    const startTime = new Date();
+
+    try {
+      await this.checkInAndReport();
+    } finally {
+      if (traceparent !== undefined) {
+        this.checkInTiming = { traceparent, startTime, endTime: new Date() };
+      }
+
+      // Each request from here on is part of the phase itself.
+      if (this.phaseTraceparent !== undefined) {
+        process.env[ENV_TRACEPARENT] = this.phaseTraceparent;
+      }
+    }
+  }
+
+  /**
+   * Check in, and tell the user about the incidents and the maintenance the
+   * check-in reports.
+   */
+  private async checkInAndReport(): Promise<void> {
     const checkin = await this.requestCheckIn();
     if (checkin === undefined) {
       return;
