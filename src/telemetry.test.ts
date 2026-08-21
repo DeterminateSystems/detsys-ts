@@ -64,6 +64,32 @@ describe("newTraceparent", () => {
     expect(otel.newTraceparent()).not.toBe(otel.newTraceparent());
   });
 
+  test("announces a span in the trace of its parent", () => {
+    const parent = otel.newTraceparent();
+    const child = otel.newTraceparent(parent);
+
+    const [, parentTraceId, parentSpanId] = parent.split("-");
+    const [, childTraceId, childSpanId, childFlags] = child.split("-");
+
+    expect(childTraceId).toBe(parentTraceId);
+    expect(childSpanId).not.toBe(parentSpanId);
+    expect(childFlags).toBe("01");
+  });
+
+  test("announces an unsampled span under an unsampled parent", () => {
+    // The parent decides. Recording the child of a span nobody keeps would
+    // leave the child with no parent to hang from.
+    const parent = `00-${"a".repeat(32)}-${"b".repeat(16)}-00`;
+
+    expect(otel.newTraceparent(parent).split("-")[3]).toBe("00");
+  });
+
+  test("announces a trace of its own when the parent is not usable", () => {
+    expect(otel.newTraceparent("not-a-traceparent")).toMatch(
+      /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/,
+    );
+  });
+
   test("announces an identity the reader recovers", () => {
     const traceparent = otel.newTraceparent();
     const spanContext = trace.getSpanContext(

@@ -1,5 +1,6 @@
 import * as otel from "./telemetry.js";
-import { isSpanContextValid } from "@opentelemetry/api";
+import * as otelApi from "@opentelemetry/api";
+import type { Span as SdkSpan } from "@opentelemetry/sdk-trace-base";
 import { afterEach, describe, expect, test } from "vitest";
 
 // `Telemetry.start` registers global providers, which no later test in this
@@ -57,7 +58,7 @@ describe("Telemetry", () => {
 
     const span = otel.getTracer().startSpan("recorded");
     expect(span.isRecording()).toBe(true);
-    expect(isSpanContextValid(span.spanContext())).toBe(true);
+    expect(otelApi.isSpanContextValid(span.spanContext())).toBe(true);
     expect(otel.traceparentOf(span)).toMatch(
       /^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/,
     );
@@ -91,6 +92,41 @@ describe("Telemetry", () => {
     const next = otel.getTracer().startSpan("afterward");
     expect(otel.traceparentOf(next)).not.toBe(traceparent);
     next.end();
+
+    await telemetry.shutdown();
+  });
+
+  test("an announced span is a child of the context it is given", async () => {
+    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
+    process.env["OTEL_EXPORTER_OTLP_TIMEOUT"] = "100";
+
+    const telemetry = new otel.Telemetry();
+    telemetry.start({ serviceName: "test", resourceAttributes: {} });
+
+    // This is the phase's span, and the span for a request it made before it
+    // could record one.
+    const parent = otel.newTraceparent();
+    const child = otel.newTraceparent(parent);
+
+    const parentSpan = telemetry.startAnnouncedSpan(
+      "phase",
+      parent,
+      new Date(),
+    );
+    const childSpan = telemetry.startAnnouncedSpan(
+      "check_in",
+      child,
+      new Date(),
+      otelApi.trace.setSpan(otelApi.ROOT_CONTEXT, parentSpan as otelApi.Span),
+    );
+
+    expect(otel.traceparentOf(childSpan)).toBe(child);
+    expect((childSpan as SdkSpan).parentSpanContext?.spanId).toBe(
+      parentSpan?.spanContext().spanId,
+    );
+
+    childSpan?.end();
+    parentSpan?.end();
 
     await telemetry.shutdown();
   });

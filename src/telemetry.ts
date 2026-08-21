@@ -375,7 +375,8 @@ export class Telemetry {
    * The spans that already point at that identity then find their parent.
    *
    * The span starts at `startTime`, which is the moment of the announcement.
-   * It is a root span, because the announcement is the start of the trace.
+   * It is a child of the span in `parentContext`, and a root span if that
+   * context holds no span.
    *
    * Returns undefined if the export is off, or if `traceparent` does not name a
    * usable span.
@@ -384,6 +385,7 @@ export class Telemetry {
     name: string,
     traceparent: string,
     startTime: Date,
+    parentContext: otelApi.Context = otelApi.ROOT_CONTEXT,
   ): otelApi.Span | undefined {
     const generator = this.idGenerator;
     const spanContext = otelApi.trace.getSpanContext(
@@ -405,7 +407,7 @@ export class Telemetry {
 
     try {
       generator.pin(spanContext.traceId, spanContext.spanId);
-      return tracer.startSpan(name, { startTime, root: true });
+      return tracer.startSpan(name, { startTime }, parentContext);
     } finally {
       generator.unpin();
     }
@@ -502,16 +504,31 @@ export function traceparentOf(
 }
 
 /**
- * Make the identity of a trace and of its root span, but do not start the span.
+ * Make the identity of a span, but do not start the span.
  *
- * Announce the result to each process that must join the trace.
+ * Announce the result to whatever must point at the span before it starts:
+ * a different process, or a request this process makes too early to record.
  * Start the span itself with {@link Telemetry.startAnnouncedSpan}.
  *
- * The identity says that the trace is sampled.
- * A process that only forwards the identity cannot ask the sampler.
- * An unsampled parent would discard the work of each process that joins.
+ * The span is in the trace of `parent`, or in a new trace of its own if there
+ * is no usable parent.
+ * A new trace is sampled, because a process that only forwards an identity
+ * cannot ask the sampler, and an unsampled parent would discard the work of
+ * each process that joins.
  */
-export function newTraceparent(): string {
+export function newTraceparent(parent?: string): string {
+  const parentContext = otelApi.trace.getSpanContext(
+    contextFromTraceparent(parent),
+  );
+
+  if (
+    parentContext !== undefined &&
+    otelApi.isSpanContextValid(parentContext)
+  ) {
+    const flags = parentContext.traceFlags.toString(16).padStart(2, "0");
+    return `00-${parentContext.traceId}-${randomHex(8)}-${flags}`;
+  }
+
   return `00-${randomHex(16)}-${randomHex(8)}-01`;
 }
 
@@ -523,9 +540,9 @@ export function newTraceparent(): string {
  * The service that answers it can then put its own work in this trace.
  *
  * The headers describe the span that is active now.
- * When no span is active yet -- a request the Action makes before it opens a
- * span of its own -- they describe the trace of the workflow job, from
- * `$TRACEPARENT`.
+ * When no span is active yet -- a request the Action makes before it starts a
+ * span of its own -- they describe the span that `$TRACEPARENT` names, which is
+ * the span the Action announced, or the span of the workflow job.
  *
  * The result is empty when the export is off.
  * A no-op span's context is all zeroes, and is not a valid parent.
