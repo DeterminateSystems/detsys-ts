@@ -6,6 +6,9 @@ name: OpenTelemetry integration
 # Each Action exports to https://otel.determinate.systems by default.
 # Set OTEL_SDK_DISABLED to true to stop the export.
 
+# This workflow runs only on demand.
+# Each run sends data to the OpenTelemetry datasets, so a push must not start
+# one.
 on:
   workflow_dispatch:
     inputs:
@@ -13,10 +16,6 @@ on:
         description: "Also run update-flake-lock. It opens a pull request."
         type: boolean
         default: false
-  push:
-    branches:
-      - otel
-      - grahamc/otel
 
 permissions: {}
 
