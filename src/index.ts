@@ -601,7 +601,8 @@ export abstract class DetSysAction {
    */
   private async startTelemetry(): Promise<void> {
     this.telemetry.start({
-      serviceName: this.actionOptions.name,
+      // The `-action` suffix says this service is the Action, not the tool it runs.
+      serviceName: `${this.actionOptions.name}-action`,
       // The Action's own version, which is the ref the workflow pinned.
       serviceVersion: process.env["GITHUB_ACTION_REF"],
       resourceAttributes: await this.telemetryResourceAttributes(),
