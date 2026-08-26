@@ -6,25 +6,13 @@
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import { collectBacktraces } from "./backtrace.js";
 import type { CheckIn, Feature } from "./check-in.js";
-import {
-  parseChecksumsFile,
-  sha256OfBuffer,
-  sha256OfFile,
-} from "./checksums.js";
+import * as checksums from "./checksums.js";
 import * as correlation from "./correlation.js";
 import { IdsHost } from "./ids-host.js";
-import {
-  getBool,
-  getBoolOrUndefined,
-  getNumberOrUndefined,
-  getStringOrNull,
-} from "./inputs.js";
+import * as inputs from "./inputs.js";
 import * as platform from "./platform.js";
 import type { SourceDef } from "./sourcedef.js";
-import {
-  assertChecksumSourceIsPinned,
-  constructSourceParameters,
-} from "./sourcedef.js";
+import * as sourcedef from "./sourcedef.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
 import * as actionsExec from "@actions/exec";
@@ -32,17 +20,10 @@ import { type Got, type Request, TimeoutError } from "got";
 import { exec } from "node:child_process";
 import type { UUID } from "node:crypto";
 import { randomUUID } from "node:crypto";
-import {
-  PathLike,
-  WriteStream,
-  createWriteStream,
-  constants as fsConstants,
-  readFileSync,
-} from "node:fs";
+import * as nodeFs from "node:fs";
 import fs, { chmod, copyFile, mkdir } from "node:fs/promises";
-import * as os from "node:os";
-import { tmpdir } from "node:os";
-import * as path from "node:path";
+import os, { tmpdir } from "node:os";
+import path from "node:path";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
 
@@ -228,7 +209,7 @@ async function sudoWriteCorrelationHashes(hashes: string): Promise<void> {
       input: buffer,
 
       // Ignore output from tee
-      outStream: createWriteStream("/dev/null"),
+      outStream: nodeFs.createWriteStream("/dev/null"),
     },
   );
 
@@ -253,7 +234,7 @@ export abstract class DetSysAction {
   strictMode: boolean;
 
   private actionOptions: ConfidentActionOptions;
-  private exceptionAttachments: Map<string, PathLike>;
+  private exceptionAttachments: Map<string, nodeFs.PathLike>;
   private archOs: string;
   private executionPhase: ExecutionPhase;
   private nixSystem: string;
@@ -284,14 +265,14 @@ export abstract class DetSysAction {
       // Note: we don't use actionsCore.getInput('diagnostic-endpoint') on purpose:
       // getInput silently converts absent data to an empty string.
       process.env["INPUT_DIAGNOSTIC-ENDPOINT"],
-      getNumberOrUndefined("timeout-request"),
+      inputs.getNumberOrUndefined("timeout-request"),
     );
     this.exceptionAttachments = new Map();
     this.nixStoreTrust = "unknown";
-    this.strictMode = getBool("_internal-strict-mode");
+    this.strictMode = inputs.getBool("_internal-strict-mode");
 
     if (
-      getBoolOrUndefined(
+      inputs.getBoolOrUndefined(
         "_internal-obliterate-actions-id-token-request-variables",
       ) === true
     ) {
@@ -372,7 +353,7 @@ export abstract class DetSysAction {
       );
     }
 
-    this.sourceParameters = constructSourceParameters(
+    this.sourceParameters = sourcedef.constructSourceParameters(
       this.actionOptions.legacySourcePrefix,
     );
 
@@ -510,7 +491,10 @@ export abstract class DetSysAction {
    */
   async fetchExecutable(): Promise<string> {
     const binaryPath = await this.fetchArtifact();
-    await chmod(binaryPath, fsConstants.S_IXUSR | fsConstants.S_IXGRP);
+    await chmod(
+      binaryPath,
+      nodeFs.constants.S_IXUSR | nodeFs.constants.S_IXGRP,
+    );
     return binaryPath;
   }
 
@@ -571,7 +555,7 @@ export abstract class DetSysAction {
       const exceptionContext: Map<string, string> = new Map();
       for (const [attachmentLabel, filePath] of this.exceptionAttachments) {
         try {
-          const logText = readFileSync(filePath);
+          const logText = nodeFs.readFileSync(filePath);
           const buf = await doGzip(logText);
           exceptionContext.set(
             `staple_value_${attachmentLabel}`,
@@ -777,7 +761,7 @@ export abstract class DetSysAction {
    * `source-checksums-sha256`. Both inputs must be set together.
    */
   private async fetchArtifact(): Promise<string> {
-    const sourceBinary = getStringOrNull("source-binary");
+    const sourceBinary = inputs.getStringOrNull("source-binary");
 
     // If source-binary is set, use that. Otherwise fall back to the source-* parameters.
     if (sourceBinary !== null && sourceBinary !== "") {
@@ -860,8 +844,8 @@ export abstract class DetSysAction {
    * verification is opted out (both inputs unset).
    */
   private async resolveExpectedArtifactHash(): Promise<string | null> {
-    const checksumsUrl = getStringOrNull("source-checksums-url");
-    const checksumsSha256 = getStringOrNull("source-checksums-sha256");
+    const checksumsUrl = inputs.getStringOrNull("source-checksums-url");
+    const checksumsSha256 = inputs.getStringOrNull("source-checksums-sha256");
 
     if (checksumsUrl === null && checksumsSha256 === null) {
       return null;
@@ -872,7 +856,7 @@ export abstract class DetSysAction {
       );
     }
 
-    assertChecksumSourceIsPinned(this.sourceParameters);
+    sourcedef.assertChecksumSourceIsPinned(this.sourceParameters);
 
     const expectedFileHash = checksumsSha256.toLowerCase();
     this.addFact(FACT_SOURCE_CHECKSUMS_SHA256, expectedFileHash);
@@ -884,7 +868,7 @@ export abstract class DetSysAction {
     const response = await (await this.getClient()).get(checksumsUrl);
     const body = response.body;
 
-    const actualFileHash = sha256OfBuffer(body);
+    const actualFileHash = checksums.sha256OfBuffer(body);
     if (actualFileHash !== expectedFileHash) {
       throw new Error(
         `Checksums file hash mismatch at ${safeUrl}: expected ${expectedFileHash}, got ${actualFileHash}`,
@@ -892,7 +876,7 @@ export abstract class DetSysAction {
     }
 
     const wanted = `${this.actionOptions.name}-${this.architectureFetchSuffix}`;
-    const hashes = parseChecksumsFile(body);
+    const hashes = checksums.parseChecksumsFile(body);
     const artifactHash = hashes.get(wanted);
     if (artifactHash === undefined) {
       throw new Error(`No entry for ${wanted} in checksums file at ${safeUrl}`);
@@ -911,7 +895,7 @@ export abstract class DetSysAction {
     if (expected === null) {
       return;
     }
-    const actual = await sha256OfFile(filePath);
+    const actual = await checksums.sha256OfFile(filePath);
     if (actual !== expected) {
       throw new Error(
         `Artifact hash mismatch for ${this.architectureFetchSuffix}: expected ${expected}, got ${actual}`,
@@ -931,13 +915,13 @@ export abstract class DetSysAction {
 
   private async downloadFile(
     url: URL,
-    destination: PathLike,
+    destination: nodeFs.PathLike,
   ): Promise<Request> {
     const client = await this.getClient();
 
     return new Promise((resolve, reject) => {
       // Current stream handle
-      let writeStream: WriteStream | undefined;
+      let writeStream: nodeFs.WriteStream | undefined;
 
       // Sentinel condition in case we want to abort retrying due to FS issues
       let failed = false;
@@ -947,7 +931,7 @@ export abstract class DetSysAction {
           writeStream.destroy();
         }
 
-        writeStream = createWriteStream(destination, {
+        writeStream = nodeFs.createWriteStream(destination, {
           encoding: "binary",
           mode: 0o755,
         });
