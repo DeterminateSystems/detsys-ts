@@ -163,8 +163,8 @@ export function applyOtlpEnvironmentDefaults(): void {
   if (
     otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_COMPRESSION") === undefined
   ) {
-    // Crash reports and installer logs go out as log records, so the bodies
-    // are large and highly compressible.
+    // Installer logs go out as log records, so the bodies are large and
+    // highly compressible.
     process.env["OTEL_EXPORTER_OTLP_COMPRESSION"] = "gzip";
   }
 

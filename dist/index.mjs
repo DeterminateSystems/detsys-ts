@@ -6,7 +6,6 @@ import { promisify } from "node:util";
 import * as actionsCore from "@actions/core";
 import * as exec$1 from "@actions/exec";
 import os$1 from "os";
-import fs$1, { chmod, copyFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import * as otelApi from "@opentelemetry/api";
 import { SeverityNumber, logs } from "@opentelemetry/api-logs";
@@ -23,6 +22,7 @@ import { resolveSrv } from "node:dns/promises";
 import * as actionsCache from "@actions/cache";
 import * as semconvIncubating from "@opentelemetry/semantic-conventions/incubating";
 import { exec } from "node:child_process";
+import fs$1, { chmod, copyFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 //#region src/linux-release-info.ts
 /*!
@@ -231,124 +231,6 @@ async function getDetails() {
 	};
 }
 //#endregion
-//#region src/errors.ts
-/**
-* Coerce a value of type `unknown` into a string.
-*/
-function stringifyError(e) {
-	if (e instanceof Error) return e.message;
-	else if (typeof e === "string") return e;
-	else return JSON.stringify(e);
-}
-//#endregion
-//#region src/backtrace.ts
-/**
-* @packageDocumentation
-* Collects backtraces for executables for diagnostics
-*/
-const START_SLOP_SECONDS = 5;
-async function collectBacktraces(prefixes, programNameDenyList, startTimestampMs) {
-	if (isMacOS) return await collectBacktracesMacOS(prefixes, programNameDenyList, startTimestampMs);
-	if (isLinux) return await collectBacktracesSystemd(prefixes, programNameDenyList, startTimestampMs);
-	return [];
-}
-async function collectBacktracesMacOS(prefixes, programNameDenyList, startTimestampMs) {
-	const backtraces = [];
-	try {
-		const { stdout: logJson } = await exec$1.getExecOutput("log", [
-			"show",
-			"--style",
-			"json",
-			"--last",
-			"1m",
-			"--no-info",
-			"--predicate",
-			"sender = 'ReportCrash'"
-		], { silent: true });
-		const sussyArray = JSON.parse(logJson);
-		if (!Array.isArray(sussyArray)) throw new Error(`Log json isn't an array: ${logJson}`);
-		if (sussyArray.length > 0) {
-			actionsCore.info(`Collecting crash data...`);
-			const delay = async (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-			await delay(5e3);
-		}
-	} catch {
-		actionsCore.debug("Failed to check logs for in-progress crash dumps; now proceeding with the assumption that all crash dumps completed.");
-	}
-	const dirs = [["system", "/Library/Logs/DiagnosticReports/"], ["user", `${process.env["HOME"]}/Library/Logs/DiagnosticReports/`]];
-	for (const [source, dir] of dirs) {
-		const fileNames = (await readdir(dir)).filter((fileName) => {
-			return prefixes.some((prefix) => fileName.startsWith(prefix));
-		}).filter((fileName) => {
-			return !programNameDenyList.some((programName) => fileName.startsWith(programName));
-		}).filter((fileName) => {
-			return !fileName.endsWith(".diag");
-		});
-		for (const fileName of fileNames) try {
-			if ((await stat(`${dir}/${fileName}`)).ctimeMs >= startTimestampMs) backtraces.push({
-				id: fileName,
-				source,
-				report: await readFile(`${dir}/${fileName}`, "utf-8")
-			});
-		} catch (innerError) {
-			backtraces.push({
-				id: fileName,
-				source,
-				error: stringifyError(innerError)
-			});
-		}
-	}
-	return backtraces;
-}
-async function collectBacktracesSystemd(prefixes, programNameDenyList, startTimestampMs) {
-	const sinceSeconds = Math.ceil((Date.now() - startTimestampMs) / 1e3) + START_SLOP_SECONDS;
-	const backtraces = [];
-	const coredumps = [];
-	try {
-		const { stdout: coredumpjson } = await exec$1.getExecOutput("coredumpctl", [
-			"--json=pretty",
-			"list",
-			"--since",
-			`${sinceSeconds} seconds ago`
-		], { silent: true });
-		const sussyArray = JSON.parse(coredumpjson);
-		if (!Array.isArray(sussyArray)) throw new Error(`Coredump isn't an array: ${coredumpjson}`);
-		for (const sussyObject of sussyArray) {
-			const keys = Object.keys(sussyObject);
-			if (keys.includes("exe") && keys.includes("pid")) {
-				if (typeof sussyObject.exe == "string" && typeof sussyObject.pid == "number") {
-					const execParts = sussyObject.exe.split("/");
-					const binaryName = execParts[execParts.length - 1];
-					if (prefixes.some((prefix) => binaryName.startsWith(prefix)) && !programNameDenyList.includes(binaryName)) coredumps.push({
-						exe: sussyObject.exe,
-						pid: sussyObject.pid
-					});
-				} else actionsCore.debug(`Mysterious coredump entry missing exe string and/or pid number: ${JSON.stringify(sussyObject)}`);
-			} else actionsCore.debug(`Mysterious coredump entry missing exe value and/or pid value: ${JSON.stringify(sussyObject)}`);
-		}
-	} catch (innerError) {
-		actionsCore.debug(`Cannot collect backtraces: ${stringifyError(innerError)}`);
-		return backtraces;
-	}
-	for (const coredump of coredumps) try {
-		const { stdout: report } = await exec$1.getExecOutput("coredumpctl", ["info", `${coredump.pid}`], { silent: true });
-		backtraces.push({
-			id: `${coredump.pid}`,
-			source: "coredumpctl",
-			program: coredump.exe,
-			report
-		});
-	} catch (innerError) {
-		backtraces.push({
-			id: `${coredump.pid}`,
-			source: "coredumpctl",
-			program: coredump.exe,
-			error: stringifyError(innerError)
-		});
-	}
-	return backtraces;
-}
-//#endregion
 //#region src/checksums.ts
 /**
 * @packageDocumentation
@@ -482,6 +364,16 @@ function hashEnvironmentVariables(prefix, variables) {
 		hash.update("\0");
 	}
 	return `${prefix}-${hash.digest("hex")}`;
+}
+//#endregion
+//#region src/errors.ts
+/**
+* Coerce a value of type `unknown` into a string.
+*/
+function stringifyError(e) {
+	if (e instanceof Error) return e.message;
+	else if (typeof e === "string") return e;
+	else return JSON.stringify(e);
 }
 //#endregion
 //#region src/telemetry.ts
@@ -1350,14 +1242,10 @@ const ATTR_NIX_STORE_CHECK_METHOD = "detsys.nix.store_check_method";
 const ATTR_NIX_STORE_CHECK_ERROR = "detsys.nix.store_check_error";
 const ATTR_ATTACHMENT_NAME = "detsys.attachment.name";
 const ATTR_ATTACHMENT_PATH = "detsys.attachment.path";
-const ATTR_BACKTRACE_ID = "detsys.backtrace.id";
-const ATTR_BACKTRACE_SOURCE = "detsys.backtrace.source";
-const ATTR_BACKTRACE_PROGRAM = "detsys.backtrace.program";
 const STATE_KEY_EXECUTION_PHASE = "detsys_action_execution_phase";
 const STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
 const STATE_NOT_FOUND = "not-found";
 const STATE_KEY_CROSS_PHASE_ID = "detsys_cross_phase_id";
-const STATE_BACKTRACE_START_TIMESTAMP = "detsys_backtrace_start_timestamp";
 const STATE_KEY_TRACEPARENT = "detsys_otel_traceparent";
 const STATE_KEY_JOB_TRACEPARENT = "detsys_otel_job_traceparent";
 const STATE_KEY_JOB_SPAN_START = "detsys_otel_job_span_start";
@@ -1365,11 +1253,6 @@ const ENV_TRACEPARENT = "TRACEPARENT";
 const SPAN_JOB = "github_actions_job";
 const SPAN_CHECK_IN = "check_in";
 const CHECK_IN_ENDPOINT_TIMEOUT_MS = 1e3;
-const PROGRAM_NAME_CRASH_DENY_LIST = [
-	"nix-expr-tests",
-	"nix-store-tests",
-	"nix-util-tests"
-];
 const determinateStateDir = "/var/lib/determinate";
 const determinateIdentityFile = path.join(determinateStateDir, "identity.json");
 const isRoot = typeof process.geteuid === "function" && process.geteuid() === 0;
@@ -1424,7 +1307,6 @@ var DetSysAction = class {
 		this.featureVariants = {};
 		this.pendingAttributes = {};
 		this.getCrossPhaseId();
-		this.collectBacktraceSetup();
 		this.identity = identify();
 		this.archOs = getArchOs();
 		this.nixSystem = getNixPlatform(this.archOs);
@@ -1583,9 +1465,6 @@ var DetSysAction = class {
 				await this.emitAttachments();
 			});
 		} finally {
-			await this.withPhaseSpanActive(async () => {
-				if (this.isPost) await this.collectBacktraces();
-			});
 			await this.complete();
 		}
 	}
@@ -2138,33 +2017,6 @@ var DetSysAction = class {
 			}
 		});
 	}
-	collectBacktraceSetup() {
-		if (!process.env.DETSYS_BACKTRACE_COLLECTOR) {
-			actionsCore.exportVariable("DETSYS_BACKTRACE_COLLECTOR", this.getCrossPhaseId());
-			actionsCore.saveState(STATE_BACKTRACE_START_TIMESTAMP, Date.now());
-		}
-	}
-	async collectBacktraces() {
-		try {
-			if (process.env.DETSYS_BACKTRACE_COLLECTOR !== this.getCrossPhaseId()) return;
-			const backtraces = await withSpan("collect_backtraces", async () => collectBacktraces(this.actionOptions.binaryNamePrefixes, this.actionOptions.binaryNamesDenyList, parseInt(actionsCore.getState(STATE_BACKTRACE_START_TIMESTAMP))));
-			debug(`Backtraces identified: ${backtraces.length}`);
-			for (const backtrace of backtraces) {
-				const attributes = {
-					[ATTR_BACKTRACE_ID]: backtrace.id,
-					[ATTR_BACKTRACE_SOURCE]: backtrace.source,
-					[ATTR_BACKTRACE_PROGRAM]: backtrace.program
-				};
-				if (backtrace.report !== void 0) emitLogRecord("error", backtrace.report, attributes);
-				else emitLogRecord("error", `Crash report unavailable`, {
-					...attributes,
-					[semconv.ATTR_EXCEPTION_MESSAGE]: backtrace.error
-				});
-			}
-		} catch (innerError) {
-			actionsCore.debug(`Error collecting backtraces: ${stringifyError$1(innerError)}`);
-		}
-	}
 	/**
 	* Emit the files `stapleFile` collected, as log records correlated to this
 	* phase's span. The Action has already failed by the time this runs.
@@ -2301,13 +2153,7 @@ function makeOptionsConfident(actionOptions) {
 		idsProjectName,
 		fetchStyle: actionOptions.fetchStyle,
 		legacySourcePrefix: actionOptions.legacySourcePrefix,
-		requireNix: actionOptions.requireNix,
-		binaryNamePrefixes: actionOptions.binaryNamePrefixes ?? [
-			"nix",
-			"determinate-nixd",
-			actionOptions.name
-		],
-		binaryNamesDenyList: actionOptions.binaryNamesDenyList ?? PROGRAM_NAME_CRASH_DENY_LIST
+		requireNix: actionOptions.requireNix
 	};
 	actionsCore.debug("idslib options:");
 	actionsCore.debug(JSON.stringify(finalOpts, void 0, 2));

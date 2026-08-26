@@ -4,7 +4,6 @@
  */
 // import { version as pkgVersion } from "../package.json";
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
-import { collectBacktraces } from "./backtrace.js";
 import type { CheckIn, Feature } from "./check-in.js";
 import * as checksums from "./checksums.js";
 import * as correlation from "./correlation.js";
@@ -74,19 +73,15 @@ const ATTR_NIX_STORE_VERSION = "detsys.nix.store_version";
 const ATTR_NIX_STORE_CHECK_METHOD = "detsys.nix.store_check_method";
 const ATTR_NIX_STORE_CHECK_ERROR = "detsys.nix.store_check_error";
 
-// Log records, not span attributes, carry crash reports and stapled files:
-// a record's body is not truncated the way an attribute value is.
+// Log records, not span attributes, carry stapled files: a record's body is
+// not truncated the way an attribute value is.
 const ATTR_ATTACHMENT_NAME = "detsys.attachment.name";
 const ATTR_ATTACHMENT_PATH = "detsys.attachment.path";
-const ATTR_BACKTRACE_ID = "detsys.backtrace.id";
-const ATTR_BACKTRACE_SOURCE = "detsys.backtrace.source";
-const ATTR_BACKTRACE_PROGRAM = "detsys.backtrace.program";
 
 const STATE_KEY_EXECUTION_PHASE = "detsys_action_execution_phase";
 const STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
 const STATE_NOT_FOUND = "not-found";
 const STATE_KEY_CROSS_PHASE_ID = "detsys_cross_phase_id";
-const STATE_BACKTRACE_START_TIMESTAMP = "detsys_backtrace_start_timestamp";
 const STATE_KEY_TRACEPARENT = "detsys_otel_traceparent";
 const STATE_KEY_JOB_TRACEPARENT = "detsys_otel_job_traceparent";
 const STATE_KEY_JOB_SPAN_START = "detsys_otel_job_span_start";
@@ -102,11 +97,6 @@ const SPAN_JOB = "github_actions_job";
 const SPAN_CHECK_IN = "check_in";
 
 const CHECK_IN_ENDPOINT_TIMEOUT_MS = 1_000; // 1 second in ms
-const PROGRAM_NAME_CRASH_DENY_LIST = [
-  "nix-expr-tests",
-  "nix-store-tests",
-  "nix-util-tests",
-];
 
 /**
  * An enum for describing different "fetch suffixes" for i.d.s.
@@ -171,16 +161,6 @@ export type ActionOptions = {
   //
   // Default: `diagnostics`.
   diagnosticsSuffix?: string;
-
-  // Collect backtraces from segfaults and other failures from binaries that start with these names.
-  //
-  // Default: `[ "nix", "determinate-nixd", ActionOptions.name ]`.
-  binaryNamePrefixes?: string[];
-
-  // Do NOT collect backtraces from segfaults and other failures from binaries with exact these names.
-  //
-  // Default: `[ "nix-expr-tests" ]`.
-  binaryNamesDenyList?: string[];
 };
 
 /**
@@ -193,8 +173,6 @@ export type ConfidentActionOptions = {
   legacySourcePrefix?: string;
   requireNix: NixRequirementHandling;
   providedDiagnosticsUrl?: URL;
-  binaryNamePrefixes: string[];
-  binaryNamesDenyList: string[];
 };
 
 const determinateStateDir = "/var/lib/determinate";
@@ -337,7 +315,6 @@ export abstract class DetSysAction {
     this.pendingAttributes = {};
 
     this.getCrossPhaseId();
-    this.collectBacktraceSetup();
 
     this.identity = correlation.identify();
     this.archOs = platform.getArchOs();
@@ -587,15 +564,6 @@ export abstract class DetSysAction {
         await this.emitAttachments();
       });
     } finally {
-      // Still inside the phase span: backtrace collection is part of the phase,
-      // and left to run outside the span's context it would start a root span
-      // of its own, in a second trace.
-      await this.withPhaseSpanActive(async () => {
-        if (this.isPost) {
-          await this.collectBacktraces();
-        }
-      });
-
       await this.complete();
     }
   }
@@ -1487,57 +1455,6 @@ export abstract class DetSysAction {
     });
   }
 
-  private collectBacktraceSetup(): void {
-    if (!process.env.DETSYS_BACKTRACE_COLLECTOR) {
-      actionsCore.exportVariable(
-        "DETSYS_BACKTRACE_COLLECTOR",
-        this.getCrossPhaseId(),
-      );
-
-      actionsCore.saveState(STATE_BACKTRACE_START_TIMESTAMP, Date.now());
-    }
-  }
-
-  private async collectBacktraces(): Promise<void> {
-    try {
-      if (process.env.DETSYS_BACKTRACE_COLLECTOR !== this.getCrossPhaseId()) {
-        return;
-      }
-
-      const backtraces = await otel.withSpan("collect_backtraces", async () =>
-        collectBacktraces(
-          this.actionOptions.binaryNamePrefixes,
-          this.actionOptions.binaryNamesDenyList,
-          parseInt(actionsCore.getState(STATE_BACKTRACE_START_TIMESTAMP)),
-        ),
-      );
-      log.debug(`Backtraces identified: ${backtraces.length}`);
-
-      // One log record per crash: a crash report is a document, not an
-      // attribute value, and a record's body is not truncated.
-      for (const backtrace of backtraces) {
-        const attributes: otelApi.Attributes = {
-          [ATTR_BACKTRACE_ID]: backtrace.id,
-          [ATTR_BACKTRACE_SOURCE]: backtrace.source,
-          [ATTR_BACKTRACE_PROGRAM]: backtrace.program,
-        };
-
-        if (backtrace.report !== undefined) {
-          otel.emitLogRecord("error", backtrace.report, attributes);
-        } else {
-          otel.emitLogRecord("error", `Crash report unavailable`, {
-            ...attributes,
-            [semconv.ATTR_EXCEPTION_MESSAGE]: backtrace.error,
-          });
-        }
-      }
-    } catch (innerError: unknown) {
-      actionsCore.debug(
-        `Error collecting backtraces: ${stringifyError(innerError)}`,
-      );
-    }
-  }
-
   /**
    * Emit the files `stapleFile` collected, as log records correlated to this
    * phase's span. The Action has already failed by the time this runs.
@@ -1750,13 +1667,6 @@ function makeOptionsConfident(
     fetchStyle: actionOptions.fetchStyle,
     legacySourcePrefix: actionOptions.legacySourcePrefix,
     requireNix: actionOptions.requireNix,
-    binaryNamePrefixes: actionOptions.binaryNamePrefixes ?? [
-      "nix",
-      "determinate-nixd",
-      actionOptions.name,
-    ],
-    binaryNamesDenyList:
-      actionOptions.binaryNamesDenyList ?? PROGRAM_NAME_CRASH_DENY_LIST,
   };
 
   actionsCore.debug("idslib options:");

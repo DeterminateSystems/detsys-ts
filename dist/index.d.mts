@@ -293,8 +293,6 @@ type ActionOptions = {
   legacySourcePrefix?: string;
   requireNix: NixRequirementHandling;
   diagnosticsSuffix?: string;
-  binaryNamePrefixes?: string[];
-  binaryNamesDenyList?: string[];
 };
 /**
  * A confident version of Options, where defaults have been resolved into final values.
@@ -306,8 +304,6 @@ type ConfidentActionOptions = {
   legacySourcePrefix?: string;
   requireNix: NixRequirementHandling;
   providedDiagnosticsUrl?: URL;
-  binaryNamePrefixes: string[];
-  binaryNamesDenyList: string[];
 };
 declare abstract class DetSysAction {
   nixStoreTrust: NixStoreTrust;
@@ -594,8 +590,6 @@ declare abstract class DetSysAction {
   private cacheKey;
   private getCachedVersion;
   private saveCachedVersion;
-  private collectBacktraceSetup;
-  private collectBacktraces;
   /**
    * Emit the files `stapleFile` collected, as log records correlated to this
    * phase's span. The Action has already failed by the time this runs.
