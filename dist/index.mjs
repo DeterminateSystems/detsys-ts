@@ -1,20 +1,19 @@
 import { t as __exportAll } from "./rolldown-runtime-D7D4PA-g.mjs";
-import * as fs$1 from "node:fs";
-import { constants, createReadStream, createWriteStream, readFileSync } from "node:fs";
-import * as os$1 from "node:os";
-import { tmpdir } from "node:os";
+import * as nodeFs from "node:fs";
+import fs, { createReadStream } from "node:fs";
+import os, { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import * as actionsCore from "@actions/core";
 import * as exec$1 from "@actions/exec";
-import os from "os";
-import fs, { chmod, copyFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
+import os$1 from "os";
+import fs$1, { chmod, copyFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { gzip } from "node:zlib";
 import { createHash, randomUUID } from "node:crypto";
 import got, { TimeoutError } from "got";
 import { resolveSrv } from "node:dns/promises";
 import * as actionsCache from "@actions/cache";
 import { exec } from "node:child_process";
-import * as path from "node:path";
+import path from "node:path";
 //#region src/linux-release-info.ts
 /*!
 * linux-release-info
@@ -26,7 +25,7 @@ import * as path from "node:path";
 * Licensed under MIT
 * Copyright (c) 2018-2020 [Samuel Carreira]
 */
-const readFileAsync = promisify(fs$1.readFile);
+const readFileAsync = promisify(fs.readFile);
 const linuxReleaseInfoOptionsDefaults = {
 	mode: "async",
 	customFile: null,
@@ -44,7 +43,7 @@ function releaseInfo(infoOptions) {
 		...infoOptions
 	};
 	const searchOsReleaseFileList = osReleaseFileList(options.customFile);
-	if (os$1.type() !== "Linux") {
+	if (os.type() !== "Linux") {
 		if (options.mode === "sync") return getOsInfo();
 		else return Promise.resolve(getOsInfo());
 	}
@@ -93,11 +92,11 @@ function osReleaseFileList(customFile) {
 */
 function getOsInfo() {
 	return {
-		type: os$1.type(),
-		platform: os$1.platform(),
-		hostname: os$1.hostname(),
-		arch: os$1.arch(),
-		release: os$1.release()
+		type: os.type(),
+		platform: os.platform(),
+		hostname: os.hostname(),
+		arch: os.arch(),
+		release: os.release()
 	};
 }
 async function readAsyncOsReleaseFile(fileList, options) {
@@ -117,7 +116,7 @@ function readSyncOsreleaseFile(releaseFileList, options) {
 	let fileData = null;
 	for (const osReleaseFile of releaseFileList) try {
 		if (options.debug) console.log(`Trying to read '${osReleaseFile}'...`);
-		fileData = fs$1.readFileSync(osReleaseFile, "binary");
+		fileData = fs.readFileSync(osReleaseFile, "binary");
 		if (options.debug) console.log(`Read data:\n${fileData}`);
 		break;
 	} catch (error) {
@@ -191,11 +190,11 @@ function getPropertyWithDefault(data, name, defaultValue) {
 /**
 * The Action runner's platform.
 */
-const platform = os.platform();
+const platform = os$1.platform();
 /**
 * The Action runner's architecture.
 */
-const arch = os.arch();
+const arch = os$1.arch();
 /**
 * Whether the Action runner is a Windows system.
 */
@@ -861,14 +860,14 @@ async function sudoWriteCorrelationHashes(hashes) {
 	const buffer = Buffer.from(hashes);
 	const code = await exec$1.exec("sudo", ["tee", determinateIdentityFile], {
 		input: buffer,
-		outStream: createWriteStream("/dev/null")
+		outStream: nodeFs.createWriteStream("/dev/null")
 	});
 	if (code !== 0) throw new Error(`sudo tee exit: ${code}`);
 }
 /** Writes correlation hashes to the Determinate state directory, escalating if necessary */
 async function writeCorrelationHashes(hashes) {
 	await ensureDeterminateStateDir();
-	if (isRoot) await fs.writeFile(determinateIdentityFile, hashes, "utf-8");
+	if (isRoot) await fs$1.writeFile(determinateIdentityFile, hashes, "utf-8");
 	else return sudoWriteCorrelationHashes(hashes);
 }
 var DetSysAction = class {
@@ -997,7 +996,7 @@ var DetSysAction = class {
 	async unpackClosure(bin) {
 		const artifact = await this.fetchArtifact();
 		const { stdout } = await promisify(exec)(`cat "${artifact}" | xz -d | nix-store --import`);
-		return `${stdout.split(os$1.EOL).at(-2)}/bin/${bin}`;
+		return `${stdout.split(os.EOL).at(-2)}/bin/${bin}`;
 	}
 	/**
 	* Fetches the executable at the URL determined by the `source-*` inputs and
@@ -1005,7 +1004,7 @@ var DetSysAction = class {
 	*/
 	async fetchExecutable() {
 		const binaryPath = await this.fetchArtifact();
-		await chmod(binaryPath, constants.S_IXUSR | constants.S_IXGRP);
+		await chmod(binaryPath, nodeFs.constants.S_IXUSR | nodeFs.constants.S_IXGRP);
 		return binaryPath;
 	}
 	get isMain() {
@@ -1047,7 +1046,7 @@ var DetSysAction = class {
 			const doGzip = promisify(gzip);
 			const exceptionContext = /* @__PURE__ */ new Map();
 			for (const [attachmentLabel, filePath] of this.exceptionAttachments) try {
-				const buf = await doGzip(readFileSync(filePath));
+				const buf = await doGzip(nodeFs.readFileSync(filePath));
 				exceptionContext.set(`staple_value_${attachmentLabel}`, buf.toString("base64"));
 			} catch (innerError) {
 				exceptionContext.set(`staple_failure_${attachmentLabel}`, stringifyError$1(innerError));
@@ -1263,7 +1262,7 @@ var DetSysAction = class {
 			let failed = false;
 			const retry = (stream) => {
 				if (writeStream) writeStream.destroy();
-				writeStream = createWriteStream(destination, {
+				writeStream = nodeFs.createWriteStream(destination, {
 					encoding: "binary",
 					mode: 493
 				});
@@ -1373,7 +1372,7 @@ var DetSysAction = class {
 		for (const location of pathParts) {
 			const candidateNix = path.join(location, "nix");
 			try {
-				await fs.access(candidateNix, fs.constants.X_OK);
+				await fs$1.access(candidateNix, fs$1.constants.X_OK);
 				actionsCore.debug(`Found Nix at ${candidateNix}`);
 				nixLocation = candidateNix;
 				break;
