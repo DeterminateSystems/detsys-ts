@@ -1,12 +1,9 @@
-import {
-  IdsHost,
-  discoverServicesStub,
-  orderRecordsByPriorityWeight,
-  recordToUrl,
-  weightedRandom,
-} from "./ids-host.js";
+import * as idsHost from "./ids-host.js";
+import { newTraceparent } from "./telemetry.js";
 import type { SrvRecord } from "node:dns";
-import { assert, describe, expect, test } from "vitest";
+import { type Server, createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { afterEach, assert, describe, expect, test } from "vitest";
 
 function mkRecord(
   weight: number,
@@ -24,6 +21,54 @@ function mkRecord(
 async function mkPromise<T>(lookup: () => T): Promise<T> {
   return lookup();
 }
+
+describe("the trace context of a request", () => {
+  let server: Server | undefined;
+
+  afterEach(async () => {
+    delete process.env["TRACEPARENT"];
+    server?.close();
+    server = undefined;
+  });
+
+  // The client is the one the Actions use for every request they make, such
+  // as the check-in and the artifact download. The header puts the work the
+  // service does for the request in the trace of the workflow job.
+  async function traceparentOfOneRequest(): Promise<string | undefined> {
+    let received: string | undefined;
+
+    const listener = createServer((request, response) => {
+      received = request.headers["traceparent"];
+      response.end("");
+    });
+    server = listener;
+
+    await new Promise<void>((resolve) => {
+      listener.listen(0, "127.0.0.1", resolve);
+    });
+
+    const { port } = listener.address() as AddressInfo;
+
+    const host = new idsHost.IdsHost("test", undefined, undefined);
+    // An empty list keeps the client away from the SRV lookup.
+    host.setPrioritizedUrls([]);
+
+    await (await host.getGot()).get(`http://127.0.0.1:${port}/`);
+
+    return received;
+  }
+
+  test("is the trace of the job when no span is in progress", async () => {
+    const traceparent = newTraceparent();
+    process.env["TRACEPARENT"] = traceparent;
+
+    expect(await traceparentOfOneRequest()).toBe(traceparent);
+  });
+
+  test("is absent when there is no trace to join", async () => {
+    expect(await traceparentOfOneRequest()).toBeUndefined();
+  });
+});
 
 describe("isUrlSubjectToDynamicUrls", () => {
   type TestCase = {
@@ -72,7 +117,7 @@ describe("isUrlSubjectToDynamicUrls", () => {
 
   for (const { inputUrl, inScope } of testCases) {
     test(`${inputUrl} should ${inScope ? "" : "not "}be subject to dynamic URLs`, async () => {
-      const host = new IdsHost("foo", "bar", "-");
+      const host = new idsHost.IdsHost("foo", "bar", "-");
 
       expect(host.isUrlSubjectToDynamicUrls(new URL(inputUrl))).toStrictEqual(
         inScope,
@@ -83,7 +128,7 @@ describe("isUrlSubjectToDynamicUrls", () => {
 
 describe("getRootUrl", () => {
   test("handles no URLs", async () => {
-    const host = new IdsHost("foo", "bar", "-");
+    const host = new idsHost.IdsHost("foo", "bar", "-");
     host.setPrioritizedUrls([]);
     expect(await host.getRootUrl()).toStrictEqual(
       new URL("https://install.determinate.systems"),
@@ -91,13 +136,13 @@ describe("getRootUrl", () => {
   });
 
   test("handles multiple URLs", async () => {
-    const host = new IdsHost("foo", "bar", "-");
+    const host = new idsHost.IdsHost("foo", "bar", "-");
     host.setPrioritizedUrls(["https://foo/", "https://bar/"]);
     expect(await host.getRootUrl()).toStrictEqual(new URL("https://foo"));
   });
 
   test("falls back on downed URL", async () => {
-    const host = new IdsHost("foo", "bar", "-");
+    const host = new idsHost.IdsHost("foo", "bar", "-");
     host.setPrioritizedUrls(["https://foo/", "https://bar/"]);
     expect(await host.getRootUrl()).toStrictEqual(new URL("https://foo"));
     host.markCurrentHostBroken();
@@ -187,7 +232,11 @@ describe("getDiagnosticsUrl", () => {
       const preEnv = process.env["IDS_HOST"];
       process.env["IDS_HOST"] = "https://install.determinate.systems";
 
-      const host = new IdsHost(idsProjectName, suffix, runtimeDiagnosticsUrl);
+      const host = new idsHost.IdsHost(
+        idsProjectName,
+        suffix,
+        runtimeDiagnosticsUrl,
+      );
       const diagUrl = await host.getDiagnosticsUrl();
       process.env["IDS_HOST"] = preEnv;
 
@@ -201,7 +250,7 @@ describe("getDiagnosticsUrl", () => {
 describe("recordToUrl", () => {
   test("a valid record", () => {
     expect(
-      recordToUrl({
+      idsHost.recordToUrl({
         name: "hi",
         port: 123,
         priority: 1,
@@ -212,7 +261,7 @@ describe("recordToUrl", () => {
 
   test("an invalid record", () => {
     expect(
-      recordToUrl({
+      idsHost.recordToUrl({
         name: "!",
         port: 99999999999,
         priority: 1,
@@ -287,7 +336,7 @@ describe("discoverServicesStub", async () => {
 
   for (const { description, lookup, timeout, expected } of testCases) {
     test(description, async () => {
-      const ret = await discoverServicesStub(lookup(), timeout || 0);
+      const ret = await idsHost.discoverServicesStub(lookup(), timeout || 0);
       expect(ret).toStrictEqual(expected);
     });
   }
@@ -295,7 +344,7 @@ describe("discoverServicesStub", async () => {
 
 test("orderRecordsByPriorityWeight does that", () => {
   expect(
-    orderRecordsByPriorityWeight([
+    idsHost.orderRecordsByPriorityWeight([
       mkRecord(3, 3),
       mkRecord(1000, 1),
       mkRecord(2, 2),
@@ -310,10 +359,13 @@ test("orderRecordsByPriorityWeight does that", () => {
 });
 
 test("weightedRandom handles empty and single-element records", () => {
-  expect(weightedRandom([]), "one element passes through").toStrictEqual([]);
+  expect(
+    idsHost.weightedRandom([]),
+    "one element passes through",
+  ).toStrictEqual([]);
 
   expect(
-    weightedRandom([mkRecord(1)]),
+    idsHost.weightedRandom([mkRecord(1)]),
     "empty lists aren't crashing",
   ).toStrictEqual([mkRecord(1)]);
 });
@@ -329,7 +381,7 @@ test("weightedRandom orders records acceptably predictably", () => {
   const iterations = 1_000;
 
   for (let i = 0; i < iterations; i++) {
-    const weighted = weightedRandom(records);
+    const weighted = idsHost.weightedRandom(records);
     counts.set(
       weighted[0].weight,
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion

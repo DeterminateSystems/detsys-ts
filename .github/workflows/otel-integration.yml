@@ -1,0 +1,104 @@
+name: OpenTelemetry integration
+
+# Runs every Action that consumes detsys-ts against the otel branches, so that
+# one workflow run exercises the whole OpenTelemetry migration end to end.
+#
+# Each Action exports to https://otel.determinate.systems by default.
+# Set OTEL_SDK_DISABLED to true to stop the export.
+
+on:
+  workflow_dispatch:
+    inputs:
+      update_flake_lock:
+        description: "Also run update-flake-lock. It opens a pull request."
+        type: boolean
+        default: false
+  push:
+    branches:
+      - otel
+      - grahamc/otel
+
+permissions: {}
+
+jobs:
+  smoke:
+    name: Smoke test (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - UbuntuLatest32Cores128G
+          - UbuntuLatest32Cores128GArm
+          - macos-latest-xlarge
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The flake checker fetches a static binary, so it runs before Nix exists.
+      - name: Check the flake.lock
+        uses: DeterminateSystems/flake-checker-action@grahamc/otel
+
+      - name: Install Determinate Nix
+        uses: DeterminateSystems/nix-installer-action@grahamc/otel
+        with:
+          determinate: true
+
+      - name: Start the Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@grahamc/otel
+
+      # The first Action of the job exports the job's trace as $TRACEPARENT.
+      # Determinate Nix reads that variable, so this build joins that trace,
+      # with each Action of the job.
+      - name: Build the dev shell
+        run: nix develop --command node --version
+
+  update-lock:
+    name: Update the flake.lock
+    # This job opens a pull request, so it runs only when you ask for it.
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.update_flake_lock }}
+    runs-on: UbuntuLatest32Cores128G
+    permissions:
+      contents: write
+      id-token: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Determinate Nix
+        uses: DeterminateSystems/nix-installer-action@grahamc/otel
+        with:
+          determinate: true
+
+      - name: Start the Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@grahamc/otel
+
+      - name: Update the flake.lock
+        uses: DeterminateSystems/update-flake-lock@grahamc/otel
+        with:
+          branch: otel-integration/flake-lock
+          pr-title: "flake.lock: Update from the OpenTelemetry integration test"
+          pr-labels: |
+            automated
+
+  success:
+    runs-on: ubuntu-latest
+    needs:
+      - smoke
+      - update-lock
+    if: ${{ always() }}
+    steps:
+      - run: "true"
+      - run: |
+          echo "A dependent in the build matrix failed."
+          exit 1
+        if: |
+          contains(needs.*.result, 'failure') ||
+          contains(needs.*.result, 'cancelled')
