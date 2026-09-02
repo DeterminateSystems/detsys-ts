@@ -5,6 +5,9 @@
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "type": "module",
+  "files": [
+    "dist/"
+  ],
   "scripts": {
     "build": "tsdown",
     "check-fmt": "prettier --check .",
