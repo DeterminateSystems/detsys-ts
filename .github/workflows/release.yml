@@ -101,6 +101,24 @@ jobs:
       contents: read
       id-token: write
     steps:
+      # npm has this version, so the publish job must have tagged it.
+      # A missing tag means npm and the repository do not agree.
+      # Stop and let a person reconcile them.
+      - name: Verify the v${{ needs.version.outputs.version }} tag exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: v${{ needs.version.outputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          if gh api "/repos/$REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "Found the $TAG tag."
+          else
+            echo "$PACKAGE@$VERSION is on npm, but the $TAG tag is missing."
+            echo "Reconcile the tag with the release before the next release pull request opens."
+            exit 1
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
