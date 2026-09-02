@@ -1,0 +1,287 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Only one release at a time.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  PACKAGE: "@determinate-systems/detsys-ts"
+
+jobs:
+  # The version in package.json is the source of truth.
+  # If npm does not have it, this push is a release.
+  # If npm has it, this push is ordinary work and needs a release pull request.
+  version:
+    name: Check the version
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      published: ${{ steps.version.outputs.published }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: DeterminateSystems/determinate-nix-action@main
+      - uses: DeterminateSystems/flakehub-cache-action@main
+
+      - name: Compare package.json to npm
+        id: version
+        run: |
+          version=$(nix develop --command node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          # A package with no releases yet gives a 404.
+          versions=$(nix develop --command npm view "$PACKAGE" versions --json 2>/dev/null || echo "[]")
+
+          if printf '%s' "$versions" | grep -qF "\"$version\""; then
+            echo "$PACKAGE@$version is already on npm."
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$PACKAGE@$version is not on npm yet."
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    name: Publish ${{ needs.version.outputs.version }} to npm
+    needs: version
+    # A manual run on a different branch must not publish.
+    if: needs.version.outputs.published == 'false' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: production
+    permissions:
+      contents: write # to create the release tag
+      id-token: write # for npm trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: DeterminateSystems/determinate-nix-action@main
+      - uses: DeterminateSystems/flakehub-cache-action@main
+
+      - name: Install npm dependencies
+        run: nix develop --command npm ci
+
+      - name: Build
+        run: nix develop --command npm run build
+
+      - name: Publish
+        run: nix develop --command npm publish --verbose --access public
+
+      - name: Tag v${{ needs.version.outputs.version }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TAG: v${{ needs.version.outputs.version }}
+        run: |
+          gh api --method POST "/repos/$REPO/git/refs" \
+            -f ref="refs/tags/$TAG" \
+            -f sha="$SHA"
+
+  # A tag push from `GITHUB_TOKEN` does not start a workflow.
+  # This job is here, and not on a tag trigger, so the release starts it directly.
+  update-downstream:
+    name: Pull request detsys-ts ${{ needs.version.outputs.version }} to ${{ github.repository_owner }}/${{ matrix.repo }}
+    needs:
+      - version
+      - publish
+    runs-on: ubuntu-24.04
+    environment: detsys-pr-bot
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        repo:
+          - flake-checker-action
+          - magic-nix-cache-action
+          - flakehub-push
+          - flakehub-mirror
+          - nix-installer-action
+          - update-flake-lock
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TAG: v${{ needs.version.outputs.version }}
+      TAG_URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.version.outputs.version }}
+      REF: ${{ github.sha }}
+      REF_URL: https://github.com/${{ github.repository }}/tree/${{ github.sha }}
+      SOURCE_REPO: ${{ github.repository }}
+      GIT_USER: ${{ github.actor }}
+      GIT_EMAIL: ${{ github.actor }}@users.noreply.github.com
+      GIT_BRANCH: detsys-ts-update-v${{ needs.version.outputs.version }}
+      GIT_BASE: main
+      TARGET_REPO: ${{ github.repository_owner }}/${{ matrix.repo }}
+    steps:
+      - name: Check out detsys-ts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: current
+          persist-credentials: false
+          fetch-depth: 0 # for the tag before this one
+
+      - name: Find the tag before ${{ env.TAG }}
+        id: previous-tag
+        working-directory: current
+        env:
+          REPO_URL: https://github.com/${{ github.repository }}
+        run: |
+          # The tag for this release is on HEAD, so look before it.
+          # The first release has no tag before it.
+          if previous=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null); then
+            echo "The tag before $TAG is $previous."
+            echo "diff_url=$REPO_URL/compare/$previous...$TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "$TAG is the first tag."
+            echo "diff_url=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out ${{ env.TARGET_REPO }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: target
+          repository: ${{ env.TARGET_REPO }}
+          token: ${{ secrets.detsys_pr_bot_token }}
+          persist-credentials: false
+
+      - uses: DeterminateSystems/determinate-nix-action@main
+      - uses: DeterminateSystems/flakehub-cache-action@main
+
+      # The publish job put the version on npm a moment ago.
+      # `npm update` gets the old version if the registry does not show it yet.
+      - name: Wait for ${{ env.PACKAGE }}@${{ env.VERSION }} on npm
+        working-directory: current
+        run: |
+          for _ in $(seq 1 30); do
+            if nix develop --command npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
+              echo "npm has $PACKAGE@$VERSION."
+              exit 0
+            fi
+            echo "npm does not have $PACKAGE@$VERSION yet."
+            sleep 10
+          done
+
+          echo "npm did not show $PACKAGE@$VERSION in 5 minutes."
+          exit 1
+
+      - name: Configure Git for ${{ env.GIT_USER }}
+        working-directory: target
+        run: |
+          git config user.name "$GIT_USER"
+          git config user.email "$GIT_EMAIL"
+
+      - name: Make sure the repo is forked
+        working-directory: target
+        env:
+          GH_TOKEN: ${{ secrets.detsys_pr_bot_token }}
+        run: |
+          gh repo fork
+
+      - name: Update flake inputs
+        working-directory: target
+        run: |
+          if [ -f ./flake.nix ]; then
+             nix flake update --commit-lock-file
+          fi
+
+      - name: Update `detsys-ts` for ${{ env.TARGET_REPO }} to ${{ env.TAG }}
+        working-directory: target
+        run: |
+          if [ -f ./pnpm-lock.yaml ]; then
+            nix develop --command pnpm update
+            nix develop --command pnpm run all
+          else
+            nix develop --command npm update
+            nix develop --command npm run all
+          fi
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        env:
+          DIFF_URL: ${{ steps.previous-tag.outputs.diff_url }}
+        with:
+          path: target
+          token: ${{ secrets.detsys_pr_bot_token }}
+          title: "Update `detsys-ts` to `${{ env.TAG }}`"
+          commit-message: "Update `detsys-ts` to `${{ env.TAG }}` (`${{ env.REF }}`)"
+          body: |
+            Bump [`detsys-ts`](https://github.com/${{ env.SOURCE_REPO }}) to `${{ env.TAG }}` and regenerate application bundle.
+
+            * Source tag: [`${{ env.TAG }}`](${{ env.TAG_URL }})
+            * Source ref: [`${{ env.REF }}`](${{ env.REF_URL }})
+            * Source diff: ${{ env.DIFF_URL }}
+          push-to-fork: detsys-pr-bot/${{ matrix.repo }}
+          branch: "${{ env.GIT_BRANCH }}"
+          base: ${{ env.GIT_BASE }}
+          draft: false
+
+  # Keep a bump pull request open and ready to merge.
+  # Merging it comes back here as a release.
+  release-pr:
+    name: Open the next release pull request
+    needs: version
+    if: needs.version.outputs.published == 'true'
+    runs-on: ubuntu-24.04
+    environment: detsys-pr-bot
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # npm has this version, so the publish job must have tagged it.
+      # A missing tag means npm and the repository do not agree.
+      # Stop and let a person reconcile them.
+      - name: Verify the v${{ needs.version.outputs.version }} tag exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: v${{ needs.version.outputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          if gh api "/repos/$REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "Found the $TAG tag."
+          else
+            echo "$PACKAGE@$VERSION is on npm, but the $TAG tag is missing."
+            echo "Reconcile the tag with the release before the next release pull request opens."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: DeterminateSystems/determinate-nix-action@main
+      - uses: DeterminateSystems/flakehub-cache-action@main
+
+      - name: Increment the patch level
+        id: bump
+        env:
+          TAG: v${{ needs.version.outputs.version }}
+        run: |
+          next=$(nix develop --command npm version --no-git-tag-version patch)
+          echo "Next release: $TAG -> $next"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+          echo "version=${next#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.detsys_pr_bot_token }}
+          branch: release/next
+          base: main
+          title: "Release ${{ steps.bump.outputs.tag }}"
+          commit-message: "Release ${{ steps.bump.outputs.tag }}"
+          body: |
+            Merge this pull request to publish version `${{ steps.bump.outputs.version }}` to npm and to make the `${{ steps.bump.outputs.tag }}` tag.
+
+            A new pull request like this one opens after the next merge to `main`.
+          draft: false

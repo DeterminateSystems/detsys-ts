@@ -1,12 +1,16 @@
 {
-  "name": "detsys-ts",
+  "name": "@determinate-systems/detsys-ts",
   "version": "1.0.0",
   "description": "TypeScript goodies for DetSys projects",
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "type": "module",
+  "files": [
+    "dist/"
+  ],
   "scripts": {
     "build": "tsdown",
+    "prepare": "tsdown",
     "check-fmt": "prettier --check .",
     "format": "prettier --write .",
     "lint": "eslint src/**/*.ts",
