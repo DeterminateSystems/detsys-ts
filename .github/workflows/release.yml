@@ -89,6 +89,142 @@ jobs:
             -f ref="refs/tags/$TAG" \
             -f sha="$SHA"
 
+  # A tag push from `GITHUB_TOKEN` does not start a workflow.
+  # This job is here, and not on a tag trigger, so the release starts it directly.
+  update-downstream:
+    name: Pull request detsys-ts ${{ needs.version.outputs.version }} to ${{ github.repository_owner }}/${{ matrix.repo }}
+    needs:
+      - version
+      - publish
+    runs-on: ubuntu-24.04
+    environment: detsys-pr-bot
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        repo:
+          - flake-checker-action
+          - magic-nix-cache-action
+          - flakehub-push
+          - flakehub-mirror
+          - nix-installer-action
+          - update-flake-lock
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TAG: v${{ needs.version.outputs.version }}
+      TAG_URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.version.outputs.version }}
+      REF: ${{ github.sha }}
+      REF_URL: https://github.com/${{ github.repository }}/tree/${{ github.sha }}
+      SOURCE_REPO: ${{ github.repository }}
+      GIT_USER: ${{ github.actor }}
+      GIT_EMAIL: ${{ github.actor }}@users.noreply.github.com
+      GIT_BRANCH: detsys-ts-update-v${{ needs.version.outputs.version }}
+      GIT_BASE: main
+      TARGET_REPO: ${{ github.repository_owner }}/${{ matrix.repo }}
+      GH_TOKEN: ${{ secrets.detsys_pr_bot_token }} # for `gh repo fork`
+    steps:
+      - name: Check out detsys-ts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: current
+          persist-credentials: false
+          fetch-depth: 0 # for the tag before this one
+
+      - name: Find the tag before ${{ env.TAG }}
+        id: previous-tag
+        working-directory: current
+        env:
+          REPO_URL: https://github.com/${{ github.repository }}
+        run: |
+          # The tag for this release is on HEAD, so look before it.
+          # The first release has no tag before it.
+          if previous=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null); then
+            echo "The tag before $TAG is $previous."
+            echo "diff_url=$REPO_URL/compare/$previous...$TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "$TAG is the first tag."
+            echo "diff_url=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out ${{ env.TARGET_REPO }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: target
+          repository: ${{ env.TARGET_REPO }}
+          token: ${{ env.GH_TOKEN }}
+          persist-credentials: false
+
+      - uses: DeterminateSystems/determinate-nix-action@main
+      - uses: DeterminateSystems/flakehub-cache-action@main
+
+      # The publish job put the version on npm a moment ago.
+      # `npm update` gets the old version if the registry does not show it yet.
+      - name: Wait for ${{ env.PACKAGE }}@${{ env.VERSION }} on npm
+        working-directory: current
+        run: |
+          for _ in $(seq 1 30); do
+            if nix develop --command npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
+              echo "npm has $PACKAGE@$VERSION."
+              exit 0
+            fi
+            echo "npm does not have $PACKAGE@$VERSION yet."
+            sleep 10
+          done
+
+          echo "npm did not show $PACKAGE@$VERSION in 5 minutes."
+          exit 1
+
+      - name: Configure Git for ${{ env.GIT_USER }}
+        working-directory: target
+        run: |
+          git config user.name "$GIT_USER"
+          git config user.email "$GIT_EMAIL"
+
+      - name: Make sure the repo is forked
+        working-directory: target
+        run: |
+          gh repo fork
+
+      - name: Update flake inputs
+        working-directory: target
+        run: |
+          if [ -f ./flake.nix ]; then
+             nix flake update --commit-lock-file
+          fi
+
+      - name: Update `detsys-ts` for ${{ env.TARGET_REPO }} to ${{ env.TAG }}
+        working-directory: target
+        run: |
+          if [ -f ./pnpm-lock.yaml ]; then
+            nix develop --command pnpm update
+            nix develop --command pnpm run all
+          else
+            nix develop --command npm update
+            nix develop --command npm run all
+          fi
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        env:
+          DIFF_URL: ${{ steps.previous-tag.outputs.diff_url }}
+        with:
+          path: target
+          token: ${{ secrets.detsys_pr_bot_token }}
+          title: "Update `detsys-ts` to `${{ env.TAG }}`"
+          commit-message: "Update `detsys-ts` to `${{ env.TAG }}` (`${{ env.REF }}`)"
+          body: |
+            Bump [`detsys-ts`](https://github.com/${{ env.SOURCE_REPO }}) to `${{ env.TAG }}` and regenerate application bundle.
+
+            * Source tag: [`${{ env.TAG }}`](${{ env.TAG_URL }})
+            * Source ref: [`${{ env.REF }}`](${{ env.REF_URL }})
+            * Source diff: ${{ env.DIFF_URL }}
+          push-to-fork: detsys-pr-bot/${{ matrix.repo }}
+          branch: "${{ env.GIT_BRANCH }}"
+          base: ${{ env.GIT_BASE }}
+          draft: false
+
   # Keep a bump pull request open and ready to merge.
   # Merging it comes back here as a release.
   release-pr:
