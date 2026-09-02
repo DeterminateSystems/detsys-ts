@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Only one release at a time.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  PACKAGE: "@determinate-systems/detsys-ts"
+
+jobs:
+  # The version in package.json is the source of truth.
+  # If npm does not have it, this push is a release.
+  # If npm has it, this push is ordinary work and needs a release pull request.
+  version:
+    name: Check the version
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      published: ${{ steps.version.outputs.published }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: DeterminateSystems/determinate-nix-action@main
+      - uses: DeterminateSystems/flakehub-cache-action@main
+
+      - name: Compare package.json to npm
+        id: version
+        run: |
+          version=$(nix develop --command node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          # A package with no releases yet gives a 404.
+          versions=$(nix develop --command npm view "$PACKAGE" versions --json 2>/dev/null || echo "[]")
+
+          if printf '%s' "$versions" | grep -qF "\"$version\""; then
+            echo "$PACKAGE@$version is already on npm."
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$PACKAGE@$version is not on npm yet."
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    name: Publish ${{ needs.version.outputs.version }} to npm
+    needs: version
+    if: needs.version.outputs.published == 'false'
+    runs-on: ubuntu-24.04
+    environment: production
+    permissions:
+      contents: write # to create the release tag
+      id-token: write # for npm trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: DeterminateSystems/determinate-nix-action@main
+      - uses: DeterminateSystems/flakehub-cache-action@main
+
+      - name: Install npm dependencies
+        run: nix develop --command npm ci
+
+      - name: Build
+        run: nix develop --command npm run build
+
+      - name: Publish
+        run: nix develop --command npm publish --verbose --access public
+
+      - name: Tag v${{ needs.version.outputs.version }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TAG: v${{ needs.version.outputs.version }}
+        run: |
+          gh api --method POST "/repos/$REPO/git/refs" \
+            -f ref="refs/tags/$TAG" \
+            -f sha="$SHA"
+
+  # Keep a bump pull request open and ready to merge.
+  # Merging it comes back here as a release.
+  release-pr:
+    name: Open the next release pull request
+    needs: version
+    if: needs.version.outputs.published == 'true'
+    runs-on: ubuntu-24.04
+    environment: detsys-pr-bot
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: DeterminateSystems/determinate-nix-action@main
+      - uses: DeterminateSystems/flakehub-cache-action@main
+
+      - name: Increment the patch level
+        id: bump
+        run: |
+          next=$(nix develop --command npm version --no-git-tag-version patch)
+          echo "Next release: ${{ needs.version.outputs.version }} -> $next"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+          echo "version=${next#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.detsys_pr_bot_token }}
+          branch: release/next
+          base: main
+          title: "Release ${{ steps.bump.outputs.tag }}"
+          commit-message: "Release ${{ steps.bump.outputs.tag }}"
+          body: |
+            Merge this pull request to publish version `${{ steps.bump.outputs.version }}` to npm and to make the `${{ steps.bump.outputs.tag }}` tag.
+
+            A new pull request like this one opens after the next merge to `main`.
+          draft: false
