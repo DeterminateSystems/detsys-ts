@@ -109,9 +109,11 @@ jobs:
 
       - name: Increment the patch level
         id: bump
+        env:
+          TAG: v${{ needs.version.outputs.version }}
         run: |
           next=$(nix develop --command npm version --no-git-tag-version patch)
-          echo "Next release: ${{ needs.version.outputs.version }} -> $next"
+          echo "Next release: $TAG -> $next"
           echo "tag=$next" >> "$GITHUB_OUTPUT"
           echo "version=${next#v}" >> "$GITHUB_OUTPUT"
 
