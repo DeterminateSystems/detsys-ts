@@ -123,7 +123,6 @@ jobs:
       GIT_BRANCH: detsys-ts-update-v${{ needs.version.outputs.version }}
       GIT_BASE: main
       TARGET_REPO: ${{ github.repository_owner }}/${{ matrix.repo }}
-      GH_TOKEN: ${{ secrets.detsys_pr_bot_token }} # for `gh repo fork`
     steps:
       - name: Check out detsys-ts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -153,7 +152,7 @@ jobs:
         with:
           path: target
           repository: ${{ env.TARGET_REPO }}
-          token: ${{ env.GH_TOKEN }}
+          token: ${{ secrets.detsys_pr_bot_token }}
           persist-credentials: false
 
       - uses: DeterminateSystems/determinate-nix-action@main
@@ -184,6 +183,8 @@ jobs:
 
       - name: Make sure the repo is forked
         working-directory: target
+        env:
+          GH_TOKEN: ${{ secrets.detsys_pr_bot_token }}
         run: |
           gh repo fork
 
