@@ -54,7 +54,8 @@ jobs:
   publish:
     name: Publish ${{ needs.version.outputs.version }} to npm
     needs: version
-    if: needs.version.outputs.published == 'false'
+    # A manual run on a different branch must not publish.
+    if: needs.version.outputs.published == 'false' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     environment: production
     permissions:
