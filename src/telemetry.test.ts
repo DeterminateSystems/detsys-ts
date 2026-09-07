@@ -150,7 +150,9 @@ describe("exportEnabled", () => {
   });
 
   test("an empty OTEL_EXPORTER_OTLP_ENDPOINT turns the export off", () => {
-    // This escape hatch predates OTEL_SDK_DISABLED, and workflows use it.
+    // A deprecated escape hatch that predates OTEL_SDK_DISABLED. To every
+    // other OpenTelemetry program an empty endpoint is the default endpoint,
+    // but the workflows that use this must keep working.
     process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = "";
     expect(otel.exportEnabled()).toBe(false);
   });

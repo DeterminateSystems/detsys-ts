@@ -127,23 +127,45 @@ export type TelemetryOptions = {
 /**
  * Whether this run exports telemetry at all.
  *
- * `OTEL_SDK_DISABLED=true` is the standard way to turn the export off. An
- * empty `OTEL_EXPORTER_OTLP_ENDPOINT` does the same, which is what this
- * library documented before `OTEL_SDK_DISABLED` was in the specification.
+ * `OTEL_SDK_DISABLED=true` is the way to turn the export off.
+ * An empty `OTEL_EXPORTER_OTLP_ENDPOINT` does the same, and is deprecated.
+ * See {@link disabledByEmptyEndpoint}.
  */
 export function exportEnabled(): boolean {
   if (otelCore.getBooleanFromEnv("OTEL_SDK_DISABLED")) {
     return false;
   }
 
-  // Read `process.env` rather than `getStringFromEnv`, which reads an empty
-  // variable as an unset one. Here an empty variable is the whole point.
-  const endpoint = process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
-  if (endpoint !== undefined && endpoint.trim() === "") {
+  if (disabledByEmptyEndpoint()) {
+    actionsCore.debug(
+      "OpenTelemetry export disabled by an empty OTEL_EXPORTER_OTLP_ENDPOINT. " +
+        "Set OTEL_SDK_DISABLED to true instead: an empty endpoint means the " +
+        "default endpoint to every other OpenTelemetry program.",
+    );
     return false;
   }
 
   return true;
+}
+
+/**
+ * Whether an empty `OTEL_EXPORTER_OTLP_ENDPOINT` stops this run.
+ *
+ * This is not what the specification says.
+ * There, an empty variable is an unset one, and an unset endpoint means the
+ * default endpoint, which is `localhost:4318`.
+ * This library documented the empty value as its way to stop the export before
+ * `OTEL_SDK_DISABLED` was in the specification, and the workflows that use it
+ * must keep working.
+ *
+ * Read `process.env` rather than `getStringFromEnv`, which reads an empty
+ * variable as an unset one, as the specification tells an SDK to do.
+ * Here an empty variable is the whole point.
+ */
+function disabledByEmptyEndpoint(): boolean {
+  const endpoint = process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
+
+  return endpoint !== undefined && endpoint.trim() === "";
 }
 
 /** What one signal needs: its exporter, and the limits of its provider. */

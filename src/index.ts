@@ -603,8 +603,10 @@ export abstract class DetSysAction {
    * Start the OpenTelemetry export.
    *
    * All runs export their data.
-   * To stop the export, set `OTEL_SDK_DISABLED` to `true`, or set
-   * `OTEL_EXPORTER_OTLP_ENDPOINT` to an empty value.
+   * To stop the export, set `OTEL_SDK_DISABLED` to `true`.
+   * An empty `OTEL_EXPORTER_OTLP_ENDPOINT` does the same, and is deprecated:
+   * to every other OpenTelemetry program that value means the default
+   * endpoint, and not "do not export".
    * The SDK then does not start.
    * The OpenTelemetry API stays in its no-op state.
    * Each span and log record then does nothing.
