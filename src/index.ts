@@ -20,7 +20,7 @@ import * as actionsExec from "@actions/exec";
 import * as otelApi from "@opentelemetry/api";
 import * as semconv from "@opentelemetry/semantic-conventions";
 import * as semconvIncubating from "@opentelemetry/semantic-conventions/incubating";
-import { type Got, type Request, TimeoutError } from "got";
+import type { Got, Request } from "got";
 import { exec } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import * as nodeFs from "node:fs";
@@ -34,7 +34,6 @@ import { promisify } from "node:util";
 const EVENT_IDS_FAILOVER = "detsys.ids_failover";
 const EVENT_PREFLIGHT_REQUIRE_NIX_DENIED =
   "detsys.preflight_require_nix_denied";
-const EVENT_REQUEST_TIMEOUT = "detsys.request_timeout";
 const EVENT_STORE_IDENTITY_FAILED = "detsys.store_identity_failed";
 
 // The event the feature flag conventions name for one evaluation of one flag.
@@ -852,8 +851,6 @@ export abstract class DetSysAction {
   async getClient(): Promise<Got> {
     return await this.idsHost.getGot(
       (incitingError: unknown, prevUrl: URL, nextUrl: URL) => {
-        this.recordPlausibleTimeout(incitingError);
-
         this.addEvent(EVENT_IDS_FAILOVER, {
           "detsys.ids.previous_url": prevUrl.toString(),
           "detsys.ids.next_url": nextUrl.toString(),
@@ -1040,31 +1037,12 @@ export abstract class DetSysAction {
           })
           .json();
       } catch (e: unknown) {
-        this.recordPlausibleTimeout(e);
         actionsCore.debug(`Error checking in: ${stringifyError(e)}`);
         this.idsHost.markCurrentHostBroken();
       }
     }
 
     return undefined;
-  }
-
-  private recordPlausibleTimeout(e: unknown): void {
-    // see: https://github.com/sindresorhus/got/blob/895e463fa699d6f2e4b2fc01ceb3b2bb9e157f4c/documentation/8-errors.md
-    if (e instanceof TimeoutError && "timings" in e && "request" in e) {
-      const attributes: otelApi.Attributes = {
-        [semconv.ATTR_URL_FULL]: e.request.requestUrl?.toString(),
-        [semconv.ATTR_HTTP_REQUEST_RESEND_COUNT]: e.request.retryCount,
-      };
-
-      for (const [key, value] of Object.entries(e.timings.phases)) {
-        if (Number.isFinite(value)) {
-          attributes[`detsys.http.timing.${key}`] = value;
-        }
-      }
-
-      this.addEvent(EVENT_REQUEST_TIMEOUT, attributes);
-    }
   }
 
   /**
@@ -1153,7 +1131,6 @@ export abstract class DetSysAction {
 
           return destFile;
         } catch (e: unknown) {
-          this.recordPlausibleTimeout(e);
           throw e;
         } finally {
           actionsCore.endGroup();

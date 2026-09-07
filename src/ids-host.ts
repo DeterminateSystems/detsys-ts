@@ -3,9 +3,15 @@
  * Identifies and discovers backend servers for install.determinate.systems
  */
 import { stringifyError } from "./errors.js";
-import { traceContextHeaders } from "./telemetry.js";
+import {
+  type HttpClientOutcome,
+  endHttpClientSpan,
+  startHttpClientSpan,
+  traceContextHeaders,
+} from "./telemetry.js";
 import * as actionsCore from "@actions/core";
-import got, { type Got } from "got";
+import type { Attributes, Span } from "@opentelemetry/api";
+import got, { type Got, type RequestError, TimeoutError } from "got";
 import type { SrvRecord } from "node:dns";
 import { resolveSrv } from "node:dns/promises";
 
@@ -16,6 +22,50 @@ const ALLOWED_SUFFIXES = [
 ];
 
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
+
+/**
+ * Where the span of one attempt waits, between the hook that starts it and the
+ * hook that ends it. `got` gives each attempt a context of its own.
+ */
+const SPAN_KEY = "detsysHttpSpan";
+
+/**
+ * End the span that {@link SPAN_KEY} holds, if the request started one.
+ *
+ * Each of `afterResponse`, `beforeRetry`, and `beforeError` ends an attempt,
+ * and only one of them runs for each attempt.
+ */
+function endRequestSpan(
+  context: Record<string, unknown>,
+  outcome: HttpClientOutcome,
+): void {
+  const span = context[SPAN_KEY] as Span | undefined;
+  delete context[SPAN_KEY];
+
+  endHttpClientSpan(span, outcome);
+}
+
+/**
+ * How long each phase of a request that timed out took.
+ *
+ * A timeout says only that a request did not finish. These say how far it got,
+ * which is what tells a slow name lookup from a slow server.
+ */
+function timingAttributes(error: RequestError): Attributes | undefined {
+  if (!(error instanceof TimeoutError) || error.timings === undefined) {
+    return undefined;
+  }
+
+  const attributes: Attributes = {};
+
+  for (const [phase, value] of Object.entries(error.timings.phases)) {
+    if (Number.isFinite(value)) {
+      attributes[`detsys.http.timing.${phase}`] = value;
+    }
+  }
+
+  return attributes;
+}
 const LOOKUP = process.env["IDS_LOOKUP"] ?? DEFAULT_LOOKUP;
 
 const DEFAULT_TIMEOUT = 10_000; // 10 seconds in ms
@@ -65,6 +115,13 @@ export class IdsHost {
         hooks: {
           beforeRetry: [
             async (error, retryCount) => {
+              // A retried attempt reaches neither `afterResponse` nor
+              // `beforeError`, thus its span ends here or it never ends.
+              endRequestSpan(error.options.context, {
+                error,
+                attributes: timingAttributes(error),
+              });
+
               const prevUrl = await this.getRootUrl();
               this.markCurrentHostBroken();
               const nextUrl = await this.getRootUrl();
@@ -81,14 +138,6 @@ export class IdsHost {
 
           beforeRequest: [
             async (options) => {
-              // Send the trace context, so the service puts the work it does
-              // for this request in this Action's trace.
-              for (const [name, value] of Object.entries(
-                traceContextHeaders(),
-              )) {
-                options.headers[name] = value;
-              }
-
               // The getter always returns a URL, even though the setter accepts a string
               const currentUrl: URL = options.url as URL;
 
@@ -103,6 +152,44 @@ export class IdsHost {
               } else {
                 actionsCore.debug(`No transmutations on ${currentUrl}`);
               }
+
+              // The span of this attempt covers the request that goes out
+              // below, and each retry gets one of its own.
+              const span = startHttpClientSpan(
+                options.method,
+                options.url as URL,
+              );
+              options.context[SPAN_KEY] = span;
+
+              // Send the trace context, so the service puts the work it does
+              // for this request in this Action's trace.
+              for (const [name, value] of Object.entries(
+                traceContextHeaders(span),
+              )) {
+                options.headers[name] = value;
+              }
+            },
+          ],
+
+          afterResponse: [
+            (response) => {
+              endRequestSpan(response.request.options.context, {
+                statusCode: response.statusCode,
+              });
+
+              return response;
+            },
+          ],
+
+          beforeError: [
+            (error) => {
+              endRequestSpan(error.options.context, {
+                error,
+                statusCode: error.response?.statusCode,
+                attributes: timingAttributes(error),
+              });
+
+              return error;
             },
           ],
         },

@@ -556,17 +556,104 @@ export function newTraceparent(parent?: string): string {
  * The result is empty when the export is off.
  * A no-op span's context is all zeroes, and is not a valid parent.
  */
-export function traceContextHeaders(): Record<string, string> {
-  const active = otelApi.context.active();
+export function traceContextHeaders(
+  span?: otelApi.Span,
+): Record<string, string> {
   const context =
-    otelApi.trace.getSpanContext(active) === undefined
-      ? contextFromTraceparent(process.env["TRACEPARENT"])
-      : active;
+    span === undefined
+      ? currentContext()
+      : otelApi.trace.setSpan(otelApi.ROOT_CONTEXT, span);
 
   const carrier: Record<string, string> = {};
   PROPAGATOR.inject(context, carrier, otelApi.defaultTextMapSetter);
 
   return carrier;
+}
+
+/**
+ * The context of the operation in progress.
+ *
+ * That is the active span, or the span that `$TRACEPARENT` names when no span
+ * is active yet.
+ */
+function currentContext(): otelApi.Context {
+  const active = otelApi.context.active();
+
+  return otelApi.trace.getSpanContext(active) === undefined
+    ? contextFromTraceparent(process.env["TRACEPARENT"])
+    : active;
+}
+
+/**
+ * Start the span of one outgoing HTTP request.
+ *
+ * The conventions name such a span for the method alone.
+ * A span named for its URL makes one name for each URL, and a backend groups a
+ * span by its name.
+ *
+ * The query of the URL does not reach `url.full`.
+ * A request of this library carries the correlation data of the run there, and
+ * that data belongs on the span of the run, once, and not on each request.
+ */
+export function startHttpClientSpan(method: string, url: URL): otelApi.Span {
+  const withoutQuery = new URL(url);
+  withoutQuery.search = "";
+
+  return getTracer().startSpan(
+    method,
+    {
+      kind: otelApi.SpanKind.CLIENT,
+      attributes: {
+        [semconv.ATTR_HTTP_REQUEST_METHOD]: method,
+        [semconv.ATTR_URL_FULL]: withoutQuery.toString(),
+        [semconv.ATTR_SERVER_ADDRESS]: url.hostname,
+        ...(url.port === ""
+          ? {}
+          : { [semconv.ATTR_SERVER_PORT]: Number(url.port) }),
+      },
+    },
+    currentContext(),
+  );
+}
+
+/** The outcome of one outgoing HTTP request. */
+export type HttpClientOutcome = {
+  statusCode?: number;
+  error?: unknown;
+  attributes?: otelApi.Attributes;
+};
+
+/**
+ * End the span of one outgoing HTTP request.
+ *
+ * A response of any status ends the span, and only an error fails it.
+ * The conventions make a status of 4xx or 5xx an error of the client only when
+ * the client cannot do its work, and this client retries and fails over.
+ */
+export function endHttpClientSpan(
+  span: otelApi.Span | undefined,
+  outcome: HttpClientOutcome,
+): void {
+  if (span === undefined) {
+    return;
+  }
+
+  if (outcome.statusCode !== undefined) {
+    span.setAttribute(
+      semconv.ATTR_HTTP_RESPONSE_STATUS_CODE,
+      outcome.statusCode,
+    );
+  }
+
+  if (outcome.attributes !== undefined) {
+    span.setAttributes(outcome.attributes);
+  }
+
+  if (outcome.error !== undefined) {
+    recordSpanError(span, outcome.error);
+  }
+
+  span.end();
 }
 
 /**

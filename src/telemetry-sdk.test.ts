@@ -160,6 +160,51 @@ describe("Telemetry", () => {
     await telemetry.shutdown();
   });
 
+  test("an outgoing request gets a client span of its own", async () => {
+    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
+    process.env["OTEL_EXPORTER_OTLP_TIMEOUT"] = "100";
+
+    const telemetry = new otel.Telemetry();
+    telemetry.start({ serviceName: "test", resourceAttributes: {} });
+
+    const span = otel.startHttpClientSpan(
+      "GET",
+      new URL("https://example.com/v1/thing?correlation=%7B%7D"),
+    );
+    const recorded = span as SdkSpan;
+
+    // The conventions name such a span for its method. A name that holds the
+    // URL makes one name for each URL.
+    expect(recorded.name).toBe("GET");
+    expect(recorded.kind).toBe(otelApi.SpanKind.CLIENT);
+    expect(recorded.attributes["server.address"]).toBe("example.com");
+
+    // The correlation data of the run does not ride along on each request.
+    expect(recorded.attributes["url.full"]).toBe(
+      "https://example.com/v1/thing",
+    );
+
+    // The service that answers sees this span, and not the phase's.
+    expect(otel.traceContextHeaders(span)["traceparent"]).toBe(
+      otel.traceparentOf(span),
+    );
+
+    otel.endHttpClientSpan(span, { statusCode: 404 });
+
+    expect(recorded.attributes["http.response.status_code"]).toBe(404);
+    expect(recorded.ended).toBe(true);
+    // A status the client can work with does not fail the span.
+    expect(recorded.status.code).toBe(otelApi.SpanStatusCode.UNSET);
+
+    await telemetry.shutdown();
+  });
+
+  test("a request that never started ends no span", () => {
+    expect(() =>
+      otel.endHttpClientSpan(undefined, { error: new Error("no socket") }),
+    ).not.toThrow();
+  });
+
   test("starting twice is a no-op", () => {
     process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
 
