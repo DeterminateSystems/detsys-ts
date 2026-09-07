@@ -93,7 +93,7 @@ const ENV_TRACEPARENT = "TRACEPARENT";
 // The span that covers the whole workflow job, and thus every Action in it.
 const SPAN_JOB = "github_actions_job";
 
-// The check-in, which happens before this Action can record anything.
+// The check-in, which is the first thing each phase does.
 const SPAN_CHECK_IN = "check_in";
 
 const CHECK_IN_ENDPOINT_TIMEOUT_MS = 1_000; // 1 second in ms
@@ -247,7 +247,6 @@ export abstract class DetSysAction {
   private identity: correlation.CorrelationProperties;
   private idsHost: IdsHost;
   private features: { [k: string]: Feature };
-  private featureVariants: { [k: string]: string | boolean };
   private telemetry: otel.Telemetry;
 
   // The name and version of the runner's operating system, in flight from the
@@ -258,19 +257,6 @@ export abstract class DetSysAction {
   // The root span for this execution phase. Undefined until the phase span is
   // opened, and when OpenTelemetry export is disabled.
   private phaseSpan?: otelApi.Span;
-
-  // The identity of the phase's span, and of its parent, which this Action
-  // announces before either span can start.
-  private phaseTraceparent?: string;
-  private phaseParentTraceparent?: string;
-
-  // When the check-in ran, and under which identity, for the span that starts
-  // once the SDK does.
-  private checkInTiming?: {
-    traceparent: string;
-    startTime: Date;
-    endTime: Date;
-  };
 
   // Attributes set before the phase span exists, replayed onto it when it
   // opens.
@@ -311,7 +297,6 @@ export abstract class DetSysAction {
     }
 
     this.features = {};
-    this.featureVariants = {};
     this.pendingAttributes = {};
 
     this.getCrossPhaseId();
@@ -498,25 +483,23 @@ export abstract class DetSysAction {
   }
 
   private async executeAsync(): Promise<void> {
-    // The phase span opens only after the check-in.
-    // The check-in supplies the feature flags for the resource attributes.
-    // Thus record the true start time here and backdate the span to it.
+    // The SDK starts after this moment, thus record the true start time here
+    // and backdate the phase's span to it.
     const phaseStartTime = new Date();
 
     try {
-      // The announcements come first.
-      // The check-in runs before this Action can record anything, and these
-      // give it, and the servers that answer it, a place in the trace.
+      // The job's span covers each Action of the job, thus the first Action to
+      // run announces it before it does anything else.
       this.announceJobTrace(phaseStartTime);
-      this.announcePhaseSpan();
 
-      await this.checkIn();
       await this.startTelemetry();
-
       this.startPhaseSpan(phaseStartTime);
-      this.startCheckInSpan();
 
       await this.withPhaseSpanActive(async () => {
+        await otel.withSpan(SPAN_CHECK_IN, async () => {
+          await this.checkIn();
+        });
+
         const correlationHashes = JSON.stringify(this.getCorrelationHashes());
         process.env.DETSYS_CORRELATION = correlationHashes;
         try {
@@ -595,9 +578,6 @@ export abstract class DetSysAction {
    * The OpenTelemetry API stays in its no-op state.
    * Each span and log record then does nothing.
    * Thus the call sites do not test if the export is on.
-   *
-   * This function runs after the check-in.
-   * The check-in supplies the feature flags for the resource attributes.
    */
   private async startTelemetry(): Promise<void> {
     this.telemetry.start({
@@ -682,103 +662,51 @@ export abstract class DetSysAction {
   }
 
   /**
-   * Make the identity of a span that starts later, and point each request made
-   * until then at it.
+   * Start the root span of this execution phase.
    *
-   * The variable changes in this process only.
-   * The later steps of the job keep the identity of the job's span.
-   */
-  private announceSpan(parent: string | undefined): string | undefined {
-    if (!otel.exportEnabled()) {
-      return undefined;
-    }
-
-    const traceparent = otel.newTraceparent(parent);
-    process.env[ENV_TRACEPARENT] = traceparent;
-
-    return traceparent;
-  }
-
-  /**
-   * Announce the identity of this phase's span.
-   *
-   * The span cannot start until the SDK does, and the SDK cannot start until
-   * the check-in supplies the feature flags.
-   * Thus this Action makes requests before it has a span of its own.
-   * The announcement gives those requests the identity that the span starts
-   * with later, so that the work the servers do for them is part of this
-   * Action, and not of the workflow job.
+   * The span starts at the moment the phase did, and thus covers the start of
+   * the SDK, which comes before it.
    *
    * `main` and `post` are separate processes.
-   * Thus the main phase saves its identity in the Action's state, and the post
-   * phase makes its span a child of it.
+   * Thus the main phase saves the identity of its span in the Action's state,
+   * and the post phase makes its span a child of it.
    * A `$TRACEPARENT` in the environment is the span of the workflow job, or of
    * the system that started the workflow.
    */
-  private announcePhaseSpan(): void {
-    this.phaseParentTraceparent =
+  private startPhaseSpan(startTime: Date): void {
+    if (!this.telemetry.enabled) {
+      return;
+    }
+
+    const parent =
       actionsCore.getState(STATE_KEY_TRACEPARENT) ||
       process.env[ENV_TRACEPARENT] ||
       undefined;
 
-    this.phaseTraceparent = this.announceSpan(this.phaseParentTraceparent);
-  }
-
-  /**
-   * Start the root span of this execution phase, with the identity that {@link
-   * announcePhaseSpan} announced.
-   *
-   * The span starts at the moment the phase did, and thus covers the check-in
-   * and the start of the SDK, which both come before it.
-   */
-  private startPhaseSpan(startTime: Date): void {
-    if (this.phaseTraceparent === undefined) {
-      return;
-    }
-
-    const span = this.telemetry.startAnnouncedSpan(
-      `${this.actionOptions.name}:${this.executionPhase}`,
-      this.phaseTraceparent,
-      startTime,
-      otel.contextFromTraceparent(this.phaseParentTraceparent),
-    );
-
-    if (span === undefined) {
-      return;
-    }
+    const span = otel
+      .getTracer()
+      .startSpan(
+        `${this.actionOptions.name}:${this.executionPhase}`,
+        { startTime },
+        otel.contextFromTraceparent(parent),
+      );
 
     span.setAttributes(this.pendingAttributes);
     this.pendingAttributes = {};
 
-    if (this.isMain) {
-      const traceparent = otel.traceparentOf(span);
-      if (traceparent !== undefined) {
+    const traceparent = otel.traceparentOf(span);
+    if (traceparent !== undefined) {
+      // Each program this Action runs is part of this phase, and not of the
+      // workflow job. The variable changes in this process only: the later
+      // steps of the job keep the identity of the job's span.
+      process.env[ENV_TRACEPARENT] = traceparent;
+
+      if (this.isMain) {
         actionsCore.saveState(STATE_KEY_TRACEPARENT, traceparent);
       }
     }
 
     this.phaseSpan = span;
-  }
-
-  /**
-   * Start and end the span for the check-in, which ran before the SDK could
-   * record it.
-   */
-  private startCheckInSpan(): void {
-    const timing = this.checkInTiming;
-
-    if (timing === undefined || this.phaseSpan === undefined) {
-      return;
-    }
-
-    this.telemetry
-      .startAnnouncedSpan(
-        SPAN_CHECK_IN,
-        timing.traceparent,
-        timing.startTime,
-        otelApi.trace.setSpan(otelApi.context.active(), this.phaseSpan),
-      )
-      ?.end(timing.endTime);
   }
 
   /**
@@ -819,14 +747,6 @@ export abstract class DetSysAction {
       [ATTR_GITHUB_WORKFLOW_RUN_HASH]: this.identity.github_workflow_run_hash,
       [ATTR_GITHUB_WORKFLOW_RUN_DIFFERENTIATOR_HASH]:
         this.identity.github_workflow_run_differentiator_hash,
-
-      // The feature flags this run resolved, so the data can be sliced by the
-      // variants that produced it.
-      ...Object.fromEntries(
-        Object.entries(this.featureVariants).map<[string, string | boolean]>(
-          ([name, variant]) => [`${ATTR_FEATURE_PREFIX}${name}`, variant],
-        ),
-      ),
     };
   }
 
@@ -880,41 +800,17 @@ export abstract class DetSysAction {
     );
   }
 
-  private async checkIn(): Promise<void> {
-    // The span for this starts once the SDK does. Until then the announcement
-    // is what puts the check-in, and the work the server does for it, inside
-    // this phase.
-    const traceparent = this.announceSpan(this.phaseTraceparent);
-    const startTime = new Date();
-
-    try {
-      await this.checkInAndReport();
-    } finally {
-      if (traceparent !== undefined) {
-        this.checkInTiming = { traceparent, startTime, endTime: new Date() };
-      }
-
-      // Each request from here on is part of the phase itself.
-      if (this.phaseTraceparent !== undefined) {
-        process.env[ENV_TRACEPARENT] = this.phaseTraceparent;
-      }
-    }
-  }
-
   /**
    * Check in, and tell the user about the incidents and the maintenance the
    * check-in reports.
    */
-  private async checkInAndReport(): Promise<void> {
+  private async checkIn(): Promise<void> {
     const checkin = await this.requestCheckIn();
     if (checkin === undefined) {
       return;
     }
 
     this.features = checkin.options;
-    for (const [key, feature] of Object.entries(this.features)) {
-      this.featureVariants[key] = feature.variant;
-    }
 
     const impactSymbol: Map<string, string> = new Map([
       ["none", "⚪"],
@@ -958,16 +854,19 @@ export abstract class DetSysAction {
    * The variant of a feature flag this run resolved, if the check-in returned
    * one.
    *
-   * Every resolved variant is already a resource attribute, under
+   * Each variant this Action asks for becomes an attribute of the run, under
    * `detsys.feature.`, so the telemetry can be sliced by the flags that
-   * produced it.
+   * changed what the run did.
    */
   getFeature(name: string): Feature | undefined {
     if (!this.features.hasOwnProperty(name)) {
       return undefined;
     }
 
-    return this.features[name];
+    const feature = this.features[name];
+    this.setAttribute(`${ATTR_FEATURE_PREFIX}${name}`, feature.variant);
+
+    return feature;
   }
 
   /**
