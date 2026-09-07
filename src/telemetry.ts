@@ -698,15 +698,18 @@ export function recordSpanError(span: otelApi.Span, error: unknown): void {
  * Run `fn` inside a new active span, ending the span when it settles and
  * marking it failed if it throws. The error is always re-thrown: this records,
  * it does not swallow.
+ *
+ * Give `options.kind` for work that is not this process's own: a call to a
+ * service is a `CLIENT` span, whatever carries it out.
  */
 export async function withSpan<T>(
   name: string,
   fn: (span: otelApi.Span) => Promise<T>,
-  attributes?: otelApi.Attributes,
+  options?: otelApi.SpanOptions,
 ): Promise<T> {
   return await getTracer().startActiveSpan(
     name,
-    { attributes },
+    options ?? {},
     async (span) => {
       try {
         return await fn(span);

@@ -24,7 +24,7 @@ import type { Got, Request } from "got";
 import { exec } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import * as nodeFs from "node:fs";
-import fs, { chmod, copyFile, mkdir, readFile } from "node:fs/promises";
+import fs, { chmod, copyFile, mkdir, readFile, stat } from "node:fs/promises";
 import os, { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -73,6 +73,8 @@ const ATTR_GITHUB_WORKFLOW_RUN_DIFFERENTIATOR_HASH =
 const ATTR_ARTIFACT_NAME = "detsys.artifact.name";
 const ATTR_ARTIFACT_FETCH_SUFFIX = "detsys.artifact.fetch_suffix";
 const ATTR_ARTIFACT_CACHE_HIT = "detsys.artifact.cache_hit";
+const ATTR_ARTIFACT_CACHE_KEY = "detsys.artifact.cache_key";
+const ATTR_ARTIFACT_SIZE_BYTES = "detsys.artifact.size_bytes";
 const ATTR_SOURCE_URL = "detsys.source.url";
 const ATTR_SOURCE_ETAG = "detsys.source.etag";
 const ATTR_SOURCE_CHECKSUMS_SHA256 = "detsys.source.checksums_sha256";
@@ -1143,8 +1145,10 @@ export abstract class DetSysAction {
         }
       },
       {
-        [ATTR_ARTIFACT_NAME]: this.actionOptions.name,
-        [ATTR_ARTIFACT_FETCH_SUFFIX]: this.architectureFetchSuffix,
+        attributes: {
+          [ATTR_ARTIFACT_NAME]: this.actionOptions.name,
+          [ATTR_ARTIFACT_FETCH_SUFFIX]: this.architectureFetchSuffix,
+        },
       },
     );
   }
@@ -1350,43 +1354,85 @@ export abstract class DetSysAction {
     return `determinatesystem-${this.actionOptions.name}-${this.architectureFetchSuffix}-${cleanedVersion}${hashSuffix}`;
   }
 
+  /**
+   * The span of one operation on the cache of GitHub Actions.
+   *
+   * `@actions/cache` speaks to that service with a client of its own, thus this
+   * library cannot record the requests it makes.
+   * What it can record is the operation: a call to a service, and thus a
+   * `CLIENT` span, whatever carries it out.
+   *
+   * The name of the service comes from the environment, which is where
+   * `@actions/cache` reads it too.
+   * `ACTIONS_RESULTS_URL` is the cache of today, and `ACTIONS_CACHE_URL` the
+   * one before it.
+   */
+  private cacheSpanOptions(key: string): otelApi.SpanOptions {
+    const service =
+      process.env["ACTIONS_RESULTS_URL"] ?? process.env["ACTIONS_CACHE_URL"];
+
+    let address: string | undefined;
+    try {
+      address = service === undefined ? undefined : new URL(service).hostname;
+    } catch {
+      address = undefined;
+    }
+
+    return {
+      kind: otelApi.SpanKind.CLIENT,
+      attributes: {
+        [ATTR_ARTIFACT_NAME]: this.actionOptions.name,
+        [ATTR_ARTIFACT_CACHE_KEY]: key,
+        ...(address === undefined
+          ? {}
+          : { [semconv.ATTR_SERVER_ADDRESS]: address }),
+      },
+    };
+  }
+
   private async getCachedVersion(
     version: string,
     expectedHash: string | null,
   ): Promise<undefined | string> {
-    return await otel.withSpan("artifact_cache_restore", async (span) => {
-      const startCwd = process.cwd();
+    const key = this.cacheKey(version, expectedHash);
 
-      try {
-        const tempDir = this.getTemporaryName();
-        await mkdir(tempDir);
-        process.chdir(tempDir);
+    return await otel.withSpan(
+      "artifact_cache_restore",
+      async (span) => {
+        const startCwd = process.cwd();
 
-        // extremely evil shit right here:
-        process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
-        delete process.env.GITHUB_WORKSPACE;
+        try {
+          const tempDir = this.getTemporaryName();
+          await mkdir(tempDir);
+          process.chdir(tempDir);
 
-        if (
-          await actionsCache.restoreCache(
-            [this.actionOptions.name],
-            this.cacheKey(version, expectedHash),
-            [],
-            undefined,
-            true,
-          )
-        ) {
-          span.setAttribute(ATTR_ARTIFACT_CACHE_HIT, true);
-          return `${tempDir}/${this.actionOptions.name}`;
+          // extremely evil shit right here:
+          process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
+          delete process.env.GITHUB_WORKSPACE;
+
+          if (
+            await actionsCache.restoreCache(
+              [this.actionOptions.name],
+              key,
+              [],
+              undefined,
+              true,
+            )
+          ) {
+            span.setAttribute(ATTR_ARTIFACT_CACHE_HIT, true);
+            return `${tempDir}/${this.actionOptions.name}`;
+          }
+
+          span.setAttribute(ATTR_ARTIFACT_CACHE_HIT, false);
+          return undefined;
+        } finally {
+          process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
+          delete process.env.GITHUB_WORKSPACE_BACKUP;
+          process.chdir(startCwd);
         }
-
-        span.setAttribute(ATTR_ARTIFACT_CACHE_HIT, false);
-        return undefined;
-      } finally {
-        process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
-        delete process.env.GITHUB_WORKSPACE_BACKUP;
-        process.chdir(startCwd);
-      }
-    });
+      },
+      this.cacheSpanOptions(key),
+    );
   }
 
   private async saveCachedVersion(
@@ -1394,31 +1440,47 @@ export abstract class DetSysAction {
     toolPath: string,
     expectedHash: string | null,
   ): Promise<void> {
-    return await otel.withSpan("artifact_cache_persist", async () => {
-      const startCwd = process.cwd();
+    const key = this.cacheKey(version, expectedHash);
 
-      try {
-        const tempDir = this.getTemporaryName();
-        await mkdir(tempDir);
-        process.chdir(tempDir);
-        await copyFile(toolPath, `${tempDir}/${this.actionOptions.name}`);
+    return await otel.withSpan(
+      "artifact_cache_persist",
+      async (span) => {
+        const startCwd = process.cwd();
 
-        // extremely evil shit right here:
-        process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
-        delete process.env.GITHUB_WORKSPACE;
+        try {
+          const tempDir = this.getTemporaryName();
+          await mkdir(tempDir);
+          process.chdir(tempDir);
+          await copyFile(toolPath, `${tempDir}/${this.actionOptions.name}`);
 
-        await actionsCache.saveCache(
-          [this.actionOptions.name],
-          this.cacheKey(version, expectedHash),
-          undefined,
-          true,
-        );
-      } finally {
-        process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
-        delete process.env.GITHUB_WORKSPACE_BACKUP;
-        process.chdir(startCwd);
-      }
-    });
+          // How much this operation uploads, which is what makes it slow.
+          try {
+            const { size } = await stat(
+              `${tempDir}/${this.actionOptions.name}`,
+            );
+            span.setAttribute(ATTR_ARTIFACT_SIZE_BYTES, size);
+          } catch (e: unknown) {
+            log.debug(`Could not size the artifact: ${stringifyError(e)}`);
+          }
+
+          // extremely evil shit right here:
+          process.env.GITHUB_WORKSPACE_BACKUP = process.env.GITHUB_WORKSPACE;
+          delete process.env.GITHUB_WORKSPACE;
+
+          await actionsCache.saveCache(
+            [this.actionOptions.name],
+            key,
+            undefined,
+            true,
+          );
+        } finally {
+          process.env.GITHUB_WORKSPACE = process.env.GITHUB_WORKSPACE_BACKUP;
+          delete process.env.GITHUB_WORKSPACE_BACKUP;
+          process.chdir(startCwd);
+        }
+      },
+      this.cacheSpanOptions(key),
+    );
   }
 
   /**

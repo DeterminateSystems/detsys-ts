@@ -107,6 +107,6 @@ export async function group<T>(
         actionsCore.endGroup();
       }
     },
-    attributes,
+    { attributes },
   );
 }
