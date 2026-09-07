@@ -49,13 +49,23 @@ const ATTR_ARCH_OS = "detsys.arch_os";
 const ATTR_NIX_SYSTEM = "detsys.nix_system";
 const ATTR_FEATURE_PREFIX = "detsys.feature.";
 
+// The CI/CD semantic conventions name each of these, and this library does not
+// use those names, because it does not send those values. It sends a hash in
+// place of each one, so that the telemetry can tell two runs apart and can
+// identify neither. A hash of a value is not that value, thus it does not
+// belong under the name of that value. The convention each hash stands in for
+// is in the comment beside it.
+//
+// `cicd.pipeline.run.id` and `cicd.pipeline.run.url.full` have no hashed form
+// here at all: each names one run of one repository, and no hash of them is
+// more private than the pair of them together.
 const ATTR_GITHUB_EVENT_NAME = "detsys.github.event_name";
 const ATTR_GITHUB_ACTION_REPOSITORY = "detsys.github.action_repository";
-const ATTR_GITHUB_REPOSITORY_HASH = "detsys.github.repository_hash";
-const ATTR_GITHUB_ORGANIZATION_HASH = "detsys.github.organization_hash";
-const ATTR_GITHUB_WORKFLOW_HASH = "detsys.github.workflow_hash";
-const ATTR_GITHUB_WORKFLOW_JOB_HASH = "detsys.github.workflow_job_hash";
-const ATTR_GITHUB_WORKFLOW_RUN_HASH = "detsys.github.workflow_run_hash";
+const ATTR_GITHUB_REPOSITORY_HASH = "detsys.github.repository_hash"; // vcs.repository.name
+const ATTR_GITHUB_ORGANIZATION_HASH = "detsys.github.organization_hash"; // vcs.owner.name
+const ATTR_GITHUB_WORKFLOW_HASH = "detsys.github.workflow_hash"; // cicd.pipeline.name
+const ATTR_GITHUB_WORKFLOW_JOB_HASH = "detsys.github.workflow_job_hash"; // cicd.pipeline.task.name
+const ATTR_GITHUB_WORKFLOW_RUN_HASH = "detsys.github.workflow_run_hash"; // cicd.pipeline.run.id
 const ATTR_GITHUB_WORKFLOW_RUN_DIFFERENTIATOR_HASH =
   "detsys.github.workflow_run_differentiator_hash";
 
@@ -257,6 +267,9 @@ export abstract class DetSysAction {
   // The root span for this execution phase. Undefined until the phase span is
   // opened, and when OpenTelemetry export is disabled.
   private phaseSpan?: otelApi.Span;
+
+  /** Whether this phase threw, which decides `cicd.pipeline.task.run.result`. */
+  private phaseFailed = false;
 
   // Attributes set before the phase span exists, replayed onto it when it
   // opens.
@@ -474,6 +487,18 @@ export abstract class DetSysAction {
     return binaryPath;
   }
 
+  /**
+   * The name of this Action's phase as a task of the CI pipeline.
+   *
+   * This is the name of the span of the phase, and of
+   * `cicd.pipeline.task.name`.
+   * It names this Action and not the step the user wrote, thus it identifies
+   * nobody.
+   */
+  private get taskName(): string {
+    return `${this.actionOptions.name}:${this.executionPhase}`;
+  }
+
   private get isMain(): boolean {
     return this.executionPhase === "main";
   }
@@ -533,6 +558,7 @@ export abstract class DetSysAction {
       const reportable = stringifyError(e);
 
       // The span's status and its `exception` event say the phase failed.
+      this.phaseFailed = true;
       if (this.phaseSpan !== undefined) {
         otel.recordSpanError(this.phaseSpan, e);
       }
@@ -686,7 +712,7 @@ export abstract class DetSysAction {
     const span = otel
       .getTracer()
       .startSpan(
-        `${this.actionOptions.name}:${this.executionPhase}`,
+        this.taskName,
         { startTime },
         otel.contextFromTraceparent(parent),
       );
@@ -727,6 +753,12 @@ export abstract class DetSysAction {
       ...(details?.version === undefined || details.version === "unknown"
         ? {}
         : { [semconvIncubating.ATTR_OS_VERSION]: details.version }),
+
+      // The conventions this library can follow, because these values name no
+      // repository, no organization, and no person.
+      [semconvIncubating.ATTR_VCS_PROVIDER_NAME]:
+        semconvIncubating.VCS_PROVIDER_NAME_VALUE_GITHUB,
+      [semconvIncubating.ATTR_CICD_PIPELINE_TASK_NAME]: this.taskName,
 
       [ATTR_PROJECT]: this.actionOptions.name,
       [ATTR_IDS_PROJECT]: this.actionOptions.idsProjectName,
@@ -1222,6 +1254,12 @@ export abstract class DetSysAction {
   }
 
   private async complete(): Promise<void> {
+    this.phaseSpan?.setAttribute(
+      semconvIncubating.ATTR_CICD_PIPELINE_TASK_RUN_RESULT,
+      this.phaseFailed
+        ? semconvIncubating.CICD_PIPELINE_TASK_RUN_RESULT_VALUE_FAILURE
+        : semconvIncubating.CICD_PIPELINE_TASK_RUN_RESULT_VALUE_SUCCESS,
+    );
     this.phaseSpan?.end();
     this.phaseSpan = undefined;
 
