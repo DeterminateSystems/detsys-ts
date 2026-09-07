@@ -781,7 +781,7 @@ export abstract class DetSysAction {
 
     const traceparent = this.getTraceparent();
     if (traceparent !== undefined) {
-      environment["TRACEPARENT"] = traceparent;
+      environment[ENV_TRACEPARENT] = traceparent;
     }
 
     return environment;
