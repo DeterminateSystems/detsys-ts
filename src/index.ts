@@ -37,6 +37,9 @@ const EVENT_PREFLIGHT_REQUIRE_NIX_DENIED =
 const EVENT_REQUEST_TIMEOUT = "detsys.request_timeout";
 const EVENT_STORE_IDENTITY_FAILED = "detsys.store_identity_failed";
 
+// The event the feature flag conventions name for one evaluation of one flag.
+const EVENT_FEATURE_FLAG_EVALUATION = "feature_flag.evaluation";
+
 // Attributes describing the run. Where the OpenTelemetry semantic conventions
 // already name a value, they win; everything else lives under `detsys.`.
 const ATTR_PROJECT = "detsys.project";
@@ -47,7 +50,6 @@ const ATTR_ANONYMOUS_ID = "detsys.anonymous_id";
 const ATTR_CORRELATION_SOURCE = "detsys.correlation_source";
 const ATTR_ARCH_OS = "detsys.arch_os";
 const ATTR_NIX_SYSTEM = "detsys.nix_system";
-const ATTR_FEATURE_PREFIX = "detsys.feature.";
 
 // The CI/CD semantic conventions name each of these, and this library does not
 // use those names, because it does not send those values. It sends a hash in
@@ -257,6 +259,9 @@ export abstract class DetSysAction {
   private identity: correlation.CorrelationProperties;
   private idsHost: IdsHost;
   private features: { [k: string]: Feature };
+
+  /** The flags this phase has recorded an evaluation of. */
+  private evaluatedFeatures = new Set<string>();
   private telemetry: otel.Telemetry;
 
   // The name and version of the runner's operating system, in flight from the
@@ -883,9 +888,15 @@ export abstract class DetSysAction {
    * The variant of a feature flag this run resolved, if the check-in returned
    * one.
    *
-   * Each variant this Action asks for becomes an attribute of the run, under
-   * `detsys.feature.`, so the telemetry can be sliced by the flags that
-   * changed what the run did.
+   * Each flag this Action asks for becomes an evaluation event, so the
+   * telemetry can be sliced by the flags that changed what the run did.
+   *
+   * The event carries the name of the flag as a value, and not as the name of
+   * an attribute. An attribute for each flag makes a new attribute name each
+   * time a flag is added, which most backends read as a new column, and which
+   * no query can ask about as a group.
+   *
+   * A flag is evaluated once, however many times this Action asks for it.
    */
   getFeature(name: string): Feature | undefined {
     if (!this.features.hasOwnProperty(name)) {
@@ -893,7 +904,17 @@ export abstract class DetSysAction {
     }
 
     const feature = this.features[name];
-    this.setAttribute(`${ATTR_FEATURE_PREFIX}${name}`, feature.variant);
+
+    if (!this.evaluatedFeatures.has(name)) {
+      this.evaluatedFeatures.add(name);
+
+      this.addEvent(EVENT_FEATURE_FLAG_EVALUATION, {
+        [semconvIncubating.ATTR_FEATURE_FLAG_KEY]: name,
+        [semconvIncubating.ATTR_FEATURE_FLAG_RESULT_VARIANT]: `${feature.variant}`,
+        [semconvIncubating.ATTR_FEATURE_FLAG_PROVIDER_NAME]:
+          this.actionOptions.idsProjectName,
+      });
+    }
 
     return feature;
   }
