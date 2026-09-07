@@ -1,6 +1,5 @@
 import * as otel from "./telemetry.js";
 import { ROOT_CONTEXT, trace } from "@opentelemetry/api";
-import { parseKeyPairsIntoRecord } from "@opentelemetry/core";
 import { afterEach, describe, expect, test } from "vitest";
 
 // These run with no provider registered, which is the default for any run that
@@ -129,11 +128,17 @@ describe("traceContextHeaders", () => {
   });
 });
 
+/** Put back the environment of a run that configured nothing. */
+function clearOtelEnvironment(): void {
+  for (const name of Object.keys(process.env)) {
+    if (name.startsWith("OTEL_")) {
+      delete process.env[name];
+    }
+  }
+}
+
 describe("exportEnabled", () => {
-  afterEach(() => {
-    delete process.env["OTEL_SDK_DISABLED"];
-    delete process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
-  });
+  afterEach(clearOtelEnvironment);
 
   test("every run exports by default", () => {
     expect(otel.exportEnabled()).toBe(true);
@@ -156,109 +161,81 @@ describe("exportEnabled", () => {
   });
 });
 
-describe("applyOtlpEnvironmentDefaults", () => {
-  // The exporters read their whole configuration from the environment. These
-  // hold down what this library puts there and what it leaves alone.
+describe("otlpConfig", () => {
+  // This library writes no environment variable. It reads them to answer one
+  // question, for each signal: did the user name a collector for it?
 
-  const otlpVariables = [
-    "OTEL_EXPORTER_OTLP_ENDPOINT",
-    "OTEL_EXPORTER_OTLP_HEADERS",
-    "OTEL_EXPORTER_OTLP_COMPRESSION",
-    "OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT",
-  ];
+  afterEach(clearOtelEnvironment);
 
-  afterEach(() => {
-    for (const variable of otlpVariables) {
-      delete process.env[variable];
-    }
-  });
+  test("sends a signal the user says nothing about to our collector", () => {
+    const { exporter, limits } = otel.otlpConfig("traces");
 
-  test("points an unconfigured run at our collector, with its token", () => {
-    otel.applyOtlpEnvironmentDefaults();
-
-    expect(process.env["OTEL_EXPORTER_OTLP_ENDPOINT"]).toBe(
-      "https://otel.determinate.systems",
+    expect(exporter.url).toBe("https://otel.determinate.systems/v1/traces");
+    expect(exporter.headers?.["Authorization"]).toMatch(
+      /^Bearer [0-9a-f]{64}$/,
     );
-    expect(
-      parseKeyPairsIntoRecord(process.env["OTEL_EXPORTER_OTLP_HEADERS"])[
-        "Authorization"
-      ],
-    ).toMatch(/^Bearer [0-9a-f]{64}$/);
+    expect(exporter.compression).toBe("gzip");
+    expect(limits.attributeValueLengthLimit).toBe(8192);
   });
 
-  test("sends no token to a collector of the user's own", () => {
-    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = "https://otlp.example.com";
-
-    otel.applyOtlpEnvironmentDefaults();
-
-    expect(process.env["OTEL_EXPORTER_OTLP_ENDPOINT"]).toBe(
-      "https://otlp.example.com",
+  test("names the path of each signal", () => {
+    expect(otel.otlpConfig("logs").exporter.url).toBe(
+      "https://otel.determinate.systems/v1/logs",
     );
-    expect(process.env["OTEL_EXPORTER_OTLP_HEADERS"]).toBeUndefined();
   });
 
-  test("authenticates when the user names our collector explicitly", () => {
+  test("gives the token when the user names our collector", () => {
+    // Our collector refuses data that carries no token, wherever the name of
+    // the collector came from.
     process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] =
       "https://otel.determinate.systems";
 
-    otel.applyOtlpEnvironmentDefaults();
-
-    expect(process.env["OTEL_EXPORTER_OTLP_HEADERS"]).toBeDefined();
-  });
-
-  test("keeps a token the user supplied", () => {
-    process.env["OTEL_EXPORTER_OTLP_HEADERS"] = "authorization=Bearer%20theirs";
-
-    otel.applyOtlpEnvironmentDefaults();
-
-    expect(process.env["OTEL_EXPORTER_OTLP_HEADERS"]).toBe(
-      "authorization=Bearer%20theirs",
-    );
-  });
-
-  test("keeps every other setting the user made", () => {
-    process.env["OTEL_EXPORTER_OTLP_COMPRESSION"] = "none";
-    process.env["OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT"] = "128";
-
-    otel.applyOtlpEnvironmentDefaults();
-
-    expect(process.env["OTEL_EXPORTER_OTLP_COMPRESSION"]).toBe("none");
-    expect(process.env["OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT"]).toBe("128");
-  });
-
-  test("hands a child process the settings it needs", () => {
-    otel.applyOtlpEnvironmentDefaults();
-
-    expect(Object.keys(otel.otlpExportEnvironment()).sort()).toStrictEqual([
-      "OTEL_EXPORTER_OTLP_COMPRESSION",
-      "OTEL_EXPORTER_OTLP_ENDPOINT",
-      "OTEL_EXPORTER_OTLP_HEADERS",
-    ]);
-  });
-});
-
-describe("encodeOtlpHeaders", () => {
-  test("is empty for no headers", () => {
-    expect(otel.encodeOtlpHeaders({})).toBe("");
-  });
-
-  test("percent-encodes values, because the reader decodes them", () => {
-    // The SDK reads this value from the environment.
-    // A space that you do not encode divides `Bearer` from the token.
-    expect(otel.encodeOtlpHeaders({ Authorization: "Bearer abc123" })).toBe(
-      "Authorization=Bearer%20abc123",
-    );
-  });
-
-  test("round-trips through the reader's parser", () => {
-    const headers = { Authorization: "Bearer abc123", other: "value" };
-
     expect(
-      parseKeyPairsIntoRecord(otel.encodeOtlpHeaders(headers)),
-    ).toStrictEqual(headers);
+      otel.otlpConfig("traces").exporter.headers?.["Authorization"],
+    ).toMatch(/^Bearer [0-9a-f]{64}$/);
   });
 
-  test("joins multiple headers with a comma", () => {
-    expect(otel.encodeOtlpHeaders({ a: "1", b: "2" })).toBe("a=1,b=2");
+  describe("a collector the user named", () => {
+    // Such a user owns the configuration of that signal. This library adds
+    // nothing to it, and above all adds no token: our credentials are for our
+    // collector.
+
+    test("is configured by the user alone", () => {
+      process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = "https://otlp.example.com";
+      process.env["OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT"] = "128";
+
+      expect(otel.otlpConfig("traces")).toStrictEqual({
+        exporter: {},
+        limits: { attributeValueLengthLimit: 128 },
+      });
+    });
+
+    test("takes the limit of the SDK when the user set none", () => {
+      process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = "https://otlp.example.com";
+
+      expect(
+        otel.otlpConfig("traces").limits.attributeValueLengthLimit,
+      ).toBeUndefined();
+    });
+
+    test("takes one signal, and leaves the other with us", () => {
+      // Our token goes on a request to our collector and on no other request,
+      // thus one signal going elsewhere does not strand the other.
+      process.env["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] =
+        "https://otlp.example.com";
+
+      expect(otel.otlpConfig("traces").exporter).toStrictEqual({});
+      expect(otel.otlpConfig("logs").exporter.url).toBe(
+        "https://otel.determinate.systems/v1/logs",
+      );
+    });
+
+    test("stays off when the user emptied the endpoint", () => {
+      // This is the escape hatch of `exportEnabled`. Our collector must not
+      // replace it, and must not receive the token.
+      process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = "";
+
+      expect(otel.otlpConfig("traces").exporter).toStrictEqual({});
+    });
   });
 });

@@ -762,29 +762,26 @@ export abstract class DetSysAction {
   }
 
   /**
-   * The environment variables that let a child process add data to this
-   * Action's trace: the current `$TRACEPARENT` and the OTLP export settings.
+   * The environment that lets a child process add its data to this Action's
+   * trace: `$TRACEPARENT`, and nothing else.
    *
-   * Add these variables to the environment of each child process to trace.
-   * A child that inherits this process's environment already has the OTLP
-   * settings; only `$TRACEPARENT` changes as the run proceeds.
+   * `$TRACEPARENT` names the span in progress, and changes as the run proceeds.
+   * Add it to the environment of each child process to trace.
+   *
+   * Where a child sends its own data is the child's business.
+   * A program of Determinate Systems knows its own collector, and a program the
+   * user configured goes where the user says.
+   * Thus this Action tells a child which trace to join, and no more than that.
    *
    * The result is empty if the OpenTelemetry export is off.
-   * Thus it is always safe to add them.
+   * Thus it is always safe to add.
    */
   async getTelemetryEnvironment(): Promise<Record<string, string>> {
-    if (!this.telemetry.enabled) {
-      return {};
-    }
+    const traceparent = this.telemetry.enabled
+      ? this.getTraceparent()
+      : undefined;
 
-    const environment: Record<string, string> = otel.otlpExportEnvironment();
-
-    const traceparent = this.getTraceparent();
-    if (traceparent !== undefined) {
-      environment[ENV_TRACEPARENT] = traceparent;
-    }
-
-    return environment;
+    return traceparent === undefined ? {} : { [ENV_TRACEPARENT]: traceparent };
   }
 
   async getClient(): Promise<Got> {

@@ -7,9 +7,15 @@
  * written unconditionally: when export is disabled they cost nothing and no
  * branching is needed at the call site.
  *
- * The SDK configures itself from the standard `OTEL_*` environment variables.
- * This module only supplies defaults for the variables the user has not set,
- * so every documented OpenTelemetry knob works here as it does anywhere else.
+ * This module writes no environment variable, and reads the `OTEL_*` variables
+ * only to answer one question: did the user name a collector of their own? If
+ * they did, the SDK configures itself from the environment, exactly as it does
+ * in any other OpenTelemetry program, and every documented knob works here as
+ * it does anywhere else. If they did not, this module configures the exporters
+ * in code, for our collector.
+ *
+ * `$TRACEPARENT` is the one variable this library hands to a child process.
+ * Where a child sends its own data is the child's business.
  */
 import { stringifyError } from "./errors.js";
 import * as actionsCore from "@actions/core";
@@ -19,6 +25,10 @@ import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-ho
 import * as otelCore from "@opentelemetry/core";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import {
+  CompressionAlgorithm,
+  type OTLPExporterNodeConfigBase,
+} from "@opentelemetry/otlp-exporter-base";
 import * as otelResources from "@opentelemetry/resources";
 import * as sdkLogs from "@opentelemetry/sdk-logs";
 import * as sdkTrace from "@opentelemetry/sdk-trace-base";
@@ -33,7 +43,7 @@ export const LIBRARY_VERSION = "1.0";
 
 /**
  * The OTLP/HTTP collector for all Actions.
- * The exporters add `/v1/traces` and `/v1/logs` to this URL.
+ * Each signal of {@link OTLP_SIGNALS} has a path under this URL.
  *
  * This collector is a fixed service.
  * It is not one of the install.determinate.systems backends.
@@ -71,12 +81,16 @@ const SHUTDOWN_TIMEOUT_MS = 5_000;
  */
 const DEFAULT_ATTRIBUTE_VALUE_LENGTH_LIMIT = 8_192;
 
-/** The OTLP environment variables a child process inherits from this run. */
-const OTLP_EXPORT_VARIABLES = [
-  "OTEL_EXPORTER_OTLP_ENDPOINT",
-  "OTEL_EXPORTER_OTLP_HEADERS",
-  "OTEL_EXPORTER_OTLP_COMPRESSION",
-] as const;
+/**
+ * The signals this library exports, and the path of each at a collector.
+ * The endpoint of a collector names the collector, and not one of these paths.
+ */
+const OTLP_SIGNALS = {
+  traces: "v1/traces",
+  logs: "v1/logs",
+} as const;
+
+export type OtlpSignal = keyof typeof OTLP_SIGNALS;
 
 /**
  * Our own propagator instance, rather than the global one.
@@ -122,6 +136,8 @@ export function exportEnabled(): boolean {
     return false;
   }
 
+  // Read `process.env` rather than `getStringFromEnv`, which reads an empty
+  // variable as an unset one. Here an empty variable is the whole point.
   const endpoint = process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
   if (endpoint !== undefined && endpoint.trim() === "") {
     return false;
@@ -130,60 +146,65 @@ export function exportEnabled(): boolean {
   return true;
 }
 
+/** What one signal needs: its exporter, and the limits of its provider. */
+export type SignalConfig = {
+  exporter: OTLPExporterNodeConfigBase;
+  limits: { attributeValueLengthLimit: number | undefined };
+};
+
 /**
- * Fill in the `OTEL_*` variables this run needs and the user has not set.
+ * How this run exports `signal`.
  *
- * From here on the exporters read their whole configuration from the
- * environment, exactly as they would in any other OpenTelemetry program.
- * Child processes inherit the same variables, so their telemetry reaches the
- * same collector without any further arrangement.
+ * The exporter configuration is empty when the user named a collector for this
+ * signal. The exporter then configures itself from the environment, exactly as
+ * it does in any other OpenTelemetry program.
+ * It has to be empty: a configuration in code wins over the environment, so a
+ * default in code is not a default at all.
+ *
+ * Otherwise the signal goes to {@link DEFAULT_OTLP_ENDPOINT}.
  */
-export function applyOtlpEnvironmentDefaults(): void {
-  if (otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_ENDPOINT") === undefined) {
-    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = DEFAULT_OTLP_ENDPOINT;
+export function otlpConfig(signal: OtlpSignal): SignalConfig {
+  if (namesAnotherCollector(signal)) {
+    return {
+      exporter: {},
+      limits: {
+        // The user decides how long an attribute of theirs may be, and gets the
+        // default of the SDK when they say nothing. The logger provider does
+        // not read this variable itself, thus we read it for both providers.
+        attributeValueLengthLimit: otelCore.getNumberFromEnv(
+          "OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT",
+        ),
+      },
+    };
   }
 
-  if (exportsToDefaultCollector()) {
-    // The collector refuses data that carries no token. Leave a token the
-    // user supplied alone: theirs is the one they meant to use.
-    const headers = otelCore.parseKeyPairsIntoRecord(
-      otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_HEADERS"),
-    );
+  return {
+    exporter: {
+      url: `${DEFAULT_OTLP_ENDPOINT}/${OTLP_SIGNALS[signal]}`,
 
-    const authorized = Object.keys(headers).some(
-      (name) => name.toLowerCase() === "authorization",
-    );
+      // The collector refuses data that carries no token.
+      headers: { Authorization: `Bearer ${OTLP_INGEST_TOKEN}` },
 
-    if (!authorized) {
-      headers["Authorization"] = `Bearer ${OTLP_INGEST_TOKEN}`;
-      process.env["OTEL_EXPORTER_OTLP_HEADERS"] = encodeOtlpHeaders(headers);
-    }
-  }
-
-  if (
-    otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_COMPRESSION") === undefined
-  ) {
-    // Installer logs go out as log records, so the bodies are large and
-    // highly compressible.
-    process.env["OTEL_EXPORTER_OTLP_COMPRESSION"] = "gzip";
-  }
-
-  if (
-    otelCore.getNumberFromEnv("OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT") === undefined
-  ) {
-    process.env["OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT"] =
-      `${DEFAULT_ATTRIBUTE_VALUE_LENGTH_LIMIT}`;
-  }
+      // Installer logs go out as log records, so the bodies are large and
+      // highly compressible.
+      compression: CompressionAlgorithm.GZIP,
+    },
+    limits: { attributeValueLengthLimit: DEFAULT_ATTRIBUTE_VALUE_LENGTH_LIMIT },
+  };
 }
 
 /**
- * Whether this run sends its data to {@link DEFAULT_OTLP_ENDPOINT}.
+ * Whether the user named a collector for `signal` that is not ours.
  *
- * Only that collector gets {@link OTLP_INGEST_TOKEN}. A collector the user
- * chose must not receive our credentials.
+ * The variable of the signal wins over the general variable.
+ * Our token goes on a request to our collector and on no other request, thus a
+ * signal the user sends elsewhere simply keeps the configuration of the user,
+ * and a signal they say nothing about still reaches us.
  */
-function exportsToDefaultCollector(): boolean {
-  const endpoint = otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_ENDPOINT");
+function namesAnotherCollector(signal: OtlpSignal): boolean {
+  const endpoint =
+    process.env[`OTEL_EXPORTER_OTLP_${signal.toUpperCase()}_ENDPOINT`] ??
+    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
 
   if (endpoint === undefined) {
     return false;
@@ -191,45 +212,13 @@ function exportsToDefaultCollector(): boolean {
 
   try {
     return (
-      new URL(endpoint).toString() === new URL(DEFAULT_OTLP_ENDPOINT).toString()
+      new URL(endpoint).toString() !== new URL(DEFAULT_OTLP_ENDPOINT).toString()
     );
   } catch {
-    return false;
+    // An endpoint we cannot read is not ours. That includes the empty one,
+    // which stops the export.
+    return true;
   }
-}
-
-/**
- * The OTLP variables in the environment, for a child process that does not
- * inherit ours.
- */
-export function otlpExportEnvironment(): Record<string, string> {
-  const environment: Record<string, string> = {};
-
-  for (const name of OTLP_EXPORT_VARIABLES) {
-    const value = otelCore.getStringFromEnv(name);
-    if (value !== undefined) {
-      environment[name] = value;
-    }
-  }
-
-  return environment;
-}
-
-/**
- * Make the value of `OTEL_EXPORTER_OTLP_HEADERS`.
- *
- * The variable uses the W3C baggage format.
- * The reader decodes each percent-encoded value.
- * Thus you must encode the space in `Bearer <token>`.
- * If you do not encode it, the scheme and the token become two entries.
- */
-export function encodeOtlpHeaders(headers: Record<string, string>): string {
-  return Object.entries(headers)
-    .map(
-      ([name, value]) =>
-        `${encodeURIComponent(name)}=${encodeURIComponent(value)}`,
-    )
-    .join(",");
 }
 
 /**
@@ -293,8 +282,6 @@ export class Telemetry {
     }
 
     try {
-      applyOtlpEnvironmentDefaults();
-
       // `envDetector` comes last, so `OTEL_SERVICE_NAME` and
       // `OTEL_RESOURCE_ATTRIBUTES` win over what the Action decided.
       const resource = otelResources
@@ -316,28 +303,28 @@ export class Telemetry {
 
       this.idGenerator = new PinnedIdGenerator();
 
-      // The exporters read the endpoint, the headers, the compression, and
-      // the timeouts from the environment.
+      // An empty configuration, and an `undefined` limit, leave the decision
+      // to the environment and to the default of the SDK.
+      const tracesConfig = otlpConfig("traces");
+      const logsConfig = otlpConfig("logs");
+
       this.tracerProvider = new sdkTrace.BasicTracerProvider({
         resource,
         idGenerator: this.idGenerator,
+        spanLimits: tracesConfig.limits,
         spanProcessors: [
-          new sdkTrace.BatchSpanProcessor(new OTLPTraceExporter()),
+          new sdkTrace.BatchSpanProcessor(
+            new OTLPTraceExporter(tracesConfig.exporter),
+          ),
         ],
       });
 
       this.loggerProvider = new sdkLogs.LoggerProvider({
         resource,
-        // Unlike the tracer provider, this one does not read the limit from
-        // the environment itself.
-        logRecordLimits: {
-          attributeValueLengthLimit: otelCore.getNumberFromEnv(
-            "OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT",
-          ),
-        },
+        logRecordLimits: logsConfig.limits,
         processors: [
           new sdkLogs.BatchLogRecordProcessor({
-            exporter: new OTLPLogExporter(),
+            exporter: new OTLPLogExporter(logsConfig.exporter),
           }),
         ],
       });
@@ -353,7 +340,7 @@ export class Telemetry {
       logs.setGlobalLoggerProvider(this.loggerProvider);
 
       actionsCore.debug(
-        `OpenTelemetry export enabled to ${otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_ENDPOINT")}`,
+        `OpenTelemetry export enabled to ${tracesConfig.exporter.url ?? "the collector named in the environment"}`,
       );
     } catch (e: unknown) {
       this.tracerProvider = undefined;

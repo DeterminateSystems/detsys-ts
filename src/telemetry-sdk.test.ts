@@ -13,12 +13,12 @@ const UNREACHABLE_COLLECTOR = "http://127.0.0.1:1";
 
 describe("Telemetry", () => {
   afterEach(() => {
-    delete process.env["OTEL_SDK_DISABLED"];
-    delete process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
-    delete process.env["OTEL_EXPORTER_OTLP_HEADERS"];
-    delete process.env["OTEL_EXPORTER_OTLP_COMPRESSION"];
-    delete process.env["OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT"];
-    delete process.env["OTEL_EXPORTER_OTLP_TIMEOUT"];
+    // Put back the environment of a run that configured nothing.
+    for (const name of Object.keys(process.env)) {
+      if (name.startsWith("OTEL_")) {
+        delete process.env[name];
+      }
+    }
   });
 
   test("OTEL_SDK_DISABLED leaves the API in its no-op state", async () => {
@@ -29,8 +29,6 @@ describe("Telemetry", () => {
     telemetry.start({ serviceName: "test", resourceAttributes: {} });
 
     expect(telemetry.enabled).toBe(false);
-    // A disabled run configures nothing, so a child process inherits nothing.
-    expect(process.env["OTEL_EXPORTER_OTLP_HEADERS"]).toBeUndefined();
 
     const span = otel.getTracer().startSpan("nobody-is-listening");
     expect(span.isRecording()).toBe(false);
@@ -39,11 +37,13 @@ describe("Telemetry", () => {
     await telemetry.shutdown();
   });
 
-  test("starting registers a real tracer and configures the exporters", async () => {
+  test("starting registers a real tracer, and writes no variable", async () => {
     process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
     // Otherwise the exporter spends its whole default budget retrying the
     // refused connection, and the shutdown timeout is what ends the test.
     process.env["OTEL_EXPORTER_OTLP_TIMEOUT"] = "100";
+
+    const before = { ...process.env };
 
     const telemetry = new otel.Telemetry();
     telemetry.start({
@@ -53,8 +53,10 @@ describe("Telemetry", () => {
     });
 
     expect(telemetry.enabled).toBe(true);
-    expect(process.env["OTEL_EXPORTER_OTLP_COMPRESSION"]).toBe("gzip");
-    expect(process.env["OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT"]).toBe("8192");
+    // The environment is the configuration of the user. This library reads it
+    // and leaves it, so that a variable says the same thing after a run as
+    // before it.
+    expect({ ...process.env }).toStrictEqual(before);
 
     const span = otel.getTracer().startSpan("recorded");
     expect(span.isRecording()).toBe(true);
