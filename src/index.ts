@@ -683,13 +683,14 @@ export abstract class DetSysAction {
       10,
     );
 
-    this.telemetry
-      .startAnnouncedSpan(
-        SPAN_JOB,
-        traceparent,
-        new Date(Number.isFinite(startTime) ? startTime : Date.now()),
-      )
-      ?.end();
+    const span = this.telemetry.startAnnouncedSpan(
+      SPAN_JOB,
+      traceparent,
+      new Date(Number.isFinite(startTime) ? startTime : Date.now()),
+    );
+
+    span?.setAttributes(this.runAttributes());
+    span?.end();
   }
 
   /**
@@ -722,6 +723,7 @@ export abstract class DetSysAction {
         otel.contextFromTraceparent(parent),
       );
 
+    span.setAttributes(this.runAttributes());
     span.setAttributes(this.pendingAttributes);
     this.pendingAttributes = {};
 
@@ -741,15 +743,21 @@ export abstract class DetSysAction {
   }
 
   /**
-   * The stable, run-scoped attributes attached to every span and log record.
+   * What this Action is, as the thing that makes the telemetry.
    *
-   * The correlation data here is hashed and does not identify a repository,
-   * an organization, or a person.
+   * A Resource describes the producer, and not the work.
+   * Each value here is one of a small set, except `service.instance.id`, which
+   * the conventions make the one unbounded value of a Resource.
+   * The values that name a run of a workflow are attributes of a span instead.
+   * See {@link runAttributes}.
    */
   private async telemetryResourceAttributes(): Promise<otelApi.Attributes> {
     const details = await this.systemDetails;
 
     return {
+      // The phases of one Action of one job are one instance of this service.
+      [semconv.ATTR_SERVICE_INSTANCE_ID]: this.getCrossPhaseId(),
+
       [semconvIncubating.ATTR_OS_TYPE]: osType(),
       [semconvIncubating.ATTR_HOST_ARCH]: hostArch(),
       ...(details?.name === undefined || details.name === "unknown"
@@ -769,13 +777,31 @@ export abstract class DetSysAction {
       [ATTR_IDS_PROJECT]: this.actionOptions.idsProjectName,
       [ATTR_EXECUTION_PHASE]: this.executionPhase,
       [ATTR_CROSS_PHASE_ID]: this.getCrossPhaseId(),
-      [ATTR_ANONYMOUS_ID]: this.identity.$anon_distinct_id,
       [ATTR_CORRELATION_SOURCE]: this.identity.correlation_source,
       [ATTR_ARCH_OS]: this.archOs,
       [ATTR_NIX_SYSTEM]: this.nixSystem,
 
-      [ATTR_GITHUB_EVENT_NAME]: process.env["GITHUB_EVENT_NAME"],
+      // Which build of this Action runs, which is a property of the producer.
       [ATTR_GITHUB_ACTION_REPOSITORY]: process.env["GITHUB_ACTION_REPOSITORY"],
+    };
+  }
+
+  /**
+   * Which run of which workflow this is.
+   *
+   * These go on the span of the phase, and on the span of the job, and not on
+   * the Resource. A Resource that carries them is a new Resource for each run
+   * of each workflow, and a backend that indexes a Resource then indexes every
+   * run of every user as an entity of its own.
+   * A log record reaches these through the span it names.
+   *
+   * Each value is hashed and identifies no repository, no organization, and no
+   * person.
+   */
+  private runAttributes(): otelApi.Attributes {
+    return {
+      [ATTR_ANONYMOUS_ID]: this.identity.$anon_distinct_id,
+      [ATTR_GITHUB_EVENT_NAME]: process.env["GITHUB_EVENT_NAME"],
       [ATTR_GITHUB_REPOSITORY_HASH]: this.identity.github_repository_hash,
       [ATTR_GITHUB_ORGANIZATION_HASH]:
         this.identity.$groups["github_organization"],
