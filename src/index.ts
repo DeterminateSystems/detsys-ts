@@ -7,6 +7,7 @@ import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import type { CheckIn, Feature } from "./check-in.js";
 import * as checksums from "./checksums.js";
 import * as correlation from "./correlation.js";
+import * as exec from "./exec.js";
 import { IdsHost } from "./ids-host.js";
 import * as inputs from "./inputs.js";
 import * as log from "./log.js";
@@ -16,12 +17,12 @@ import * as sourcedef from "./sourcedef.js";
 import * as otel from "./telemetry.js";
 import * as actionsCache from "@actions/cache";
 import * as actionsCore from "@actions/core";
-import * as actionsExec from "@actions/exec";
+import type { ExecOptions } from "@actions/exec";
 import * as otelApi from "@opentelemetry/api";
 import * as semconv from "@opentelemetry/semantic-conventions";
 import * as semconvIncubating from "@opentelemetry/semantic-conventions/incubating";
 import type { Got, Request } from "got";
-import { exec } from "node:child_process";
+import { exec as shellExec } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import * as nodeFs from "node:fs";
 import fs, { chmod, copyFile, mkdir, readFile, stat } from "node:fs/promises";
@@ -195,11 +196,7 @@ const isRoot = typeof process.geteuid === "function" && process.geteuid() === 0;
 
 /** Create the Determinate state directory by escalating via sudo */
 async function sudoEnsureDeterminateStateDir(): Promise<void> {
-  const code = await actionsExec.exec("sudo", [
-    "mkdir",
-    "-p",
-    determinateStateDir,
-  ]);
+  const code = await exec.exec("sudo", ["mkdir", "-p", determinateStateDir]);
 
   if (code !== 0) {
     throw new Error(`sudo mkdir -p exit: ${code}`);
@@ -219,16 +216,12 @@ async function ensureDeterminateStateDir(): Promise<void> {
 async function sudoWriteCorrelationHashes(hashes: string): Promise<void> {
   const buffer = Buffer.from(hashes);
 
-  const code = await actionsExec.exec(
-    "sudo",
-    ["tee", determinateIdentityFile],
-    {
-      input: buffer,
+  const code = await exec.exec("sudo", ["tee", determinateIdentityFile], {
+    input: buffer,
 
-      // Ignore output from tee
-      outStream: nodeFs.createWriteStream("/dev/null"),
-    },
-  );
+    // Ignore output from tee
+    outStream: nodeFs.createWriteStream("/dev/null"),
+  });
 
   if (code !== 0) {
     throw new Error(`sudo tee exit: ${code}`);
@@ -472,9 +465,20 @@ export abstract class DetSysAction {
    */
   async unpackClosure(bin: string): Promise<string> {
     const artifact = await this.fetchArtifact();
-    const { stdout } = await promisify(exec)(
-      `cat "${artifact}" | xz -d | nix-store --import`,
+    const commandLine = `cat "${artifact}" | xz -d | nix-store --import`;
+
+    // A shell parses this line, thus it is not a program and a list of
+    // arguments, and `process.command_line` is the attribute that holds it.
+    const { stdout } = await otel.withSpan(
+      "unpack_closure",
+      async () => await promisify(shellExec)(commandLine),
+      {
+        attributes: {
+          [semconvIncubating.ATTR_PROCESS_COMMAND_LINE]: commandLine,
+        },
+      },
     );
+
     const paths = stdout.split(os.EOL);
     const lastPath = paths.at(-2);
     return `${lastPath}/bin/${bin}`;
@@ -1572,7 +1576,7 @@ export abstract class DetSysAction {
     return await otel.withSpan("preflight_nix_store_info", async (span) => {
       let output = "";
 
-      const options: actionsExec.ExecOptions = {};
+      const options: ExecOptions = {};
       options.silent = true;
       options.listeners = {
         stdout: (data) => {
@@ -1582,13 +1586,13 @@ export abstract class DetSysAction {
 
       try {
         output = "";
-        await actionsExec.exec("nix", ["store", "info", "--json"], options);
+        await exec.exec("nix", ["store", "info", "--json"], options);
         this.setAttribute(ATTR_NIX_STORE_CHECK_METHOD, "info");
       } catch {
         try {
           // reset output
           output = "";
-          await actionsExec.exec("nix", ["store", "ping", "--json"], options);
+          await exec.exec("nix", ["store", "ping", "--json"], options);
           this.setAttribute(ATTR_NIX_STORE_CHECK_METHOD, "ping");
         } catch {
           this.setAttribute(ATTR_NIX_STORE_CHECK_METHOD, "none");
@@ -1626,13 +1630,9 @@ export abstract class DetSysAction {
       let output = "unknown";
 
       try {
-        ({ stdout: output } = await actionsExec.getExecOutput(
-          "nix",
-          ["--version"],
-          {
-            silent: true,
-          },
-        ));
+        ({ stdout: output } = await exec.getExecOutput("nix", ["--version"], {
+          silent: true,
+        }));
         output = output.trim() || "unknown";
       } catch {
         // That's fine.
@@ -1717,6 +1717,12 @@ export { stringifyError } from "./errors.js";
 export { IdsHost } from "./ids-host.js";
 export type { SourceDef } from "./sourcedef.js";
 export * as inputs from "./inputs.js";
+
+/**
+ * Running a program, in a span of its own.
+ * A drop-in replacement for the `@actions/exec` functions.
+ */
+export * as exec from "./exec.js";
 
 /**
  * Logging that tees to both the GitHub Actions console and OpenTelemetry.
