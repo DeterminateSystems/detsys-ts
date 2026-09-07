@@ -168,7 +168,13 @@ function disabledByEmptyEndpoint(): boolean {
   return endpoint !== undefined && endpoint.trim() === "";
 }
 
-/** What one signal needs: its exporter, and the limits of its provider. */
+/**
+ * What one signal needs: its exporter, and the limits of its provider.
+ *
+ * `OTLPExporterNodeConfigBase` is what the constructor of an OTLP/HTTP
+ * exporter takes today, and OpenTelemetry JS calls it the legacy shape while it
+ * makes a new one. Watch that work, and follow it when it lands.
+ */
 export type SignalConfig = {
   exporter: OTLPExporterNodeConfigBase;
   limits: { attributeValueLengthLimit: number | undefined };

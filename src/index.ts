@@ -668,6 +668,12 @@ export abstract class DetSysAction {
    * A span belongs to the process that ends it, and the process that made the
    * announcement stopped long ago.
    * See {@link announceJobTrace}.
+   *
+   * The span only exists if this phase runs.
+   * A job that the user cancels, or that stops the runner, does not run the
+   * post phases, thus no span of the job reaches the collector and the spans of
+   * that job have no span above them.
+   * They keep the trace they announced, so a backend still shows them together.
    */
   private endJobSpan(): void {
     if (!this.isPost) {
