@@ -55,9 +55,9 @@ export function githubSemconvAttributes(
   // head of the change is the branch that asks for the merge.
   const head = pullRequest?.head;
 
-  return defined({
+  const attributes: Record<string, string | undefined> = {
     [semconv.ATTR_CICD_PIPELINE_NAME]: text(context.workflow),
-    [semconv.ATTR_CICD_PIPELINE_RUN_ID]: count(context.runId),
+    [semconv.ATTR_CICD_PIPELINE_RUN_ID]: numericString(context.runId),
     [semconv.ATTR_CICD_PIPELINE_RUN_URL_FULL]: pipelineRunUrl(
       context,
       repository,
@@ -71,8 +71,9 @@ export function githubSemconvAttributes(
     [semconv.ATTR_VCS_REPOSITORY_NAME]: repository?.repo,
     [semconv.ATTR_VCS_REPOSITORY_URL_FULL]: repositoryUrl(context, repository),
 
-    [semconv.ATTR_VCS_REF_HEAD_NAME]:
-      text(head?.ref) ?? refName(text(context.ref)),
+    // The reference is what the run gives, `refs/heads/` and all. A name
+    // with the part in front removed is a different reference.
+    [semconv.ATTR_VCS_REF_HEAD_NAME]: text(head?.ref) ?? text(context.ref),
     [semconv.ATTR_VCS_REF_HEAD_TYPE]:
       head === undefined
         ? refType(text(context.ref))
@@ -86,8 +87,13 @@ export function githubSemconvAttributes(
         : semconv.VCS_REF_BASE_TYPE_VALUE_BRANCH,
     [semconv.ATTR_VCS_REF_BASE_REVISION]: text(pullRequest?.base?.sha),
 
-    [semconv.ATTR_VCS_CHANGE_ID]: count(pullRequest?.number),
-  });
+    [semconv.ATTR_VCS_CHANGE_ID]: numericString(pullRequest?.number),
+  };
+
+  // An attribute with no value is not an attribute.
+  return Object.fromEntries(
+    Object.entries(attributes).filter(([, value]) => value !== undefined),
+  );
 }
 
 /** The owner and the name of the repository, when the run names them. */
@@ -133,23 +139,18 @@ function pipelineRunUrl(
   repository: { owner: string; repo: string } | undefined,
 ): string | undefined {
   const url = repositoryUrl(context, repository);
-  const runId = count(context.runId);
+  const runId = numericString(context.runId);
 
   if (url === undefined || runId === undefined) {
     return undefined;
   }
 
   const run = `${url}/actions/runs/${runId}`;
-  const attempt = count(context.runAttempt);
+  const attempt = numericString(context.runAttempt);
 
   return attempt === undefined || attempt === "1"
     ? run
     : `${run}/attempts/${attempt}`;
-}
-
-/** The name of a reference, without the `refs/heads/` or `refs/tags/` part. */
-function refName(ref: string | undefined): string | undefined {
-  return text(ref?.replace(/^refs\/(heads|tags)\//, ""));
 }
 
 /** Whether a reference is a branch or a tag. */
@@ -180,17 +181,8 @@ function text(value: string | undefined): string | undefined {
  *
  * The toolkit parses these, and gives NaN for a variable that is not set.
  */
-function count(value: number | undefined): string | undefined {
+function numericString(value: number | undefined): string | undefined {
   return value === undefined || !Number.isInteger(value)
     ? undefined
     : `${value}`;
-}
-
-/** The attributes that have a value. */
-function defined(
-  attributes: Record<string, string | undefined>,
-): otelApi.Attributes {
-  return Object.fromEntries(
-    Object.entries(attributes).filter(([, value]) => value !== undefined),
-  );
 }
