@@ -63,7 +63,7 @@ describe("githubSemconvAttributes", () => {
       "vcs.repository.name": "detsys-ts",
       "vcs.repository.url.full":
         "https://github.com/DeterminateSystems/detsys-ts",
-      "vcs.ref.head.name": "main",
+      "vcs.ref.head.name": "refs/heads/main",
       "vcs.ref.head.type": "branch",
       "vcs.ref.head.revision": HEAD_SHA,
     });
@@ -110,7 +110,8 @@ describe("githubSemconvAttributes", () => {
 
     const attributes = githubSemconvAttributes(context);
 
-    expect(attributes["vcs.ref.head.name"]).toBe("v2.0.0");
+    // The reference is what the run gives, and not a name cut out of it.
+    expect(attributes["vcs.ref.head.name"]).toBe("refs/tags/v2.0.0");
     expect(attributes["vcs.ref.head.type"]).toBe("tag");
   });
 
