@@ -71,11 +71,29 @@ const SHUTDOWN_TIMEOUT_MS = 5_000;
  */
 const DEFAULT_ATTRIBUTE_VALUE_LENGTH_LIMIT = 8_192;
 
+/**
+ * The attribute that tells the collector to keep this data.
+ *
+ * `sampling.priority` is the usual name for such a signal.
+ * This SDK samples at the head and keeps everything, thus the attribute only
+ * speaks to the tail sampler of the collector.
+ */
+export const ATTR_SAMPLING_PRIORITY = "sampling.priority";
+
+/**
+ * The value of {@link ATTR_SAMPLING_PRIORITY} that means "keep this trace".
+ *
+ * Any value above zero means the same thing.
+ * Zero means the opposite: discard the trace.
+ */
+const SAMPLING_PRIORITY_KEEP = 1;
+
 /** The OTLP environment variables a child process inherits from this run. */
 const OTLP_EXPORT_VARIABLES = [
   "OTEL_EXPORTER_OTLP_ENDPOINT",
   "OTEL_EXPORTER_OTLP_HEADERS",
   "OTEL_EXPORTER_OTLP_COMPRESSION",
+  "OTEL_RESOURCE_ATTRIBUTES",
 ] as const;
 
 /**
@@ -156,7 +174,7 @@ export function applyOtlpEnvironmentDefaults(): void {
 
     if (!authorized) {
       headers["Authorization"] = `Bearer ${OTLP_INGEST_TOKEN}`;
-      process.env["OTEL_EXPORTER_OTLP_HEADERS"] = encodeOtlpHeaders(headers);
+      process.env["OTEL_EXPORTER_OTLP_HEADERS"] = encodeKeyPairs(headers);
     }
   }
 
@@ -174,6 +192,32 @@ export function applyOtlpEnvironmentDefaults(): void {
     process.env["OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT"] =
       `${DEFAULT_ATTRIBUTE_VALUE_LENGTH_LIMIT}`;
   }
+
+  if (actionsCore.isDebug()) {
+    markRunAsHighPriority();
+  }
+}
+
+/**
+ * Ask the collector to keep the data of this run.
+ *
+ * The attribute goes in `OTEL_RESOURCE_ATTRIBUTES`.
+ * Thus it is on the data of this process, and on the data of each program the
+ * Action runs, which all read that variable.
+ * Only a value the user set for {@link ATTR_SAMPLING_PRIORITY} stays: theirs is
+ * the priority they meant to use.
+ */
+function markRunAsHighPriority(): void {
+  const attributes = otelCore.parseKeyPairsIntoRecord(
+    otelCore.getStringFromEnv("OTEL_RESOURCE_ATTRIBUTES"),
+  );
+
+  if (attributes[ATTR_SAMPLING_PRIORITY] !== undefined) {
+    return;
+  }
+
+  attributes[ATTR_SAMPLING_PRIORITY] = `${SAMPLING_PRIORITY_KEEP}`;
+  process.env["OTEL_RESOURCE_ATTRIBUTES"] = encodeKeyPairs(attributes);
 }
 
 /**
@@ -216,15 +260,16 @@ export function otlpExportEnvironment(): Record<string, string> {
 }
 
 /**
- * Make the value of `OTEL_EXPORTER_OTLP_HEADERS`.
+ * Make the value of an `OTEL_*` variable that holds key pairs, such as
+ * `OTEL_EXPORTER_OTLP_HEADERS` or `OTEL_RESOURCE_ATTRIBUTES`.
  *
- * The variable uses the W3C baggage format.
+ * These variables use the W3C baggage format.
  * The reader decodes each percent-encoded value.
  * Thus you must encode the space in `Bearer <token>`.
  * If you do not encode it, the scheme and the token become two entries.
  */
-export function encodeOtlpHeaders(headers: Record<string, string>): string {
-  return Object.entries(headers)
+export function encodeKeyPairs(pairs: Record<string, string>): string {
+  return Object.entries(pairs)
     .map(
       ([name, value]) =>
         `${encodeURIComponent(name)}=${encodeURIComponent(value)}`,
