@@ -7,6 +7,7 @@ import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import type { CheckIn, Feature } from "./check-in.js";
 import * as checksums from "./checksums.js";
 import * as correlation from "./correlation.js";
+import { githubSemconvAttributes } from "./github-semconv.js";
 import { IdsHost } from "./ids-host.js";
 import * as inputs from "./inputs.js";
 import * as log from "./log.js";
@@ -50,15 +51,11 @@ const ATTR_ARCH_OS = "detsys.arch_os";
 const ATTR_NIX_SYSTEM = "detsys.nix_system";
 const ATTR_FEATURE_PREFIX = "detsys.feature.";
 
+// The run and the repository are in the standard `cicd.*` and `vcs.*`
+// attributes. See `./github-semconv.ts`. Only what the conventions do not
+// name is here.
 const ATTR_GITHUB_EVENT_NAME = "detsys.github.event_name";
 const ATTR_GITHUB_ACTION_REPOSITORY = "detsys.github.action_repository";
-const ATTR_GITHUB_REPOSITORY_HASH = "detsys.github.repository_hash";
-const ATTR_GITHUB_ORGANIZATION_HASH = "detsys.github.organization_hash";
-const ATTR_GITHUB_WORKFLOW_HASH = "detsys.github.workflow_hash";
-const ATTR_GITHUB_WORKFLOW_JOB_HASH = "detsys.github.workflow_job_hash";
-const ATTR_GITHUB_WORKFLOW_RUN_HASH = "detsys.github.workflow_run_hash";
-const ATTR_GITHUB_WORKFLOW_RUN_DIFFERENTIATOR_HASH =
-  "detsys.github.workflow_run_differentiator_hash";
 
 const ATTR_ARTIFACT_NAME = "detsys.artifact.name";
 const ATTR_ARTIFACT_FETCH_SUFFIX = "detsys.artifact.fetch_suffix";
@@ -671,8 +668,8 @@ export abstract class DetSysAction {
   /**
    * The stable, run-scoped attributes attached to every span and log record.
    *
-   * The correlation data here is hashed and does not identify a repository,
-   * an organization, or a person.
+   * The run and the repository are in the standard `cicd.*` and `vcs.*`
+   * attributes, with the values themselves and not a hash of them.
    */
   private async telemetryResourceAttributes(): Promise<otelApi.Attributes> {
     const details = await this.systemDetails;
@@ -699,14 +696,8 @@ export abstract class DetSysAction {
 
       [ATTR_GITHUB_EVENT_NAME]: process.env["GITHUB_EVENT_NAME"],
       [ATTR_GITHUB_ACTION_REPOSITORY]: process.env["GITHUB_ACTION_REPOSITORY"],
-      [ATTR_GITHUB_REPOSITORY_HASH]: this.identity.github_repository_hash,
-      [ATTR_GITHUB_ORGANIZATION_HASH]:
-        this.identity.$groups["github_organization"],
-      [ATTR_GITHUB_WORKFLOW_HASH]: this.identity.github_workflow_hash,
-      [ATTR_GITHUB_WORKFLOW_JOB_HASH]: this.identity.github_workflow_job_hash,
-      [ATTR_GITHUB_WORKFLOW_RUN_HASH]: this.identity.github_workflow_run_hash,
-      [ATTR_GITHUB_WORKFLOW_RUN_DIFFERENTIATOR_HASH]:
-        this.identity.github_workflow_run_differentiator_hash,
+
+      ...githubSemconvAttributes(),
     };
   }
 
@@ -1546,6 +1537,10 @@ export type {
 } from "./check-in.js";
 export type { CorrelationProperties } from "./correlation.js";
 export { stringifyError } from "./errors.js";
+export {
+  type GitHubContext,
+  githubSemconvAttributes,
+} from "./github-semconv.js";
 export { IdsHost } from "./ids-host.js";
 export type { SourceDef } from "./sourcedef.js";
 export * as inputs from "./inputs.js";
