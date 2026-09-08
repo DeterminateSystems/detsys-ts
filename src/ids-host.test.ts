@@ -1,5 +1,4 @@
 import * as idsHost from "./ids-host.js";
-import { newTraceparent } from "./telemetry.js";
 import type { SrvRecord } from "node:dns";
 import { type Server, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -33,7 +32,7 @@ describe("the trace context of a request", () => {
 
   // The client is the one the Actions use for every request they make, such
   // as the check-in and the artifact download. The header puts the work the
-  // service does for the request in the trace of the workflow job.
+  // service does for the request in the trace of this Action.
   async function traceparentOfOneRequest(): Promise<string | undefined> {
     let received: string | undefined;
 
@@ -58,8 +57,8 @@ describe("the trace context of a request", () => {
     return received;
   }
 
-  test("is the trace of the job when no span is in progress", async () => {
-    const traceparent = newTraceparent();
+  test("is the inherited trace when no span is in progress", async () => {
+    const traceparent = `00-${"a".repeat(32)}-${"b".repeat(16)}-01`;
     process.env["TRACEPARENT"] = traceparent;
 
     expect(await traceparentOfOneRequest()).toBe(traceparent);

@@ -43,6 +43,7 @@ const ATTR_PROJECT = "detsys.project";
 const ATTR_IDS_PROJECT = "detsys.ids_project";
 const ATTR_EXECUTION_PHASE = "detsys.execution_phase";
 const ATTR_CROSS_PHASE_ID = "detsys.cross_phase_id";
+const ATTR_INVOCATION_ID = "detsys.invocation_id";
 const ATTR_ANONYMOUS_ID = "detsys.anonymous_id";
 const ATTR_CORRELATION_SOURCE = "detsys.correlation_source";
 const ATTR_ARCH_OS = "detsys.arch_os";
@@ -82,16 +83,14 @@ const STATE_KEY_EXECUTION_PHASE = "detsys_action_execution_phase";
 const STATE_KEY_NIX_NOT_FOUND = "detsys_action_nix_not_found";
 const STATE_NOT_FOUND = "not-found";
 const STATE_KEY_CROSS_PHASE_ID = "detsys_cross_phase_id";
-const STATE_KEY_TRACEPARENT = "detsys_otel_traceparent";
-const STATE_KEY_JOB_TRACEPARENT = "detsys_otel_job_traceparent";
-const STATE_KEY_JOB_SPAN_START = "detsys_otel_job_span_start";
 
 // The standard variable that carries the trace context between programs.
-// Every step of the job reads it, and so does each program the steps run.
+// Each phase sets it for the programs it runs, and for those programs only.
 const ENV_TRACEPARENT = "TRACEPARENT";
 
-// The span that covers the whole workflow job, and thus every Action in it.
-const SPAN_JOB = "github_actions_job";
+// The ID that ties together the traces of one workflow job. Every step of the
+// job reads it, and so does each program the steps run.
+const ENV_INVOCATION_ID = "DETSYS_INVOCATION_ID";
 
 // The check-in, which is the first thing each phase does.
 const SPAN_CHECK_IN = "check_in";
@@ -301,6 +300,10 @@ export abstract class DetSysAction {
 
     this.getCrossPhaseId();
 
+    // Make the ID as early as possible, so that each later step of the job
+    // finds it in the environment.
+    this.getInvocationId();
+
     this.identity = correlation.identify();
     this.archOs = platform.getArchOs();
     this.nixSystem = platform.getNixPlatform(this.archOs);
@@ -416,7 +419,15 @@ export abstract class DetSysAction {
     );
   }
 
-  // This ID will be saved in the action's state, to be persisted across phase steps
+  /**
+   * The ID of this Action, which every execution phase of it shares.
+   *
+   * Each phase reports a trace of its own.
+   * This ID is what puts the phases of one Action together, as
+   * `detsys.cross_phase_id`.
+   *
+   * The Action's state carries it from one phase to the next.
+   */
   getCrossPhaseId(): string {
     let crossPhaseId = actionsCore.getState(STATE_KEY_CROSS_PHASE_ID);
 
@@ -426,6 +437,36 @@ export abstract class DetSysAction {
     }
 
     return crossPhaseId;
+  }
+
+  /**
+   * The ID of this workflow job, which every Action of the job shares.
+   *
+   * Each execution phase of each Action reports a trace of its own, and each
+   * program a phase runs reports its own data.
+   * This ID is what puts that data together: it is on the spans and the log
+   * records of every participant, as `detsys.invocation_id`.
+   *
+   * A job runs each Action as a process of its own.
+   * Thus the Actions can only agree on the ID through the job's environment.
+   * The first Action to run makes the ID and exports it as
+   * `$DETSYS_INVOCATION_ID`.
+   * Each later step finds it there: the other Actions, and the programs the
+   * workflow runs, such as Nix.
+   */
+  getInvocationId(): string {
+    const invocationId = process.env[ENV_INVOCATION_ID];
+
+    if (invocationId !== undefined && invocationId !== "") {
+      return invocationId;
+    }
+
+    // `exportVariable` sets the variable in this process, and in each
+    // subsequent step of the job.
+    const newInvocationId = randomUUID();
+    actionsCore.exportVariable(ENV_INVOCATION_ID, newInvocationId);
+
+    return newInvocationId;
   }
 
   getCorrelationHashes(): correlation.CorrelationProperties {
@@ -488,10 +529,6 @@ export abstract class DetSysAction {
     const phaseStartTime = new Date();
 
     try {
-      // The job's span covers each Action of the job, thus the first Action to
-      // run announces it before it does anything else.
-      this.announceJobTrace(phaseStartTime);
-
       await this.startTelemetry();
       this.startPhaseSpan(phaseStartTime);
 
@@ -590,105 +627,31 @@ export abstract class DetSysAction {
   }
 
   /**
-   * Put every Action of this workflow job in one trace.
-   *
-   * A job runs each Action as a process of its own.
-   * Thus the Actions can only agree on a trace through the job's environment.
-   * The first Action to run makes the identity of the job's span and exports it
-   * as `$TRACEPARENT`.
-   * Each later step finds it there: the other Actions, and the programs the
-   * workflow runs, such as Nix.
-   *
-   * The span itself starts and ends in the post phase of the Action that
-   * announced it.
-   * GitHub Actions runs the post phases in the reverse of the order of the main
-   * phases, thus that phase is the last one of the job.
-   * The span then covers the whole job.
-   * See {@link endJobSpan}.
-   *
-   * A `$TRACEPARENT` that is already set belongs to an earlier Action, or to the
-   * system that started the workflow.
-   * Do not change it, and join that trace.
-   */
-  private announceJobTrace(startTime: Date): void {
-    if (!this.isMain || !otel.exportEnabled()) {
-      return;
-    }
-
-    if (process.env[ENV_TRACEPARENT]) {
-      return;
-    }
-
-    const traceparent = otel.newTraceparent();
-
-    // `exportVariable` sets the variable in this process, and in each
-    // subsequent step of the job.
-    actionsCore.exportVariable(ENV_TRACEPARENT, traceparent);
-
-    actionsCore.saveState(STATE_KEY_JOB_TRACEPARENT, traceparent);
-    actionsCore.saveState(STATE_KEY_JOB_SPAN_START, `${startTime.getTime()}`);
-  }
-
-  /**
-   * End the job's span, if this Action is the one that announced it.
-   *
-   * The span also starts here.
-   * A span belongs to the process that ends it, and the process that made the
-   * announcement stopped long ago.
-   * See {@link announceJobTrace}.
-   */
-  private endJobSpan(): void {
-    if (!this.isPost) {
-      return;
-    }
-
-    const traceparent = actionsCore.getState(STATE_KEY_JOB_TRACEPARENT);
-    if (traceparent === "") {
-      return;
-    }
-
-    const startTime = parseInt(
-      actionsCore.getState(STATE_KEY_JOB_SPAN_START),
-      10,
-    );
-
-    this.telemetry
-      .startAnnouncedSpan(
-        SPAN_JOB,
-        traceparent,
-        new Date(Number.isFinite(startTime) ? startTime : Date.now()),
-      )
-      ?.end();
-  }
-
-  /**
    * Start the root span of this execution phase.
    *
    * The span starts at the moment the phase did, and thus covers the start of
    * the SDK, which comes before it.
    *
-   * `main` and `post` are separate processes.
-   * Thus the main phase saves the identity of its span in the Action's state,
-   * and the post phase makes its span a child of it.
-   * A `$TRACEPARENT` in the environment is the span of the workflow job, or of
-   * the system that started the workflow.
+   * Each execution phase reports a trace of its own.
+   * A phase is a process of its own, and the phases of a job run minutes or
+   * hours apart, thus a trace that spans them says nothing a trace of each
+   * phase does not.
+   * The span is therefore the root of its trace, and joins no other.
+   *
+   * {@link getInvocationId} is what puts the traces of one job together, and
+   * {@link getCrossPhaseId} is what puts the phases of one Action together.
    */
   private startPhaseSpan(startTime: Date): void {
     if (!this.telemetry.enabled) {
       return;
     }
 
-    const parent =
-      actionsCore.getState(STATE_KEY_TRACEPARENT) ||
-      process.env[ENV_TRACEPARENT] ||
-      undefined;
-
     const span = otel
       .getTracer()
       .startSpan(
         `${this.actionOptions.name}:${this.executionPhase}`,
         { startTime },
-        otel.contextFromTraceparent(parent),
+        otelApi.ROOT_CONTEXT,
       );
 
     span.setAttributes(this.pendingAttributes);
@@ -696,14 +659,10 @@ export abstract class DetSysAction {
 
     const traceparent = otel.traceparentOf(span);
     if (traceparent !== undefined) {
-      // Each program this Action runs is part of this phase, and not of the
-      // workflow job. The variable changes in this process only: the later
-      // steps of the job keep the identity of the job's span.
+      // Each program this phase runs belongs to this phase's trace. The
+      // variable changes in this process only, thus no later step of the job
+      // inherits it.
       process.env[ENV_TRACEPARENT] = traceparent;
-
-      if (this.isMain) {
-        actionsCore.saveState(STATE_KEY_TRACEPARENT, traceparent);
-      }
     }
 
     this.phaseSpan = span;
@@ -732,6 +691,7 @@ export abstract class DetSysAction {
       [ATTR_IDS_PROJECT]: this.actionOptions.idsProjectName,
       [ATTR_EXECUTION_PHASE]: this.executionPhase,
       [ATTR_CROSS_PHASE_ID]: this.getCrossPhaseId(),
+      [ATTR_INVOCATION_ID]: this.getInvocationId(),
       [ATTR_ANONYMOUS_ID]: this.identity.$anon_distinct_id,
       [ATTR_CORRELATION_SOURCE]: this.identity.correlation_source,
       [ATTR_ARCH_OS]: this.archOs,
@@ -763,11 +723,13 @@ export abstract class DetSysAction {
 
   /**
    * The environment variables that let a child process add data to this
-   * Action's trace: the current `$TRACEPARENT` and the OTLP export settings.
+   * Action's trace: the current `$TRACEPARENT`, the invocation ID, and the
+   * OTLP export settings.
    *
    * Add these variables to the environment of each child process to trace.
    * A child that inherits this process's environment already has the OTLP
-   * settings; only `$TRACEPARENT` changes as the run proceeds.
+   * settings and the invocation ID; only `$TRACEPARENT` changes as the run
+   * proceeds.
    *
    * The result is empty if the OpenTelemetry export is off.
    * Thus it is always safe to add them.
@@ -778,6 +740,8 @@ export abstract class DetSysAction {
     }
 
     const environment: Record<string, string> = otel.otlpExportEnvironment();
+
+    environment[ENV_INVOCATION_ID] = this.getInvocationId();
 
     const traceparent = this.getTraceparent();
     if (traceparent !== undefined) {
@@ -1227,9 +1191,6 @@ export abstract class DetSysAction {
   private async complete(): Promise<void> {
     this.phaseSpan?.end();
     this.phaseSpan = undefined;
-
-    // The job's span contains this phase, so it ends after this phase does.
-    this.endJobSpan();
 
     // The process exits as soon as we return, so anything still buffered has
     // to go out now.
