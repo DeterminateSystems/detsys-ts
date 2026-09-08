@@ -17,8 +17,8 @@ process.env["GITHUB_RUN_ATTEMPT"] = "1";
 
 class NixInstallerAction extends DetSysAction {
   async main(): Promise<void> {
-    this.recordEvent("my_event");
-    this.recordEvent("my_next_event");
+    this.addEvent("my_event");
+    this.addEvent("my_next_event");
     await this.fetchExecutable();
   }
 
@@ -27,8 +27,8 @@ class NixInstallerAction extends DetSysAction {
 
 class MagicNixCacheAction extends DetSysAction {
   async main(): Promise<void> {
-    this.recordEvent("cache_hit");
-    this.recordEvent("cache_miss");
+    this.addEvent("cache_hit");
+    this.addEvent("cache_miss");
   }
 
   async post(): Promise<void> {}
