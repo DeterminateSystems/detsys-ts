@@ -1,6 +1,6 @@
 {
   "name": "@determinate-systems/detsys-ts",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "TypeScript goodies for DetSys projects",
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
