@@ -27,8 +27,28 @@ import * as semconv from "@opentelemetry/semantic-conventions";
 /** The instrumentation scope name for everything this library emits. */
 export const SCOPE_NAME = "detsys-ts";
 
-/** The version reported as the instrumentation scope's version. */
-export const LIBRARY_VERSION = "1.0";
+/**
+ * The version of this library, which the build supplies.
+ *
+ * `tsdown.config.ts` reads it from `package.json` and replaces this name with
+ * the value. A run that does not go through the build, such as a test, has no
+ * value to replace it with, and `typeof` on a name that does not exist is
+ * "undefined" and not an error.
+ */
+declare const __DETSYS_TS_VERSION__: string | undefined;
+
+/**
+ * The version reported as the instrumentation scope's version.
+ *
+ * Honeycomb shows it as `library.version`, thus a query can say which release
+ * of this library made a span. It read `1.0` until 2026-09, which is the
+ * `$lib_version` that the PostHog instrumentation reported, and which told
+ * nobody anything.
+ */
+export const LIBRARY_VERSION =
+  typeof __DETSYS_TS_VERSION__ === "string"
+    ? __DETSYS_TS_VERSION__
+    : "0.0.0-dev";
 
 /**
  * The OTLP/HTTP collector for all Actions.
