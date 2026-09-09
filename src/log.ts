@@ -13,7 +13,7 @@
 import { stringifyError } from "./errors.js";
 import { type LogLevel, emitLogRecord, withSpan } from "./telemetry.js";
 import * as actionsCore from "@actions/core";
-import type { Attributes } from "@opentelemetry/api";
+import type { Attributes, Span } from "@opentelemetry/api";
 
 /**
  * `@actions/core` accepts an Error in place of a message for the annotation
@@ -85,24 +85,40 @@ export function setFailed(message: Message, attributes?: Attributes): void {
 }
 
 /**
- * Run `fn` inside both a collapsible group in the workflow log and an active
- * OpenTelemetry span of the same name.
+ * Represents a collapsable log group and span.
+ */
+export interface Group {
+  /** The span of this group. */
+  span: Span;
+}
+
+/**
+ * Run a callback inside both a collapsible group in the workflow log and an active
+ * OpenTelemetry span.
  *
- * This is the replacement for a `startGroup`/`endGroup` pair: the group closes
+ * This replaces `startGroup`/`endGroup`: the group closes
  * and the span ends even if `fn` throws, and a throwing `fn` marks the span
  * failed before re-throwing.
+ *
+ * `name` is the span name and `label` is the console heading
+ *
+ * @param name - The span name, such as `install_nix`.
+ * @param label - The heading of the group in the workflow log.
+ * @param fn - The work of the group. It receives the group's span.
+ * @param attributes - Attributes for the span.
  */
 export async function group<T>(
   name: string,
-  fn: () => Promise<T>,
+  label: string,
+  fn: (group: Group) => Promise<T>,
   attributes?: Attributes,
 ): Promise<T> {
   return await withSpan(
     name,
-    async () => {
-      actionsCore.startGroup(name);
+    async (span) => {
+      actionsCore.startGroup(label);
       try {
-        return await fn();
+        return await fn({ span });
       } finally {
         actionsCore.endGroup();
       }
