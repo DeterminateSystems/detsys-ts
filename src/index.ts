@@ -620,7 +620,8 @@ export abstract class DetSysAction {
       // The `-action` suffix says this service is the Action, not the tool it runs.
       serviceName: `${this.actionOptions.name}-action`,
       // The Action's own version, which is the ref the workflow pinned.
-      serviceVersion: process.env["GITHUB_ACTION_REF"],
+      // A run that does not name a ref leaves the variable empty.
+      serviceVersion: text(process.env["GITHUB_ACTION_REF"]),
       resourceAttributes: await this.telemetryResourceAttributes(),
     });
   }
@@ -672,11 +673,14 @@ export abstract class DetSysAction {
    *
    * The run and the repository are in the standard `cicd.*` and `vcs.*`
    * attributes, with the values themselves and not a hash of them.
+   *
+   * An attribute the run does not supply is absent. See {@link
+   * withoutEmptyValues}.
    */
   private async telemetryResourceAttributes(): Promise<otelApi.Attributes> {
     const details = await this.systemDetails;
 
-    return {
+    return withoutEmptyValues({
       [semconvIncubating.ATTR_OS_TYPE]: osType(),
       [semconvIncubating.ATTR_HOST_ARCH]: hostArch(),
       ...(details?.name === undefined || details.name === "unknown"
@@ -700,7 +704,7 @@ export abstract class DetSysAction {
       [ATTR_GITHUB_ACTION_REPOSITORY]: process.env["GITHUB_ACTION_REPOSITORY"],
 
       ...githubSemconvAttributes(),
-    };
+    });
   }
 
   /**
@@ -1351,7 +1355,11 @@ export abstract class DetSysAction {
           actionsCore.debug(`Nix not at ${candidateNix}`);
         }
       }
-      this.setAttribute(ATTR_NIX_LOCATION, nixLocation || "");
+      // A run with no Nix on the path has no location to report, and an
+      // attribute with no value is not an attribute.
+      if (nixLocation !== undefined) {
+        this.setAttribute(ATTR_NIX_LOCATION, nixLocation);
+      }
 
       if (this.actionOptions.requireNix === "ignore") {
         return true;
@@ -1472,6 +1480,34 @@ function stringifyError(error: unknown): string {
   return error instanceof Error || typeof error == "string"
     ? error.toString()
     : JSON.stringify(error);
+}
+
+/**
+ * A value the run supplies, or undefined.
+ *
+ * A variable the run does not set is undefined.
+ * A variable the run sets to nothing is empty.
+ * Neither one is a value, thus both become undefined here.
+ */
+function text(value: string | undefined): string | undefined {
+  return value === undefined || value === "" ? undefined : value;
+}
+
+/**
+ * The attributes that have a value.
+ *
+ * An attribute with no value is not an attribute.
+ * It makes a column that says nothing, and it hides the difference between a
+ * value the run did not supply and a value that is empty.
+ */
+function withoutEmptyValues(
+  attributes: otelApi.Attributes,
+): otelApi.Attributes {
+  return Object.fromEntries(
+    Object.entries(attributes).filter(
+      ([, value]) => value !== undefined && value !== "",
+    ),
+  );
 }
 
 /**
