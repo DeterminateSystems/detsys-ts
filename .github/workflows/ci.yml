@@ -47,3 +47,93 @@ jobs:
         run: |
           rm -rf dist
           nix develop --command npm run docs
+
+  # Build nix-installer-action against this checkout of detsys-ts, then run it.
+  # This tells us if a change here breaks a downstream consumer.
+  nix-installer-action:
+    name: "nix-installer-action on ${{ matrix.runner }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - UbuntuLatest32Cores128G
+          - UbuntuLatest32Cores128GArm
+          - macos-latest-xlarge
+    runs-on: ${{ matrix.runner }}
+    # This job rebuilds and runs code from another repository.
+    # Give its token no permissions at all.
+    # Both repositories are public, so `actions/checkout` still works, and
+    # nix-installer-action installs Nix without an ID token.
+    permissions: {}
+    # Run the action under test with debug logging.
+    # This also makes `actionsCore.isDebug()` true, which shows the `log.debug`
+    # output of the action and of detsys-ts.
+    env:
+      ACTIONS_STEP_DEBUG: true
+      ACTIONS_RUNNER_DEBUG: true
+      RUNNER_DEBUG: 1
+    steps:
+      - name: Check out detsys-ts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: detsys-ts
+          persist-credentials: false
+
+      - name: Clone nix-installer-action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: DeterminateSystems/nix-installer-action
+          ref: main
+          path: nix-installer-action
+          persist-credentials: false
+
+      # Nix is not installed yet, so use the node on the runner.
+      - name: Show the node version
+        run: node --version && npm --version
+
+      - name: Pack detsys-ts
+        working-directory: detsys-ts
+        run: |
+          npm ci
+          npm run build
+          npm pack --pack-destination "$RUNNER_TEMP"
+
+      # Installing outside of the lockfile is the point of this job.
+      - name: Build nix-installer-action against this detsys-ts # zizmor: ignore[adhoc-packages]
+        working-directory: nix-installer-action
+        run: |
+          npm ci
+          npm install "$RUNNER_TEMP"/determinate-systems-detsys-ts-*.tgz
+          # Fail loudly if we accidentally test the published detsys-ts.
+          npm pkg get 'dependencies.@determinate-systems/detsys-ts' | grep -F 'file:'
+          npm run build
+          npm run package
+
+      - name: Install Nix with the patched nix-installer-action
+        uses: ./nix-installer-action
+        with:
+          logger: pretty
+          log-directives: nix_installer=trace
+          backtrace: full
+          _internal-strict-mode: true
+
+      - name: Test the installation
+        run: |
+          nix config show
+          nix run nixpkgs#hello
+
+  success:
+    runs-on: ubuntu-latest
+    permissions: {}
+    needs:
+      - checks
+      - nix-installer-action
+    if: ${{ always() }}
+    steps:
+      - run: "true"
+      - run: |
+          echo "A dependent in the build matrix failed."
+          exit 1
+        if: |
+          contains(needs.*.result, 'failure') ||
+          contains(needs.*.result, 'cancelled')
