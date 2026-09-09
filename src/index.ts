@@ -36,7 +36,6 @@ const EVENT_IDS_FAILOVER = "detsys.ids_failover";
 const EVENT_PREFLIGHT_REQUIRE_NIX_DENIED =
   "detsys.preflight_require_nix_denied";
 const EVENT_REQUEST_TIMEOUT = "detsys.request_timeout";
-const EVENT_STORE_IDENTITY_FAILED = "detsys.store_identity_failed";
 
 // Attributes describing the run. Where the OpenTelemetry semantic conventions
 // already name a value, they win; everything else lives under `detsys.`.
@@ -537,11 +536,15 @@ export abstract class DetSysAction {
         const correlationHashes = JSON.stringify(this.getCorrelationHashes());
         process.env.DETSYS_CORRELATION = correlationHashes;
         try {
-          await writeCorrelationHashes(correlationHashes);
-        } catch (error) {
-          this.addEvent(EVENT_STORE_IDENTITY_FAILED, {
-            [semconv.ATTR_EXCEPTION_MESSAGE]: stringifyError(error),
+          // The span reports the failure. withSpan records the exception the
+          // way OpenTelemetry defines, with the type, the message and the
+          // stack, and it sets the span status to error.
+          await otel.withSpan("store_identity", async () => {
+            await writeCorrelationHashes(correlationHashes);
           });
+        } catch {
+          // The file is a convenience for the programs this Action runs.
+          // A run that cannot write it carries on.
         }
 
         if (!(await this.preflightRequireNix())) {
