@@ -71,9 +71,9 @@ export function githubSemconvAttributes(
     [semconv.ATTR_VCS_REPOSITORY_NAME]: repository?.repo,
     [semconv.ATTR_VCS_REPOSITORY_URL_FULL]: repositoryUrl(context, repository),
 
-    // The reference is what the run gives, `refs/heads/` and all. A name
-    // with the part in front removed is a different reference.
-    [semconv.ATTR_VCS_REF_HEAD_NAME]: text(head?.ref) ?? text(context.ref),
+    // The name is the reference without `refs/heads/` or `refs/tags/` in
+    // front. A pull request already gives the name of the head branch.
+    [semconv.ATTR_VCS_REF_HEAD_NAME]: text(head?.ref) ?? refName(context.ref),
     [semconv.ATTR_VCS_REF_HEAD_TYPE]:
       head === undefined
         ? refType(text(context.ref))
@@ -151,6 +151,15 @@ function pipelineRunUrl(
   return attempt === undefined || attempt === "1"
     ? run
     : `${run}/attempts/${attempt}`;
+}
+
+/**
+ * The bare name of a reference.
+ *
+ * A reference that is not a branch and not a tag keeps its full name.
+ */
+function refName(ref: string | undefined): string | undefined {
+  return text(ref)?.replace(/^refs\/(heads|tags)\//, "");
 }
 
 /** Whether a reference is a branch or a tag. */

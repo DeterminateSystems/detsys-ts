@@ -23,7 +23,6 @@ import * as otelResources from "@opentelemetry/resources";
 import * as sdkLogs from "@opentelemetry/sdk-logs";
 import * as sdkTrace from "@opentelemetry/sdk-trace-base";
 import * as semconv from "@opentelemetry/semantic-conventions";
-import { randomBytes } from "node:crypto";
 
 /** The instrumentation scope name for everything this library emits. */
 export const SCOPE_NAME = "detsys-ts";
@@ -71,11 +70,29 @@ const SHUTDOWN_TIMEOUT_MS = 5_000;
  */
 const DEFAULT_ATTRIBUTE_VALUE_LENGTH_LIMIT = 8_192;
 
+/**
+ * The attribute that tells the collector to keep this data.
+ *
+ * `sampling.priority` is the usual name for such a signal.
+ * This SDK samples at the head and keeps everything, thus the attribute only
+ * speaks to the tail sampler of the collector.
+ */
+export const ATTR_SAMPLING_PRIORITY = "sampling.priority";
+
+/**
+ * The value of {@link ATTR_SAMPLING_PRIORITY} that means "keep this trace".
+ *
+ * Any value above zero means the same thing.
+ * Zero means the opposite: discard the trace.
+ */
+const SAMPLING_PRIORITY_KEEP = 1;
+
 /** The OTLP environment variables a child process inherits from this run. */
 const OTLP_EXPORT_VARIABLES = [
   "OTEL_EXPORTER_OTLP_ENDPOINT",
   "OTEL_EXPORTER_OTLP_HEADERS",
   "OTEL_EXPORTER_OTLP_COMPRESSION",
+  "OTEL_RESOURCE_ATTRIBUTES",
 ] as const;
 
 /**
@@ -156,7 +173,7 @@ export function applyOtlpEnvironmentDefaults(): void {
 
     if (!authorized) {
       headers["Authorization"] = `Bearer ${OTLP_INGEST_TOKEN}`;
-      process.env["OTEL_EXPORTER_OTLP_HEADERS"] = encodeOtlpHeaders(headers);
+      process.env["OTEL_EXPORTER_OTLP_HEADERS"] = encodeKeyPairs(headers);
     }
   }
 
@@ -174,6 +191,32 @@ export function applyOtlpEnvironmentDefaults(): void {
     process.env["OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT"] =
       `${DEFAULT_ATTRIBUTE_VALUE_LENGTH_LIMIT}`;
   }
+
+  if (actionsCore.isDebug()) {
+    markRunAsHighPriority();
+  }
+}
+
+/**
+ * Ask the collector to keep the data of this run.
+ *
+ * The attribute goes in `OTEL_RESOURCE_ATTRIBUTES`.
+ * Thus it is on the data of this process, and on the data of each program the
+ * Action runs, which all read that variable.
+ * Only a value the user set for {@link ATTR_SAMPLING_PRIORITY} stays: theirs is
+ * the priority they meant to use.
+ */
+function markRunAsHighPriority(): void {
+  const attributes = otelCore.parseKeyPairsIntoRecord(
+    otelCore.getStringFromEnv("OTEL_RESOURCE_ATTRIBUTES"),
+  );
+
+  if (attributes[ATTR_SAMPLING_PRIORITY] !== undefined) {
+    return;
+  }
+
+  attributes[ATTR_SAMPLING_PRIORITY] = `${SAMPLING_PRIORITY_KEEP}`;
+  process.env["OTEL_RESOURCE_ATTRIBUTES"] = encodeKeyPairs(attributes);
 }
 
 /**
@@ -216,53 +259,21 @@ export function otlpExportEnvironment(): Record<string, string> {
 }
 
 /**
- * Make the value of `OTEL_EXPORTER_OTLP_HEADERS`.
+ * Make the value of an `OTEL_*` variable that holds key pairs, such as
+ * `OTEL_EXPORTER_OTLP_HEADERS` or `OTEL_RESOURCE_ATTRIBUTES`.
  *
- * The variable uses the W3C baggage format.
+ * These variables use the W3C baggage format.
  * The reader decodes each percent-encoded value.
  * Thus you must encode the space in `Bearer <token>`.
  * If you do not encode it, the scheme and the token become two entries.
  */
-export function encodeOtlpHeaders(headers: Record<string, string>): string {
-  return Object.entries(headers)
+export function encodeKeyPairs(pairs: Record<string, string>): string {
+  return Object.entries(pairs)
     .map(
       ([name, value]) =>
         `${encodeURIComponent(name)}=${encodeURIComponent(value)}`,
     )
     .join(",");
-}
-
-/**
- * The generator of the trace and span IDs of this run.
- *
- * It makes random IDs, as the default generator does.
- * It can also give one span an identity that you supply.
- * That is how a span that one process announces starts in a different process.
- * See {@link Telemetry.startAnnouncedSpan}.
- */
-class PinnedIdGenerator implements sdkTrace.IdGenerator {
-  private traceId?: string;
-  private spanId?: string;
-
-  /** Give the next span this identity. */
-  pin(traceId: string, spanId: string): void {
-    this.traceId = traceId;
-    this.spanId = spanId;
-  }
-
-  /** Give each subsequent span a random identity again. */
-  unpin(): void {
-    this.traceId = undefined;
-    this.spanId = undefined;
-  }
-
-  generateTraceId(): string {
-    return this.traceId ?? randomHex(16);
-  }
-
-  generateSpanId(): string {
-    return this.spanId ?? randomHex(8);
-  }
 }
 
 /**
@@ -273,7 +284,6 @@ class PinnedIdGenerator implements sdkTrace.IdGenerator {
 export class Telemetry {
   private tracerProvider?: sdkTrace.BasicTracerProvider;
   private loggerProvider?: sdkLogs.LoggerProvider;
-  private idGenerator?: PinnedIdGenerator;
 
   /** Whether OTLP export is actually running. */
   get enabled(): boolean {
@@ -314,13 +324,10 @@ export class Telemetry {
           }),
         );
 
-      this.idGenerator = new PinnedIdGenerator();
-
       // The exporters read the endpoint, the headers, the compression, and
       // the timeouts from the environment.
       this.tracerProvider = new sdkTrace.BasicTracerProvider({
         resource,
-        idGenerator: this.idGenerator,
         spanProcessors: [
           new sdkTrace.BatchSpanProcessor(new OTLPTraceExporter()),
         ],
@@ -358,58 +365,9 @@ export class Telemetry {
     } catch (e: unknown) {
       this.tracerProvider = undefined;
       this.loggerProvider = undefined;
-      this.idGenerator = undefined;
       actionsCore.debug(
         `Failed to start OpenTelemetry export, continuing without it: ${stringifyError(e)}`,
       );
-    }
-  }
-
-  /**
-   * Start the span that {@link newTraceparent} announced.
-   *
-   * A workflow job runs each Action as a process of its own.
-   * Thus a span that covers more than one Action can only start in one of them.
-   * The Action that announces such a span makes its identity known first, and
-   * starts the span itself last, in the process that runs at the end.
-   * The spans that already point at that identity then find their parent.
-   *
-   * The span starts at `startTime`, which is the moment of the announcement.
-   * It is a child of the span in `parentContext`, and a root span if that
-   * context holds no span.
-   *
-   * Returns undefined if the export is off, or if `traceparent` does not name a
-   * usable span.
-   */
-  startAnnouncedSpan(
-    name: string,
-    traceparent: string,
-    startTime: Date,
-    parentContext: otelApi.Context = otelApi.ROOT_CONTEXT,
-  ): otelApi.Span | undefined {
-    const generator = this.idGenerator;
-    const spanContext = otelApi.trace.getSpanContext(
-      contextFromTraceparent(traceparent),
-    );
-
-    if (
-      generator === undefined ||
-      this.tracerProvider === undefined ||
-      spanContext === undefined ||
-      !otelApi.isSpanContextValid(spanContext)
-    ) {
-      return undefined;
-    }
-
-    // The tracer comes from this provider, and not from the global one,
-    // because the identity is pinned in this provider's ID generator.
-    const tracer = this.tracerProvider.getTracer(SCOPE_NAME, LIBRARY_VERSION);
-
-    try {
-      generator.pin(spanContext.traceId, spanContext.spanId);
-      return tracer.startSpan(name, { startTime }, parentContext);
-    } finally {
-      generator.unpin();
     }
   }
 
@@ -440,7 +398,6 @@ export class Telemetry {
     } finally {
       this.tracerProvider = undefined;
       this.loggerProvider = undefined;
-      this.idGenerator = undefined;
     }
   }
 }
@@ -504,35 +461,6 @@ export function traceparentOf(
 }
 
 /**
- * Make the identity of a span, but do not start the span.
- *
- * Announce the result to whatever must point at the span before it starts:
- * a different process, or a request this process makes too early to record.
- * Start the span itself with {@link Telemetry.startAnnouncedSpan}.
- *
- * The span is in the trace of `parent`, or in a new trace of its own if there
- * is no usable parent.
- * A new trace is sampled, because a process that only forwards an identity
- * cannot ask the sampler, and an unsampled parent would discard the work of
- * each process that joins.
- */
-export function newTraceparent(parent?: string): string {
-  const parentContext = otelApi.trace.getSpanContext(
-    contextFromTraceparent(parent),
-  );
-
-  if (
-    parentContext !== undefined &&
-    otelApi.isSpanContextValid(parentContext)
-  ) {
-    const flags = parentContext.traceFlags.toString(16).padStart(2, "0");
-    return `00-${parentContext.traceId}-${randomHex(8)}-${flags}`;
-  }
-
-  return `00-${randomHex(16)}-${randomHex(8)}-01`;
-}
-
-/**
  * The W3C trace context headers of the operation in progress, for an outgoing
  * HTTP request.
  *
@@ -542,7 +470,7 @@ export function newTraceparent(parent?: string): string {
  * The headers describe the span that is active now.
  * When no span is active yet -- a request the Action makes before it starts a
  * span of its own -- they describe the span that `$TRACEPARENT` names, which is
- * the span the Action announced, or the span of the workflow job.
+ * the span of the program that started this one.
  *
  * The result is empty when the export is off.
  * A no-op span's context is all zeroes, and is not a valid parent.
@@ -616,11 +544,6 @@ export async function withSpan<T>(
       }
     },
   );
-}
-
-/** A random ID of `bytes` bytes, in the lowercase hex the W3C format uses. */
-function randomHex(bytes: number): string {
-  return randomBytes(bytes).toString("hex");
 }
 
 /** Reject if `promise` has not settled within `timeoutMs`. */

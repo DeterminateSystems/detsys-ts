@@ -68,78 +68,35 @@ describe("Telemetry", () => {
     await expect(telemetry.shutdown()).resolves.toBeUndefined();
   });
 
-  test("an announced span starts with the identity it was given", async () => {
+  test("a phase span is the root of a trace of its own", async () => {
     process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
     process.env["OTEL_EXPORTER_OTLP_TIMEOUT"] = "100";
 
     const telemetry = new otel.Telemetry();
     telemetry.start({ serviceName: "test", resourceAttributes: {} });
 
-    // This is the identity another Action of the same job announced.
-    const traceparent = otel.newTraceparent();
-    const startTime = new Date(Date.now() - 60_000);
+    // A phase opens its span in the root context, and thus joins no trace,
+    // not even one the environment offers.
+    process.env["TRACEPARENT"] = `00-${"a".repeat(32)}-${"b".repeat(16)}-01`;
 
-    const span = telemetry.startAnnouncedSpan(
-      "github_actions_job",
-      traceparent,
-      startTime,
-    );
+    const main = otel
+      .getTracer()
+      .startSpan("action:main", {}, otelApi.ROOT_CONTEXT);
+    const post = otel
+      .getTracer()
+      .startSpan("action:post", {}, otelApi.ROOT_CONTEXT);
 
-    expect(otel.traceparentOf(span)).toBe(traceparent);
-    span?.end();
+    expect((main as SdkSpan).parentSpanContext).toBeUndefined();
+    expect((post as SdkSpan).parentSpanContext).toBeUndefined();
+    expect(main.spanContext().traceId).not.toBe(post.spanContext().traceId);
+    expect(main.spanContext().traceId).not.toBe("a".repeat(32));
 
-    // The identity belongs to that one span. Everything after it is its own.
-    const next = otel.getTracer().startSpan("afterward");
-    expect(otel.traceparentOf(next)).not.toBe(traceparent);
-    next.end();
+    main.end();
+    post.end();
 
-    await telemetry.shutdown();
-  });
-
-  test("an announced span is a child of the context it is given", async () => {
-    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
-    process.env["OTEL_EXPORTER_OTLP_TIMEOUT"] = "100";
-
-    const telemetry = new otel.Telemetry();
-    telemetry.start({ serviceName: "test", resourceAttributes: {} });
-
-    // This is the phase's span, and the span for a request it made before it
-    // could record one.
-    const parent = otel.newTraceparent();
-    const child = otel.newTraceparent(parent);
-
-    const parentSpan = telemetry.startAnnouncedSpan(
-      "phase",
-      parent,
-      new Date(),
-    );
-    const childSpan = telemetry.startAnnouncedSpan(
-      "check_in",
-      child,
-      new Date(),
-      otelApi.trace.setSpan(otelApi.ROOT_CONTEXT, parentSpan as otelApi.Span),
-    );
-
-    expect(otel.traceparentOf(childSpan)).toBe(child);
-    expect((childSpan as SdkSpan).parentSpanContext?.spanId).toBe(
-      parentSpan?.spanContext().spanId,
-    );
-
-    childSpan?.end();
-    parentSpan?.end();
+    delete process.env["TRACEPARENT"];
 
     await telemetry.shutdown();
-  });
-
-  test("an announced span that is not usable is skipped", () => {
-    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
-
-    const telemetry = new otel.Telemetry();
-    telemetry.start({ serviceName: "test", resourceAttributes: {} });
-
-    expect(
-      telemetry.startAnnouncedSpan("job", "not-a-traceparent", new Date()),
-    ).toBeUndefined();
   });
 
   test("the trace context headers describe the span in progress", async () => {
