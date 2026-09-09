@@ -252,6 +252,10 @@ export abstract class DetSysAction {
   // opened, and when OpenTelemetry export is disabled.
   private phaseSpan?: otelApi.Span;
 
+  // Whether the phase threw. The catch in `executeAsync` gives the phase span
+  // its error status, thus `concludePhaseSpan` must not write over it.
+  private phaseFailed: boolean;
+
   // Attributes set before the phase span exists, replayed onto it when it
   // opens.
   private pendingAttributes: otelApi.Attributes;
@@ -292,6 +296,7 @@ export abstract class DetSysAction {
 
     this.features = {};
     this.pendingAttributes = {};
+    this.phaseFailed = false;
 
     this.getCrossPhaseId();
 
@@ -569,6 +574,7 @@ export abstract class DetSysAction {
       const reportable = stringifyError(e);
 
       // The span's status and its `exception` event say the phase failed.
+      this.phaseFailed = true;
       if (this.phaseSpan !== undefined) {
         otel.recordSpanError(this.phaseSpan, e);
       }
@@ -1123,7 +1129,7 @@ export abstract class DetSysAction {
    */
   failOnError(msg: string): void {
     if (this.strictMode) {
-      actionsCore.setFailed(`strict mode failure: ${msg}`);
+      log.setFailed(`strict mode failure: ${msg}`);
     }
   }
 
@@ -1186,7 +1192,38 @@ export abstract class DetSysAction {
     });
   }
 
+  /**
+   * Give the phase span its status, before the span ends.
+   *
+   * A phase that throws gets its status from the catch in {@link
+   * executeAsync}. Every other failure still fails the step, and a step fails
+   * by way of `setFailed`, which sets the exit code of the process. Reading
+   * the exit code here thus reports the failures that do not throw: a
+   * preflight that refuses to run, and an Action that reports a failure of
+   * its own without this library ever seeing it.
+   *
+   * A phase that did not fail says so. `Unset` on a root span cannot tell a
+   * run that went well from a run that died before it could say anything.
+   */
+  private concludePhaseSpan(): void {
+    const span = this.phaseSpan;
+
+    if (span === undefined || this.phaseFailed) {
+      return;
+    }
+
+    if (process.exitCode === actionsCore.ExitCode.Failure) {
+      span.setStatus({
+        code: otelApi.SpanStatusCode.ERROR,
+        message: "the step failed",
+      });
+    } else {
+      span.setStatus({ code: otelApi.SpanStatusCode.OK });
+    }
+  }
+
   private async complete(): Promise<void> {
+    this.concludePhaseSpan();
     this.phaseSpan?.end();
     this.phaseSpan = undefined;
 

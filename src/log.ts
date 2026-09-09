@@ -11,7 +11,12 @@
  * behave identically to calling `@actions/core` directly.
  */
 import { stringifyError } from "./errors.js";
-import { type LogLevel, emitLogRecord, withSpan } from "./telemetry.js";
+import {
+  type LogLevel,
+  emitLogRecord,
+  failActiveSpan,
+  withSpan,
+} from "./telemetry.js";
 import * as actionsCore from "@actions/core";
 import type { Attributes, Span } from "@opentelemetry/api";
 
@@ -78,9 +83,14 @@ export function error(
 
 /**
  * Fail the workflow step, recording the reason as an OpenTelemetry error log.
+ *
+ * The span in progress is the work that failed, thus it gets the error
+ * status. The phase's root span gets one too, in `Action.concludePhaseSpan`:
+ * a failed step is a failed phase, and a query for failed runs reads the
+ * root.
  */
 export function setFailed(message: Message, attributes?: Attributes): void {
-  tee("error", message, attributes);
+  failActiveSpan(tee("error", message, attributes));
   actionsCore.setFailed(message);
 }
 

@@ -115,6 +115,54 @@ describe("Telemetry", () => {
     await telemetry.shutdown();
   });
 
+  test("failActiveSpan fails the span in progress, and records no exception", async () => {
+    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
+    process.env["OTEL_EXPORTER_OTLP_TIMEOUT"] = "100";
+
+    const telemetry = new otel.Telemetry();
+    telemetry.start({ serviceName: "test", resourceAttributes: {} });
+
+    // Nothing is in progress, thus there is nothing to fail.
+    expect(() => otel.failActiveSpan("nobody is listening")).not.toThrow();
+
+    await otel.withSpan("work", async (span) => {
+      otel.failActiveSpan("it did not work");
+
+      expect((span as SdkSpan).status).toStrictEqual({
+        code: otelApi.SpanStatusCode.ERROR,
+        message: "it did not work",
+      });
+      // A message this library wrote has no stack trace worth keeping.
+      expect((span as SdkSpan).events).toStrictEqual([]);
+    });
+
+    await telemetry.shutdown();
+  });
+
+  test("withSpan gives the span the kind it is asked for", async () => {
+    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
+    process.env["OTEL_EXPORTER_OTLP_TIMEOUT"] = "100";
+
+    const telemetry = new otel.Telemetry();
+    telemetry.start({ serviceName: "test", resourceAttributes: {} });
+
+    await otel.withSpan(
+      "request",
+      async (span) => {
+        expect((span as SdkSpan).kind).toBe(otelApi.SpanKind.CLIENT);
+      },
+      {},
+      otelApi.SpanKind.CLIENT,
+    );
+
+    // A span that asks for no kind is internal work.
+    await otel.withSpan("work", async (span) => {
+      expect((span as SdkSpan).kind).toBe(otelApi.SpanKind.INTERNAL);
+    });
+
+    await telemetry.shutdown();
+  });
+
   test("starting twice is a no-op", () => {
     process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
 

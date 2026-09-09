@@ -607,6 +607,22 @@ export function recordSpanError(span: otelApi.Span, error: unknown): void {
 }
 
 /**
+ * Mark the span in progress as failed, with `message` as the reason.
+ *
+ * This records no exception, unlike {@link recordSpanError}. A message this
+ * library wrote has no stack trace that says anything, and a stack trace of
+ * the report is not a stack trace of the failure.
+ *
+ * Does nothing when no span is in progress.
+ */
+export function failActiveSpan(message: string): void {
+  otelApi.trace.getActiveSpan()?.setStatus({
+    code: otelApi.SpanStatusCode.ERROR,
+    message,
+  });
+}
+
+/**
  * Run `fn` inside a new active span, ending the span when it settles and
  * marking it failed if it throws. The error is always re-thrown: this records,
  * it does not swallow.
@@ -615,10 +631,11 @@ export async function withSpan<T>(
   name: string,
   fn: (span: otelApi.Span) => Promise<T>,
   attributes?: otelApi.Attributes,
+  kind?: otelApi.SpanKind,
 ): Promise<T> {
   return await getTracer().startActiveSpan(
     name,
-    { attributes },
+    { attributes, kind },
     async (span) => {
       try {
         return await fn(span);
