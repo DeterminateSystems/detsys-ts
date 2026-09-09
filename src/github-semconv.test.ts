@@ -1,6 +1,7 @@
 import {
   type GitHubContext,
   githubSemconvAttributes,
+  serviceVersionOf,
 } from "./github-semconv.js";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
@@ -167,5 +168,32 @@ describe("githubSemconvAttributes", () => {
         payload: {},
       }),
     ).toStrictEqual({ "vcs.provider.name": "github" });
+  });
+});
+
+describe("serviceVersionOf", () => {
+  test("a version tag is a version", () => {
+    for (const ref of ["v3", "v3.1", "v3.1.0", "3.1.0", "v3.1.0-rc1"]) {
+      expect(serviceVersionOf(ref)).toBe(ref);
+    }
+  });
+
+  test("a revision is a version", () => {
+    for (const ref of [HEAD_SHA, "5aa9f9b"]) {
+      expect(serviceVersionOf(ref)).toBe(ref);
+    }
+  });
+
+  test("a branch is not a version", () => {
+    // A branch names whatever is newest, thus it says nothing about which
+    // code ran.
+    for (const ref of ["main", "master", "detsys/some-work", "release"]) {
+      expect(serviceVersionOf(ref)).toBeUndefined();
+    }
+  });
+
+  test("a run that names no ref has no version", () => {
+    expect(serviceVersionOf(undefined)).toBeUndefined();
+    expect(serviceVersionOf("")).toBeUndefined();
   });
 });

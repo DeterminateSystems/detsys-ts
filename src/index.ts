@@ -6,7 +6,7 @@ import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import type { CheckIn, Feature } from "./check-in.js";
 import * as checksums from "./checksums.js";
 import * as correlation from "./correlation.js";
-import { githubSemconvAttributes } from "./github-semconv.js";
+import { githubSemconvAttributes, serviceVersionOf } from "./github-semconv.js";
 import { IdsHost } from "./ids-host.js";
 import * as inputs from "./inputs.js";
 import * as log from "./log.js";
@@ -54,6 +54,9 @@ const ATTR_FEATURE_PREFIX = "detsys.feature.";
 // name is here.
 const ATTR_GITHUB_EVENT_NAME = "detsys.github.event_name";
 const ATTR_GITHUB_ACTION_REPOSITORY = "detsys.github.action_repository";
+// The ref the workflow pinned, whatever it is. `service.version` takes it
+// only when it names a version. See `serviceVersionOf`.
+const ATTR_GITHUB_ACTION_REF = "detsys.github.action_ref";
 
 const ATTR_ARTIFACT_NAME = "detsys.artifact.name";
 const ATTR_ARTIFACT_FETCH_SUFFIX = "detsys.artifact.fetch_suffix";
@@ -68,6 +71,10 @@ const ATTR_NIX_STORE_TRUST = "detsys.nix.store_trust";
 const ATTR_NIX_STORE_VERSION = "detsys.nix.store_version";
 const ATTR_NIX_STORE_CHECK_METHOD = "detsys.nix.store_check_method";
 const ATTR_NIX_STORE_CHECK_ERROR = "detsys.nix.store_check_error";
+const ATTR_PREFLIGHT_STAGE = "detsys.preflight.stage";
+
+// How long each phase of a request took, in milliseconds. got supplies them.
+const ATTR_HTTP_TIMING_PREFIX = "detsys.http.timing.";
 
 // Log records, not span attributes, carry stapled files: a record's body is
 // not truncated the way an attribute value is.
@@ -105,6 +112,14 @@ export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
  * GitHub Actions has two possible execution phases: `main` and `post`.
  */
 export type ExecutionPhase = "main" | "post";
+
+/**
+ * Where in an execution phase a preflight reading was taken.
+ *
+ * A `main` phase reads the version of Nix at both ends of its work. `start`
+ * is the reading before the Action ran, and `end` is the reading after.
+ */
+export type PreflightStage = "start" | "end";
 
 /**
  * How to handle whether Nix is currently installed on the runner.
@@ -556,7 +571,7 @@ export abstract class DetSysAction {
           return;
         } else {
           await this.preflightNixStoreInfo();
-          await this.preflightNixVersion();
+          await this.preflightNixVersion("start");
           this.setAttribute(ATTR_NIX_STORE_TRUST, this.nixStoreTrust);
         }
 
@@ -565,7 +580,7 @@ export abstract class DetSysAction {
 
           // Run the preflight of the nix version a second time so our final
           // telemetry has updated version info.
-          await this.preflightNixVersion();
+          await this.preflightNixVersion("end");
         } else if (this.isPost) {
           await this.post();
         }
@@ -625,9 +640,7 @@ export abstract class DetSysAction {
     this.telemetry.start({
       // The `-action` suffix says this service is the Action, not the tool it runs.
       serviceName: `${this.actionOptions.name}-action`,
-      // The Action's own version, which is the ref the workflow pinned.
-      // A run that does not name a ref leaves the variable empty.
-      serviceVersion: text(process.env["GITHUB_ACTION_REF"]),
+      serviceVersion: serviceVersionOf(process.env["GITHUB_ACTION_REF"]),
       resourceAttributes: await this.telemetryResourceAttributes(),
       samplingRandomnessSource: this.getInvocationId(),
     });
@@ -709,6 +722,7 @@ export abstract class DetSysAction {
 
       [ATTR_GITHUB_EVENT_NAME]: process.env["GITHUB_EVENT_NAME"],
       [ATTR_GITHUB_ACTION_REPOSITORY]: process.env["GITHUB_ACTION_REPOSITORY"],
+      [ATTR_GITHUB_ACTION_REF]: process.env["GITHUB_ACTION_REF"],
 
       ...githubSemconvAttributes(),
     });
@@ -949,7 +963,9 @@ export abstract class DetSysAction {
 
       for (const [key, value] of Object.entries(e.timings.phases)) {
         if (Number.isFinite(value)) {
-          attributes[`detsys.http.timing.${key}`] = value;
+          // got names these in camelCase, and the conventions want
+          // snake_case: `firstByte` becomes `first_byte`.
+          attributes[`${ATTR_HTTP_TIMING_PREFIX}${snakeCase(key)}`] = value;
         }
       }
 
@@ -1491,26 +1507,38 @@ export abstract class DetSysAction {
     });
   }
 
-  private async preflightNixVersion(): Promise<void> {
-    return await otel.withSpan("preflight_nix_version", async (span) => {
-      let output = "unknown";
+  /**
+   * Report the version of Nix on the runner.
+   *
+   * `stage` says where in the phase this reading was taken. A `main` phase
+   * reads the version twice, once before it does its work and once after, and
+   * the two readings differ on the run that installs Nix. Without the
+   * attribute the two spans are identical and a query cannot tell them apart.
+   */
+  private async preflightNixVersion(stage: PreflightStage): Promise<void> {
+    return await otel.withSpan(
+      "preflight_nix_version",
+      async (span) => {
+        let output = "unknown";
 
-      try {
-        ({ stdout: output } = await actionsExec.getExecOutput(
-          "nix",
-          ["--version"],
-          {
-            silent: true,
-          },
-        ));
-        output = output.trim() || "unknown";
-      } catch {
-        // That's fine.
-      }
+        try {
+          ({ stdout: output } = await actionsExec.getExecOutput(
+            "nix",
+            ["--version"],
+            {
+              silent: true,
+            },
+          ));
+          output = output.trim() || "unknown";
+        } catch {
+          // That's fine.
+        }
 
-      this.setAttribute(ATTR_NIX_VERSION, output);
-      span.setAttribute(ATTR_NIX_VERSION, output);
-    });
+        this.setAttribute(ATTR_NIX_VERSION, output);
+        span.setAttribute(ATTR_NIX_VERSION, output);
+      },
+      { [ATTR_PREFLIGHT_STAGE]: stage },
+    );
   }
 }
 
@@ -1521,14 +1549,10 @@ function stringifyError(error: unknown): string {
 }
 
 /**
- * A value the run supplies, or undefined.
- *
- * A variable the run does not set is undefined.
- * A variable the run sets to nothing is empty.
- * Neither one is a value, thus both become undefined here.
+ * A camelCase name as the conventions spell it, which is snake_case.
  */
-function text(value: string | undefined): string | undefined {
-  return value === undefined || value === "" ? undefined : value;
+function snakeCase(name: string): string {
+  return name.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
 }
 
 /**

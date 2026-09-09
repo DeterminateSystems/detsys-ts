@@ -96,6 +96,34 @@ export function githubSemconvAttributes(
   );
 }
 
+/**
+ * The ref the workflow pinned, when that ref names a version.
+ *
+ * `service.version` is the version of the service, such as `v3.1.0`, or the
+ * revision that built it. A branch is not a version. It names whatever is
+ * newest, thus two runs a month apart report the same value for different
+ * code, and a question such as "did the new release do this" cannot be asked.
+ *
+ * A ref that is a branch therefore does not become `service.version`. It
+ * stays on `detsys.github.action_ref`, which keeps every ref.
+ *
+ * @param ref - `$GITHUB_ACTION_REF`, which is what the workflow wrote in
+ * `uses:` after the `@`.
+ */
+export function serviceVersionOf(ref: string | undefined): string | undefined {
+  const value = text(ref);
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  // A tag such as `v3`, `v3.1`, or `3.1.0-rc1`, or the revision itself.
+  const version = /^v?\d+(\.\d+)*([.-].+)?$/;
+  const revision = /^[0-9a-f]{7,40}$/;
+
+  return version.test(value) || revision.test(value) ? value : undefined;
+}
+
 /** The owner and the name of the repository, when the run names them. */
 function repositoryOf(
   context: GitHubContext,
