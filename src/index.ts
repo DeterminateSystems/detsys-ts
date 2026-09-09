@@ -69,6 +69,9 @@ const ATTR_NIX_STORE_VERSION = "detsys.nix.store_version";
 const ATTR_NIX_STORE_CHECK_METHOD = "detsys.nix.store_check_method";
 const ATTR_NIX_STORE_CHECK_ERROR = "detsys.nix.store_check_error";
 
+const ATTR_IDENTITY_STORED = "detsys.identity.stored";
+const ATTR_IDENTITY_STORE_ERROR = "detsys.identity.store_error";
+
 // Log records, not span attributes, carry stapled files: a record's body is
 // not truncated the way an attribute value is.
 const ATTR_ATTACHMENT_NAME = "detsys.attachment.name";
@@ -534,17 +537,19 @@ export abstract class DetSysAction {
 
         const correlationHashes = JSON.stringify(this.getCorrelationHashes());
         process.env.DETSYS_CORRELATION = correlationHashes;
-        try {
-          // The span reports the failure. withSpan records the exception the
-          // way OpenTelemetry defines, with the type, the message and the
-          // stack, and it sets the span status to error.
-          await otel.withSpan("store_identity", async () => {
+        await otel.withSpan("store_identity", async (span) => {
+          try {
             await writeCorrelationHashes(correlationHashes);
-          });
-        } catch {
-          // The file is a convenience for the programs this Action runs.
-          // A run that cannot write it carries on.
-        }
+            span.setAttribute(ATTR_IDENTITY_STORED, true);
+          } catch (e: unknown) {
+            // The file is a convenience for the programs this Action runs. A
+            // runner without a usable sudo cannot write it and gets on fine
+            // without it, so the outcome goes on an attribute rather than
+            // failing the span.
+            span.setAttribute(ATTR_IDENTITY_STORED, false);
+            span.setAttribute(ATTR_IDENTITY_STORE_ERROR, stringifyError(e));
+          }
+        });
 
         if (!(await this.preflightRequireNix())) {
           this.addEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
