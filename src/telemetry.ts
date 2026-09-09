@@ -23,6 +23,7 @@ import * as otelResources from "@opentelemetry/resources";
 import * as sdkLogs from "@opentelemetry/sdk-logs";
 import * as sdkTrace from "@opentelemetry/sdk-trace-base";
 import * as semconv from "@opentelemetry/semantic-conventions";
+import { createHash } from "node:crypto";
 
 /** The instrumentation scope name for everything this library emits. */
 export const SCOPE_NAME = "detsys-ts";
@@ -125,6 +126,57 @@ const OTLP_EXPORT_VARIABLES = [
  */
 const PROPAGATOR = new otelCore.W3CTraceContextPropagator();
 
+/** OpenTelemetry's vendor key in `tracestate`. */
+const TRACE_STATE_KEY = "ot";
+
+const RANDOMNESS_HEX_DIGITS = 56 / 4;
+
+/**
+ * The sampling randomness for `source`, as lowercase hexadecimal. Hashed,
+ * because a sampler compares this against a threshold and that is only fair
+ * if the value is uniformly distributed.
+ */
+export function samplingRandomnessOf(source: string): string {
+  return createHash("sha256")
+    .update(source)
+    .digest("hex")
+    .slice(0, RANDOMNESS_HEX_DIGITS);
+}
+
+/**
+ * Records every span, and gives every trace it starts the same randomness.
+ *
+ * Each execution phase is a trace of its own, so a sampler keying on trace
+ * randomness would keep a job's `main` phase and drop its `post`. One shared
+ * value gets one decision for both. This discards nothing itself; the
+ * collector decides what to keep.
+ */
+class SharedRandomnessSampler implements sdkTrace.Sampler {
+  private readonly traceState: otelApi.TraceState;
+
+  constructor(randomness: string) {
+    this.traceState = new otelCore.TraceState().set(
+      TRACE_STATE_KEY,
+      `rv:${randomness}`,
+    );
+  }
+
+  shouldSample(context: otelApi.Context): otelApi.SamplingResult {
+    const parent = otelApi.trace.getSpanContext(context);
+    const isRoot = parent === undefined || !otelApi.isSpanContextValid(parent);
+
+    return {
+      decision: sdkTrace.SamplingDecision.RECORD_AND_SAMPLED,
+      // Only a root needs it; the rest of the trace has it already.
+      traceState: isRoot ? this.traceState : parent.traceState,
+    };
+  }
+
+  toString(): string {
+    return "SharedRandomnessSampler";
+  }
+}
+
 /** The severities we map GitHub Actions' log levels onto. */
 export type LogLevel = "debug" | "info" | "notice" | "warning" | "error";
 
@@ -145,6 +197,13 @@ export type TelemetryOptions = {
 
   /** Resource attributes for this run, added to each span and log record. */
   resourceAttributes: otelApi.Attributes;
+
+  /**
+   * What this run's traces share a sampling decision with. Pass the job's ID
+   * to keep its phases together. Omitting it keeps the default sampler, which
+   * writes no randomness.
+   */
+  samplingRandomnessSource?: string;
 };
 
 /**
@@ -348,6 +407,13 @@ export class Telemetry {
       // the timeouts from the environment.
       this.tracerProvider = new sdkTrace.BasicTracerProvider({
         resource,
+        ...(options.samplingRandomnessSource === undefined
+          ? {}
+          : {
+              sampler: new SharedRandomnessSampler(
+                samplingRandomnessOf(options.samplingRandomnessSource),
+              ),
+            }),
         spanProcessors: [
           new sdkTrace.BatchSpanProcessor(new OTLPTraceExporter()),
         ],

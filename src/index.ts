@@ -623,6 +623,7 @@ export abstract class DetSysAction {
       // A run that does not name a ref leaves the variable empty.
       serviceVersion: text(process.env["GITHUB_ACTION_REF"]),
       resourceAttributes: await this.telemetryResourceAttributes(),
+      samplingRandomnessSource: this.getInvocationId(),
     });
   }
 
