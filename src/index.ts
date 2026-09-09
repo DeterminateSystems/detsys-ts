@@ -2,7 +2,6 @@
  * @packageDocumentation
  * Determinate Systems' TypeScript library for creating GitHub Actions logic.
  */
-// import { version as pkgVersion } from "../package.json";
 import * as ghActionsCorePlatform from "./actions-core-platform.js";
 import type { CheckIn, Feature } from "./check-in.js";
 import * as checksums from "./checksums.js";
@@ -840,7 +839,7 @@ export abstract class DetSysAction {
     /* eslint-disable camelcase */
     const properties: Record<string, string | boolean | number> = {
       ci: "github",
-      $lib: "idslib",
+      $lib: "detsys-ts",
       $lib_version: otel.LIBRARY_VERSION,
       $app_name: `${this.actionOptions.name}/action`,
       project: this.actionOptions.name,
