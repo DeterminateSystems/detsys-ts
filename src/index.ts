@@ -1432,10 +1432,9 @@ export abstract class DetSysAction {
           );
         }
 
-        this.setAttribute(
-          ATTR_NIX_STORE_VERSION,
-          JSON.stringify(parsed.version),
-        );
+        if (typeof parsed.version === "string") {
+          this.setAttribute(ATTR_NIX_STORE_VERSION, parsed.version);
+        }
       } catch (e: unknown) {
         this.setAttribute(ATTR_NIX_STORE_CHECK_ERROR, stringifyError(e));
       }
