@@ -119,12 +119,14 @@ describe("applyOtlpEnvironmentDefaults", () => {
     "OTEL_EXPORTER_OTLP_HEADERS",
     "OTEL_EXPORTER_OTLP_COMPRESSION",
     "OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT",
+    "OTEL_RESOURCE_ATTRIBUTES",
   ];
 
   afterEach(() => {
     for (const variable of otlpVariables) {
       delete process.env[variable];
     }
+    delete process.env["RUNNER_DEBUG"];
   });
 
   test("points an unconfigured run at our collector, with its token", () => {
@@ -189,17 +191,71 @@ describe("applyOtlpEnvironmentDefaults", () => {
       "OTEL_EXPORTER_OTLP_HEADERS",
     ]);
   });
+
+  test("an ordinary run asks for no special treatment", () => {
+    otel.applyOtlpEnvironmentDefaults();
+
+    expect(process.env["OTEL_RESOURCE_ATTRIBUTES"]).toBeUndefined();
+  });
+
+  test("a debug run asks the collector to keep its data", () => {
+    process.env["RUNNER_DEBUG"] = "1";
+
+    otel.applyOtlpEnvironmentDefaults();
+
+    expect(
+      parseKeyPairsIntoRecord(process.env["OTEL_RESOURCE_ATTRIBUTES"])[
+        otel.ATTR_SAMPLING_PRIORITY
+      ],
+    ).toBe("1");
+  });
+
+  test("a debug run tells each program it runs to do the same", () => {
+    process.env["RUNNER_DEBUG"] = "1";
+
+    otel.applyOtlpEnvironmentDefaults();
+
+    expect(otel.otlpExportEnvironment()["OTEL_RESOURCE_ATTRIBUTES"]).toBe(
+      process.env["OTEL_RESOURCE_ATTRIBUTES"],
+    );
+  });
+
+  test("a debug run keeps the other attributes of the user", () => {
+    process.env["RUNNER_DEBUG"] = "1";
+    process.env["OTEL_RESOURCE_ATTRIBUTES"] = "deployment.environment=staging";
+
+    otel.applyOtlpEnvironmentDefaults();
+
+    expect(
+      parseKeyPairsIntoRecord(process.env["OTEL_RESOURCE_ATTRIBUTES"]),
+    ).toStrictEqual({
+      "deployment.environment": "staging",
+      [otel.ATTR_SAMPLING_PRIORITY]: "1",
+    });
+  });
+
+  test("a debug run keeps a priority the user set", () => {
+    process.env["RUNNER_DEBUG"] = "1";
+    process.env["OTEL_RESOURCE_ATTRIBUTES"] =
+      `${otel.ATTR_SAMPLING_PRIORITY}=0`;
+
+    otel.applyOtlpEnvironmentDefaults();
+
+    expect(process.env["OTEL_RESOURCE_ATTRIBUTES"]).toBe(
+      `${otel.ATTR_SAMPLING_PRIORITY}=0`,
+    );
+  });
 });
 
-describe("encodeOtlpHeaders", () => {
+describe("encodeKeyPairs", () => {
   test("is empty for no headers", () => {
-    expect(otel.encodeOtlpHeaders({})).toBe("");
+    expect(otel.encodeKeyPairs({})).toBe("");
   });
 
   test("percent-encodes values, because the reader decodes them", () => {
     // The SDK reads this value from the environment.
     // A space that you do not encode divides `Bearer` from the token.
-    expect(otel.encodeOtlpHeaders({ Authorization: "Bearer abc123" })).toBe(
+    expect(otel.encodeKeyPairs({ Authorization: "Bearer abc123" })).toBe(
       "Authorization=Bearer%20abc123",
     );
   });
@@ -207,12 +263,12 @@ describe("encodeOtlpHeaders", () => {
   test("round-trips through the reader's parser", () => {
     const headers = { Authorization: "Bearer abc123", other: "value" };
 
-    expect(
-      parseKeyPairsIntoRecord(otel.encodeOtlpHeaders(headers)),
-    ).toStrictEqual(headers);
+    expect(parseKeyPairsIntoRecord(otel.encodeKeyPairs(headers))).toStrictEqual(
+      headers,
+    );
   });
 
   test("joins multiple headers with a comma", () => {
-    expect(otel.encodeOtlpHeaders({ a: "1", b: "2" })).toBe("a=1,b=2");
+    expect(otel.encodeKeyPairs({ a: "1", b: "2" })).toBe("a=1,b=2");
   });
 });
