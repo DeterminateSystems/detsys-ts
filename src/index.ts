@@ -7,6 +7,11 @@ import type { CheckIn, Feature } from "./check-in.js";
 import * as checksums from "./checksums.js";
 import * as correlation from "./correlation.js";
 import { githubSemconvAttributes, serviceVersionOf } from "./github-semconv.js";
+import {
+  requestAttributes,
+  responseAttributes,
+  timingAttributes,
+} from "./http-semconv.js";
 import { IdsHost } from "./ids-host.js";
 import * as inputs from "./inputs.js";
 import * as log from "./log.js";
@@ -72,9 +77,6 @@ const ATTR_NIX_STORE_VERSION = "detsys.nix.store_version";
 const ATTR_NIX_STORE_CHECK_METHOD = "detsys.nix.store_check_method";
 const ATTR_NIX_STORE_CHECK_ERROR = "detsys.nix.store_check_error";
 const ATTR_PREFLIGHT_STAGE = "detsys.preflight.stage";
-
-// How long each phase of a request took, in milliseconds. got supplies them.
-const ATTR_HTTP_TIMING_PREFIX = "detsys.http.timing.";
 
 // Log records, not span attributes, carry stapled files: a record's body is
 // not truncated the way an attribute value is.
@@ -933,16 +935,30 @@ export abstract class DetSysAction {
         };
         /* eslint-enable camelcase */
 
-        return await (
-          await this.getClient()
-        )
-          .post(checkInUrl, {
-            json: props,
-            timeout: {
-              request: CHECK_IN_ENDPOINT_TIMEOUT_MS,
-            },
-          })
-          .json();
+        // A span for each attempt, and not one for the loop: an attempt goes
+        // to a host of its own, and a query for the host that refuses the
+        // check-in needs to see them apart.
+        return await otel.withSpan(
+          "check_in_request",
+          async (span) => {
+            const response = await (
+              await this.getClient()
+            ).post(checkInUrl, {
+              json: props,
+              timeout: {
+                request: CHECK_IN_ENDPOINT_TIMEOUT_MS,
+              },
+            });
+
+            span.setAttributes(
+              responseAttributes(response.statusCode, response.retryCount),
+            );
+
+            return JSON.parse(response.body) as CheckIn;
+          },
+          requestAttributes("POST", checkInUrl),
+          otelApi.SpanKind.CLIENT,
+        );
       } catch (e: unknown) {
         this.recordPlausibleTimeout(e);
         actionsCore.debug(`Error checking in: ${stringifyError(e)}`);
@@ -956,20 +972,19 @@ export abstract class DetSysAction {
   private recordPlausibleTimeout(e: unknown): void {
     // see: https://github.com/sindresorhus/got/blob/895e463fa699d6f2e4b2fc01ceb3b2bb9e157f4c/documentation/8-errors.md
     if (e instanceof TimeoutError && "timings" in e && "request" in e) {
-      const attributes: otelApi.Attributes = {
-        [semconv.ATTR_URL_FULL]: e.request.requestUrl?.toString(),
-        [semconv.ATTR_HTTP_REQUEST_RESEND_COUNT]: e.request.retryCount,
-      };
+      const url = e.request.requestUrl;
 
-      for (const [key, value] of Object.entries(e.timings.phases)) {
-        if (Number.isFinite(value)) {
-          // got names these in camelCase, and the conventions want
-          // snake_case: `firstByte` becomes `first_byte`.
-          attributes[`${ATTR_HTTP_TIMING_PREFIX}${snakeCase(key)}`] = value;
-        }
-      }
-
-      this.addEvent(EVENT_REQUEST_TIMEOUT, attributes);
+      this.addEvent(EVENT_REQUEST_TIMEOUT, {
+        // The request timed out, thus there is no status to report. The
+        // server and the path say which one did not answer. `url.full` used
+        // to be here, and it carried the correlation of the run in its
+        // query.
+        ...(url === undefined
+          ? {}
+          : requestAttributes(e.request.options.method, url)),
+        ...responseAttributes(undefined, e.request.retryCount),
+        ...timingAttributes(e.timings.phases),
+      });
     }
   }
 
@@ -1013,9 +1028,25 @@ export abstract class DetSysAction {
             JSON.stringify(this.identity),
           );
 
-          const versionCheckup = await (
-            await this.getClient()
-          ).head(correlatedUrl);
+          // The HEAD asks the server which artifact is current. It is a
+          // request of its own, thus it gets a span of its own: `fetch_artifact`
+          // also reads the cache and hashes the file, and is not one request.
+          const versionCheckup = await otel.withSpan(
+            "resolve_artifact",
+            async (requestSpan) => {
+              const response = await (
+                await this.getClient()
+              ).head(correlatedUrl);
+
+              requestSpan.setAttributes(
+                responseAttributes(response.statusCode, response.retryCount),
+              );
+
+              return response;
+            },
+            requestAttributes("HEAD", correlatedUrl),
+            otelApi.SpanKind.CLIENT,
+          );
           if (versionCheckup.headers.etag) {
             const v = versionCheckup.headers.etag;
             this.setAttribute(ATTR_SOURCE_ETAG, v);
@@ -1101,7 +1132,20 @@ export abstract class DetSysAction {
     const safeUrl = parsedUrl.origin + parsedUrl.pathname;
 
     actionsCore.info(`Fetching checksums file from ${safeUrl}`);
-    const response = await (await this.getClient()).get(checksumsUrl);
+    const response = await otel.withSpan(
+      "fetch_checksums",
+      async (span) => {
+        const result = await (await this.getClient()).get(checksumsUrl);
+
+        span.setAttributes(
+          responseAttributes(result.statusCode, result.retryCount),
+        );
+
+        return result;
+      },
+      requestAttributes("GET", parsedUrl),
+      otelApi.SpanKind.CLIENT,
+    );
     const body = response.body;
 
     const actualFileHash = checksums.sha256OfBuffer(body);
@@ -1149,12 +1193,31 @@ export abstract class DetSysAction {
     }
   }
 
+  /**
+   * Download `url` to `destination`, in a span of its own.
+   *
+   * The span is a client span, and it carries the request and the response,
+   * thus a query can say which server was slow and which one refused. got's
+   * own retries are inside this one span: they are one logical request, and
+   * `http.request.resend_count` says how many attempts it took.
+   */
   private async downloadFile(
     url: URL,
     destination: nodeFs.PathLike,
   ): Promise<Request> {
-    return await otel.withSpan("download_file", async () =>
-      this.download(url, destination),
+    return await otel.withSpan(
+      "download_file",
+      async (span) => {
+        const request = await this.download(url, destination);
+
+        span.setAttributes(
+          responseAttributes(request.response?.statusCode, request.retryCount),
+        );
+
+        return request;
+      },
+      requestAttributes("GET", url),
+      otelApi.SpanKind.CLIENT,
     );
   }
 
@@ -1196,6 +1259,17 @@ export abstract class DetSysAction {
         stream.once("retry", (_count, _error, createRetryStream) => {
           // Optional: check `failed' here in case you want to stop retrying
           retry(createRetryStream());
+        });
+
+        // A request got will not send again ends here. got emits `retry` or
+        // `error`, never both, thus this only sees the failure that stands.
+        // Without this listener the failure is an unhandled `error` event on
+        // the stream, which takes the process down before it can report
+        // anything: the span never ends and no telemetry goes out.
+        stream.once("error", (error) => {
+          failed = true;
+          writeStream?.destroy();
+          reject(error);
         });
 
         // Now that all the handlers have been set up we can pipe from the HTTP
@@ -1546,13 +1620,6 @@ function stringifyError(error: unknown): string {
   return error instanceof Error || typeof error == "string"
     ? error.toString()
     : JSON.stringify(error);
-}
-
-/**
- * A camelCase name as the conventions spell it, which is snake_case.
- */
-function snakeCase(name: string): string {
-  return name.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
 }
 
 /**
