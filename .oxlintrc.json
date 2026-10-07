@@ -1,14 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": [
-    "typescript",
-    "import"
-  ],
-  "jsPlugins": [
-    "eslint-plugin-eslint-comments",
-    "eslint-plugin-github",
-    "eslint-plugin-no-only-tests",
-  ],
+  "plugins": ["typescript", "import"],
+  "jsPlugins": ["eslint-plugin-eslint-comments", "eslint-plugin-no-only-tests"],
   "categories": {
     "correctness": "off"
   },
@@ -34,7 +27,6 @@
     "eslint-comments/no-unlimited-disable": "error",
     "eslint-comments/no-unused-disable": "error",
     "eslint-comments/no-unused-enable": "error",
-    "github/filenames-match-regex": "error",
     "func-style": [
       "error",
       "declaration",
@@ -42,10 +34,6 @@
         "allowArrowFunctions": true
       }
     ],
-    "github/array-foreach": "error",
-    "github/no-implicit-buggy-globals": "error",
-    "github/no-then": "error",
-    "github/no-dynamic-script-tag": "error",
     "import/default": "error",
     "import/export": "error",
     "import/extensions": [
@@ -125,9 +113,7 @@
     "no-regex-spaces": "error",
     "no-return-assign": "error",
     "no-self-assign": "error",
-    "no-sequences": [
-      "error"
-    ],
+    "no-sequences": ["error"],
     "no-shadow": "error",
     "no-sparse-arrays": "error",
     "no-this-before-super": "error",
@@ -147,10 +133,7 @@
         "avoidQuotes": true
       }
     ],
-    "one-var": [
-      "error",
-      "never"
-    ],
+    "one-var": ["error", "never"],
     "prefer-const": "error",
     "prefer-promise-reject-errors": "error",
     "prefer-rest-params": "error",
@@ -159,10 +142,7 @@
     "require-yield": "error",
     "use-isnan": "error",
     "valid-typeof": "error",
-    "eqeqeq": [
-      "error",
-      "smart"
-    ],
+    "eqeqeq": ["error", "smart"],
     "no-useless-constructor": "error",
     "typescript/ban-ts-comment": "error",
     "typescript/no-duplicate-enum-values": "error",
@@ -217,12 +197,7 @@
   },
   "overrides": [
     {
-      "files": [
-        "**/*.ts",
-        "**/*.tsx",
-        "**/*.mts",
-        "**/*.cts"
-      ],
+      "files": ["**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts"],
       "rules": {
         "getter-return": "off",
         "no-import-assign": "off",
