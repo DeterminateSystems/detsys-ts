@@ -1,7 +1,8 @@
-import * as otel from "./telemetry.js";
 import * as otelApi from "@opentelemetry/api";
 import type { Span as SdkSpan } from "@opentelemetry/sdk-trace-base";
 import { afterEach, describe, expect, test } from "vitest";
+
+import * as otel from "./telemetry.js";
 
 // `Telemetry.start` registers global providers, which no later test in this
 // process can undo. That is why these live in a file of their own.

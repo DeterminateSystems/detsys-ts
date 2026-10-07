@@ -1,8 +1,9 @@
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
+
 import {
   type GitHubContext,
   githubSemconvAttributes,
 } from "./github-semconv.js";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 const HEAD_SHA = "5aa9f9ba3b4d4dc4f4dcd5f0ba0f0e4a1d1b3c2e";
 const MERGE_SHA = "1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d";

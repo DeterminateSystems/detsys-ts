@@ -1,13 +1,15 @@
+import type { SrvRecord } from "node:dns";
+import { resolveSrv } from "node:dns/promises";
+
+import * as actionsCore from "@actions/core";
+import got, { type Got } from "got";
+
 /**
  * @packageDocumentation
  * Identifies and discovers backend servers for install.determinate.systems
  */
 import { stringifyError } from "./errors.js";
 import { traceContextHeaders } from "./telemetry.js";
-import * as actionsCore from "@actions/core";
-import got, { type Got } from "got";
-import type { SrvRecord } from "node:dns";
-import { resolveSrv } from "node:dns/promises";
 
 const DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
 const ALLOWED_SUFFIXES = [

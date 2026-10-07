@@ -1,5 +1,6 @@
-import * as actionsCore from "@actions/core";
 import { createHash, randomUUID } from "node:crypto";
+
+import * as actionsCore from "@actions/core";
 
 const OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 

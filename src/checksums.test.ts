@@ -1,5 +1,6 @@
-import { parseChecksumsFile, sha256OfBuffer } from "./checksums.js";
 import { describe, expect, test } from "vitest";
+
+import { parseChecksumsFile, sha256OfBuffer } from "./checksums.js";
 
 describe("parseChecksumsFile", () => {
   test("parses a typical shasum-format file", () => {

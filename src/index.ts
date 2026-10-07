@@ -1,3 +1,19 @@
+import { exec } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import * as nodeFs from "node:fs";
+import fs, { chmod, copyFile, mkdir, readFile } from "node:fs/promises";
+import os, { tmpdir } from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+
+import * as actionsCache from "@actions/cache";
+import * as actionsCore from "@actions/core";
+import * as actionsExec from "@actions/exec";
+import * as otelApi from "@opentelemetry/api";
+import * as semconv from "@opentelemetry/semantic-conventions";
+import * as semconvIncubating from "@opentelemetry/semantic-conventions/incubating";
+import { type Got, type Request, TimeoutError } from "got";
+
 /**
  * @packageDocumentation
  * Determinate Systems' TypeScript library for creating GitHub Actions logic.
@@ -14,20 +30,6 @@ import * as platform from "./platform.js";
 import type { SourceDef } from "./sourcedef.js";
 import * as sourcedef from "./sourcedef.js";
 import * as otel from "./telemetry.js";
-import * as actionsCache from "@actions/cache";
-import * as actionsCore from "@actions/core";
-import * as actionsExec from "@actions/exec";
-import * as otelApi from "@opentelemetry/api";
-import * as semconv from "@opentelemetry/semantic-conventions";
-import * as semconvIncubating from "@opentelemetry/semantic-conventions/incubating";
-import { type Got, type Request, TimeoutError } from "got";
-import { exec } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import * as nodeFs from "node:fs";
-import fs, { chmod, copyFile, mkdir, readFile } from "node:fs/promises";
-import os, { tmpdir } from "node:os";
-import path from "node:path";
-import { promisify } from "node:util";
 
 // Span events this library records itself. Names a caller passes to
 // `addEvent` are used as given.

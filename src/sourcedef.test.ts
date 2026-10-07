@@ -1,5 +1,6 @@
-import { assertChecksumSourceIsPinned } from "./sourcedef.js";
 import { describe, expect, test } from "vitest";
+
+import { assertChecksumSourceIsPinned } from "./sourcedef.js";
 
 describe("assertChecksumSourceIsPinned", () => {
   test.each([

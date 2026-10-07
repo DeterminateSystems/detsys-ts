@@ -1,3 +1,17 @@
+import { createHash } from "node:crypto";
+
+import * as actionsCore from "@actions/core";
+import * as otelApi from "@opentelemetry/api";
+import { type Logger, SeverityNumber, logs } from "@opentelemetry/api-logs";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import * as otelCore from "@opentelemetry/core";
+import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import * as otelResources from "@opentelemetry/resources";
+import * as sdkLogs from "@opentelemetry/sdk-logs";
+import * as sdkTrace from "@opentelemetry/sdk-trace-base";
+import * as semconv from "@opentelemetry/semantic-conventions";
+
 /**
  * @packageDocumentation
  * OpenTelemetry traces and logs for Determinate Systems' GitHub Actions.
@@ -12,18 +26,6 @@
  * so every documented OpenTelemetry knob works here as it does anywhere else.
  */
 import { stringifyError } from "./errors.js";
-import * as actionsCore from "@actions/core";
-import * as otelApi from "@opentelemetry/api";
-import { type Logger, SeverityNumber, logs } from "@opentelemetry/api-logs";
-import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
-import * as otelCore from "@opentelemetry/core";
-import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
-import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import * as otelResources from "@opentelemetry/resources";
-import * as sdkLogs from "@opentelemetry/sdk-logs";
-import * as sdkTrace from "@opentelemetry/sdk-trace-base";
-import * as semconv from "@opentelemetry/semantic-conventions";
-import { createHash } from "node:crypto";
 
 /** The instrumentation scope name for everything this library emits. */
 export const SCOPE_NAME = "detsys-ts";
