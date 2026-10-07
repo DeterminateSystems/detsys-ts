@@ -11,8 +11,8 @@
   "scripts": {
     "build": "tsdown",
     "prepare": "tsdown",
-    "check-fmt": "prettier --check .",
-    "format": "prettier --write .",
+    "check-fmt": "oxfmt --check .",
+    "format": "oxfmt --write .",
     "lint": "eslint src/**/*.ts",
     "docs": "typedoc",
     "test": "vitest --watch false",
@@ -59,6 +59,7 @@
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-prettier": "^5.5.5",
     "globals": "^17.4.0",
+    "oxfmt": "^0.72.0",
     "prettier": "^3.8.1",
     "tsdown": "^0.22.14",
     "typedoc": "^0.28.17",
