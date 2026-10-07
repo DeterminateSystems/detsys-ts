@@ -1,3 +1,6 @@
+import * as actionsCore from "@actions/core";
+import type { Attributes, Span } from "@opentelemetry/api";
+
 /**
  * @packageDocumentation
  * Logging that tees to both the GitHub Actions console and OpenTelemetry.
@@ -12,8 +15,6 @@
  */
 import { stringifyError } from "./errors.js";
 import { type LogLevel, emitLogRecord, withSpan } from "./telemetry.js";
-import * as actionsCore from "@actions/core";
-import type { Attributes, Span } from "@opentelemetry/api";
 
 /**
  * `@actions/core` accepts an Error in place of a message for the annotation

@@ -1,8 +1,10 @@
-import * as idsHost from "./ids-host.js";
 import type { SrvRecord } from "node:dns";
 import { type Server, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+
 import { afterEach, assert, describe, expect, test } from "vitest";
+
+import * as idsHost from "./ids-host.js";
 
 function mkRecord(
   weight: number,

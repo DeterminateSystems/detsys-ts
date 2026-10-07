@@ -1,5 +1,6 @@
-import * as otel from "./telemetry.js";
 import { describe, expect, test } from "vitest";
+
+import * as otel from "./telemetry.js";
 
 // `Telemetry.start` registers global providers that no later test in this
 // process can undo, so this lives in a file of its own.

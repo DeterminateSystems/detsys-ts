@@ -1,7 +1,8 @@
-import * as otel from "./telemetry.js";
 import { ROOT_CONTEXT, trace } from "@opentelemetry/api";
 import { parseKeyPairsIntoRecord } from "@opentelemetry/core";
 import { afterEach, describe, expect, test } from "vitest";
+
+import * as otel from "./telemetry.js";
 
 // These run with no provider registered, which is the default for any run that
 // hasn't opted into OTLP export. The whole design leans on the OpenTelemetry

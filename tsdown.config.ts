@@ -1,5 +1,6 @@
-import packageJson from "./package.json" with { type: "json" };
 import { defineConfig } from "tsdown";
+
+import packageJson from "./package.json" with { type: "json" };
 
 export default defineConfig({
   name: "detsys-ts",
