@@ -4,16 +4,12 @@
  */
 import * as actionsCore from "@actions/core";
 
-/**
- * Get a Boolean input from the Action's configuration by name.
- */
+/** Get a Boolean input from the Action's configuration by name. */
 const getBool = (name: string): boolean => {
   return actionsCore.getBooleanInput(name);
 };
 
-/**
- * Get a Boolean input from the Action's configuration by name, or undefined if it is unset.
- */
+/** Get a Boolean input from the Action's configuration by name, or undefined if it is unset. */
 const getBoolOrUndefined = (name: string): boolean | undefined => {
   if (getStringOrUndefined(name) === undefined) {
     return undefined;
@@ -22,9 +18,7 @@ const getBoolOrUndefined = (name: string): boolean | undefined => {
   return actionsCore.getBooleanInput(name);
 };
 
-/**
- * The character used to separate values in the input string.
- */
+/** The character used to separate values in the input string. */
 export type Separator = "space" | "comma";
 
 /**
@@ -36,19 +30,13 @@ const getArrayOfStrings = (name: string, separator: Separator): string[] => {
   return handleString(original, separator);
 };
 
-/**
- * Convert a string input into an array of strings or `null` if no value is set.
- */
-const getArrayOfStringsOrNull = (
-  name: string,
-  separator: Separator,
-): string[] | null => {
+/** Convert a string input into an array of strings or `null` if no value is set. */
+const getArrayOfStringsOrNull = (name: string, separator: Separator): string[] | null => {
   const original = getStringOrNull(name);
   if (original === null) {
     return null;
-  } else {
-    return handleString(original, separator);
   }
+  return handleString(original, separator);
 };
 
 // Split out this function for use in testing
@@ -63,32 +51,27 @@ export const handleString = (input: string, separator: Separator): string[] => {
 };
 
 /**
- * Get a multi-line string input from the Action's configuration by name or return `null` if not set.
+ * Get a multi-line string input from the Action's configuration by name or return `null` if not
+ * set.
  */
 const getMultilineStringOrNull = (name: string): string[] | null => {
   const value = actionsCore.getMultilineInput(name);
   if (value.length === 0) {
     return null;
-  } else {
-    return value;
   }
+  return value;
 };
 
-/**
- * Get a number input from the Action's configuration by name or return `null` if not set.
- */
+/** Get a number input from the Action's configuration by name or return `null` if not set. */
 const getNumberOrNull = (name: string): number | null => {
   const value = actionsCore.getInput(name);
   if (value === "") {
     return null;
-  } else {
-    return Number(value);
   }
+  return Number(value);
 };
 
-/**
- * Get a Number input from the Action's configuration by name, or undefined if it is unset.
- */
+/** Get a Number input from the Action's configuration by name, or undefined if it is unset. */
 const getNumberOrUndefined = (name: string): number | undefined => {
   const value = getStringOrUndefined(name);
   if (value === undefined) {
@@ -98,35 +81,27 @@ const getNumberOrUndefined = (name: string): number | undefined => {
   return Number(value);
 };
 
-/**
- * Get a string input from the Action's configuration.
- */
+/** Get a string input from the Action's configuration. */
 const getString = (name: string): string => {
   return actionsCore.getInput(name);
 };
 
-/**
- * Get a string input from the Action's configuration by name or return `null` if not set.
- */
+/** Get a string input from the Action's configuration by name or return `null` if not set. */
 const getStringOrNull = (name: string): string | null => {
   const value = actionsCore.getInput(name);
   if (value === "") {
     return null;
-  } else {
-    return value;
   }
+  return value;
 };
 
-/**
- * Get a string input from the Action's configuration by name or return `undefined` if not set.
- */
+/** Get a string input from the Action's configuration by name or return `undefined` if not set. */
 const getStringOrUndefined = (name: string): string | undefined => {
   const value = actionsCore.getInput(name);
   if (value === "") {
     return undefined;
-  } else {
-    return value;
   }
+  return value;
 };
 
 export {

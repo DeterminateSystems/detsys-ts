@@ -2,12 +2,23 @@
   "name": "@determinate-systems/detsys-ts",
   "version": "2.1.4",
   "description": "TypeScript goodies for DetSys projects",
-  "main": "./dist/index.mjs",
-  "types": "./dist/index.d.mts",
-  "type": "module",
+  "keywords": [],
+  "homepage": "https://github.com/DeterminateSystems/detsys-ts#readme",
+  "bugs": {
+    "url": "https://github.com/DeterminateSystems/detsys-ts/issues"
+  },
+  "license": "MIT",
+  "author": "",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DeterminateSystems/detsys-ts.git"
+  },
   "files": [
     "dist/"
   ],
+  "type": "module",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
   "scripts": {
     "build": "tsdown",
     "prepare": "tsdown",
@@ -19,17 +30,6 @@
     "test-dev": "vitest",
     "all": "rm -rf dist && npm run format && npm run lint && npm run build"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/DeterminateSystems/detsys-ts.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/DeterminateSystems/detsys-ts/issues"
-  },
-  "homepage": "https://github.com/DeterminateSystems/detsys-ts#readme",
   "dependencies": {
     "@actions/cache": "^6.0.0",
     "@actions/core": "^3.0.0",
@@ -48,9 +48,8 @@
     "got": "^15.1.0"
   },
   "devDependencies": {
+    "@determinate-systems/oxlint-config": "^1.0.0",
     "@types/node": "^26.2.0",
-    "eslint-plugin-eslint-comments": "^3.2.0",
-    "eslint-plugin-no-only-tests": "^3.4.0",
     "oxfmt": "^0.72.0",
     "oxlint": "^1.87.0",
     "oxlint-tsgolint": "^7.0.2003",

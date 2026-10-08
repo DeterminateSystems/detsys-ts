@@ -10,7 +10,7 @@
  * It has a different purpose: the check-in evaluates feature flags against it.
  */
 import * as actionsGithub from "@actions/github";
-import * as otelApi from "@opentelemetry/api";
+import type * as otelApi from "@opentelemetry/api";
 import * as semconv from "@opentelemetry/semantic-conventions/incubating";
 
 /**
@@ -21,23 +21,15 @@ import * as semconv from "@opentelemetry/semantic-conventions/incubating";
  */
 export type GitHubContext = Pick<
   typeof actionsGithub.context,
-  | "job"
-  | "payload"
-  | "ref"
-  | "repo"
-  | "runAttempt"
-  | "runId"
-  | "serverUrl"
-  | "sha"
-  | "workflow"
+  "job" | "payload" | "ref" | "repo" | "runAttempt" | "runId" | "serverUrl" | "sha" | "workflow"
 >;
 
 /** The pull request in the event payload, as far as this module reads it. */
-type PullRequest = {
+interface PullRequest {
   number: number;
   head?: { ref?: string; sha?: string };
   base?: { ref?: string; sha?: string };
-};
+}
 
 /**
  * The `cicd.*` and `vcs.*` attributes of this run.
@@ -58,13 +50,10 @@ export function githubSemconvAttributes(
   const attributes: Record<string, string | undefined> = {
     [semconv.ATTR_CICD_PIPELINE_NAME]: text(context.workflow),
     [semconv.ATTR_CICD_PIPELINE_RUN_ID]: numericString(context.runId),
-    [semconv.ATTR_CICD_PIPELINE_RUN_URL_FULL]: pipelineRunUrl(
-      context,
-      repository,
-    ),
+    [semconv.ATTR_CICD_PIPELINE_RUN_URL_FULL]: pipelineRunUrl(context, repository),
     [semconv.ATTR_CICD_PIPELINE_TASK_NAME]: text(context.job),
     // The toolkit's context does not carry the name of the runner.
-    [semconv.ATTR_CICD_WORKER_NAME]: text(process.env["RUNNER_NAME"]),
+    [semconv.ATTR_CICD_WORKER_NAME]: text(process.env.RUNNER_NAME),
 
     [semconv.ATTR_VCS_PROVIDER_NAME]: semconv.VCS_PROVIDER_NAME_VALUE_GITHUB,
     [semconv.ATTR_VCS_OWNER_NAME]: repository?.owner,
@@ -75,38 +64,28 @@ export function githubSemconvAttributes(
     // front. A pull request already gives the name of the head branch.
     [semconv.ATTR_VCS_REF_HEAD_NAME]: text(head?.ref) ?? refName(context.ref),
     [semconv.ATTR_VCS_REF_HEAD_TYPE]:
-      head === undefined
-        ? refType(text(context.ref))
-        : semconv.VCS_REF_HEAD_TYPE_VALUE_BRANCH,
+      head === undefined ? refType(text(context.ref)) : semconv.VCS_REF_HEAD_TYPE_VALUE_BRANCH,
     [semconv.ATTR_VCS_REF_HEAD_REVISION]: text(head?.sha) ?? text(context.sha),
 
     [semconv.ATTR_VCS_REF_BASE_NAME]: text(pullRequest?.base?.ref),
     [semconv.ATTR_VCS_REF_BASE_TYPE]:
-      pullRequest?.base?.ref === undefined
-        ? undefined
-        : semconv.VCS_REF_BASE_TYPE_VALUE_BRANCH,
+      pullRequest?.base?.ref === undefined ? undefined : semconv.VCS_REF_BASE_TYPE_VALUE_BRANCH,
     [semconv.ATTR_VCS_REF_BASE_REVISION]: text(pullRequest?.base?.sha),
 
     [semconv.ATTR_VCS_CHANGE_ID]: numericString(pullRequest?.number),
   };
 
   // An attribute with no value is not an attribute.
-  return Object.fromEntries(
-    Object.entries(attributes).filter(([, value]) => value !== undefined),
-  );
+  return Object.fromEntries(Object.entries(attributes).filter(([, value]) => value !== undefined));
 }
 
 /** The owner and the name of the repository, when the run names them. */
-function repositoryOf(
-  context: GitHubContext,
-): { owner: string; repo: string } | undefined {
+function repositoryOf(context: GitHubContext): { owner: string; repo: string } | undefined {
   try {
     // The toolkit throws when it cannot find the repository.
     const { owner, repo } = context.repo;
 
-    return text(owner) === undefined || text(repo) === undefined
-      ? undefined
-      : { owner, repo };
+    return text(owner) === undefined || text(repo) === undefined ? undefined : { owner, repo };
   } catch {
     return undefined;
   }
@@ -123,9 +102,7 @@ function repositoryUrl(
 
   const server = text(context.serverUrl)?.replace(/\/+$/, "");
 
-  return server === undefined
-    ? undefined
-    : `${server}/${repository.owner}/${repository.repo}`;
+  return server === undefined ? undefined : `${server}/${repository.owner}/${repository.repo}`;
 }
 
 /**
@@ -148,9 +125,7 @@ function pipelineRunUrl(
   const run = `${url}/actions/runs/${runId}`;
   const attempt = numericString(context.runAttempt);
 
-  return attempt === undefined || attempt === "1"
-    ? run
-    : `${run}/attempts/${attempt}`;
+  return attempt === undefined || attempt === "1" ? run : `${run}/attempts/${attempt}`;
 }
 
 /**
@@ -191,7 +166,5 @@ function text(value: string | undefined): string | undefined {
  * The toolkit parses these, and gives NaN for a variable that is not set.
  */
 function numericString(value: number | undefined): string | undefined {
-  return value === undefined || !Number.isInteger(value)
-    ? undefined
-    : `${value}`;
+  return value === undefined || !Number.isInteger(value) ? undefined : `${value}`;
 }

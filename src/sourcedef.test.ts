@@ -16,8 +16,6 @@ describe("assertChecksumSourceIsPinned", () => {
     ["branch", { branch: "main" }],
     ["pr", { pr: "123" }],
   ])("throws for a moving source: %s", (_name, source) => {
-    expect(() => assertChecksumSourceIsPinned(source)).toThrow(
-      /requires a pinned source/,
-    );
+    expect(() => assertChecksumSourceIsPinned(source)).toThrow(/requires a pinned source/);
   });
 });

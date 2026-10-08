@@ -2,14 +2,14 @@ import * as actionsCore from "@actions/core";
 
 import { getStringOrUndefined } from "./inputs.js";
 
-export type SourceDef = {
+export interface SourceDef {
   path?: string;
   url?: string;
   tag?: string;
   pr?: string;
   branch?: string;
   revision?: string;
-};
+}
 
 /**
  * Throw if hash-locking is requested against a source that is not pinned to a
@@ -19,11 +19,7 @@ export type SourceDef = {
  * would break the moment a new release is published.
  */
 export function assertChecksumSourceIsPinned(source: SourceDef): void {
-  if (
-    source.url === undefined &&
-    source.tag === undefined &&
-    source.revision === undefined
-  ) {
+  if (source.url === undefined && source.tag === undefined && source.revision === undefined) {
     throw new Error(
       "Hash-locking via `source-checksums-url`/`source-checksums-sha256` requires a pinned source: set `source-tag`, `source-revision`, or `source-url`. Without one the action resolves to a moving target (e.g. `stable`) and the checksum will break the next time a release is published.",
     );
@@ -41,10 +37,7 @@ export function constructSourceParameters(legacyPrefix?: string): SourceDef {
   };
 }
 
-function noisilyGetInput(
-  suffix: string,
-  legacyPrefix: string | undefined,
-): string | undefined {
+function noisilyGetInput(suffix: string, legacyPrefix: string | undefined): string | undefined {
   const preferredInput = getStringOrUndefined(`source-${suffix}`);
 
   if (!legacyPrefix) {
@@ -65,7 +58,6 @@ function noisilyGetInput(
       `The legacy option ${legacyPrefix}-${suffix} is set. Please migrate to source-${suffix}.`,
     );
     return legacyInput;
-  } else {
-    return preferredInput;
   }
+  return preferredInput;
 }

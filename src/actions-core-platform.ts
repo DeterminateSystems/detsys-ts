@@ -1,4 +1,4 @@
-import os from "os";
+import os from "node:os";
 
 import * as actionsCore from "@actions/core";
 import * as exec from "@actions/exec";
@@ -8,17 +8,13 @@ import * as exec from "@actions/exec";
 // Changes: Replaced the lsb_release call in Linux with `linux-release-info` to parse the os-release file directly.
 import { releaseInfo } from "./linux-release-info.js";
 
-/**
- * The name and version of the Action runner's system.
- */
-type SystemInfo = {
+/** The name and version of the Action runner's system. */
+interface SystemInfo {
   name: string;
   version: string;
-};
+}
 
-/**
- * Get the name and version of the current Windows system.
- */
+/** Get the name and version of the current Windows system. */
 const getWindowsInfo = async (): Promise<SystemInfo> => {
   const { stdout: version } = await exec.getExecOutput(
     'powershell -command "(Get-CimInstance -ClassName Win32_OperatingSystem).Version"',
@@ -42,9 +38,7 @@ const getWindowsInfo = async (): Promise<SystemInfo> => {
   };
 };
 
-/**
- * Get the name and version of the current macOS system.
- */
+/** Get the name and version of the current macOS system. */
 const getMacOsInfo = async (): Promise<SystemInfo> => {
   const { stdout } = await exec.getExecOutput("sw_vers", undefined, {
     silent: true,
@@ -59,9 +53,7 @@ const getMacOsInfo = async (): Promise<SystemInfo> => {
   };
 };
 
-/**
- * Get the name and version of the current Linux system.
- */
+/** Get the name and version of the current Linux system. */
 const getLinuxInfo = async (): Promise<SystemInfo> => {
   let data: object = {};
 
@@ -73,11 +65,7 @@ const getLinuxInfo = async (): Promise<SystemInfo> => {
   }
 
   return {
-    name: getPropertyViaWithDefault(
-      data,
-      ["id", "name", "pretty_name", "id_like"],
-      "unknown",
-    ),
+    name: getPropertyViaWithDefault(data, ["id", "name", "pretty_name", "id_like"], "unknown"),
     version: getPropertyViaWithDefault(
       data,
       ["version_id", "version", "version_codename"],
@@ -86,11 +74,7 @@ const getLinuxInfo = async (): Promise<SystemInfo> => {
   };
 };
 
-function getPropertyViaWithDefault<T, Property extends string>(
-  data: object,
-  names: Property[],
-  defaultValue: T,
-): T {
+function getPropertyViaWithDefault<T>(data: object, names: readonly string[], defaultValue: T): T {
   for (const name of names) {
     const ret: T = getPropertyWithDefault(data, name, defaultValue);
 
@@ -102,16 +86,12 @@ function getPropertyViaWithDefault<T, Property extends string>(
   return defaultValue;
 }
 
-function getPropertyWithDefault<T, Property extends string>(
-  data: object,
-  name: Property,
-  defaultValue: T,
-): T {
-  if (!data.hasOwnProperty(name)) {
+function getPropertyWithDefault<T>(data: object, name: string, defaultValue: T): T {
+  if (!Object.hasOwn(data, name)) {
     return defaultValue;
   }
 
-  const value = (data as { [K in Property]: T })[name];
+  const value = (data as Record<string, T>)[name];
 
   // NB. this check won't work for object instances
   if (typeof value !== typeof defaultValue) {
@@ -121,35 +101,23 @@ function getPropertyWithDefault<T, Property extends string>(
   return value;
 }
 
-/**
- * The Action runner's platform.
- */
+/** The Action runner's platform. */
 export const platform = os.platform();
 
-/**
- * The Action runner's architecture.
- */
+/** The Action runner's architecture. */
 export const arch = os.arch();
 
-/**
- * Whether the Action runner is a Windows system.
- */
+/** Whether the Action runner is a Windows system. */
 export const isWindows = platform === "win32";
 
-/**
- * Whether the Action runner is a macOS system.
- */
+/** Whether the Action runner is a macOS system. */
 export const isMacOS = platform === "darwin";
 
-/**
- * Whether the Action runner is a Linux system.
- */
+/** Whether the Action runner is a Linux system. */
 export const isLinux = platform === "linux";
 
-/**
- * System-level information about the current host (platform, architecture, etc.).
- */
-type SystemDetails = {
+/** System-level information about the current host (platform, architecture, etc.). */
+interface SystemDetails {
   name: string;
   platform: string;
   arch: string;
@@ -157,18 +125,21 @@ type SystemDetails = {
   isWindows: boolean;
   isMacOS: boolean;
   isLinux: boolean;
-};
+}
 
-/**
- * Get system-level information about the current host (platform, architecture, etc.).
- */
+/** Get system-level information about the current host (platform, architecture, etc.). */
 export async function getDetails(): Promise<SystemDetails> {
+  let info: Promise<SystemInfo>;
+  if (isWindows) {
+    info = getWindowsInfo();
+  } else if (isMacOS) {
+    info = getMacOsInfo();
+  } else {
+    info = getLinuxInfo();
+  }
+
   return {
-    ...(await (isWindows
-      ? getWindowsInfo()
-      : isMacOS
-        ? getMacOsInfo()
-        : getLinuxInfo())),
+    ...(await info),
     platform,
     arch,
     isWindows,

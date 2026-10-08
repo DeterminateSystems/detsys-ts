@@ -14,24 +14,24 @@ const UNREACHABLE_COLLECTOR = "http://127.0.0.1:1";
 
 describe("Telemetry", () => {
   afterEach(() => {
-    delete process.env["OTEL_SDK_DISABLED"];
-    delete process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
-    delete process.env["OTEL_EXPORTER_OTLP_HEADERS"];
-    delete process.env["OTEL_EXPORTER_OTLP_COMPRESSION"];
-    delete process.env["OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT"];
-    delete process.env["OTEL_EXPORTER_OTLP_TIMEOUT"];
+    delete process.env.OTEL_SDK_DISABLED;
+    delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    delete process.env.OTEL_EXPORTER_OTLP_HEADERS;
+    delete process.env.OTEL_EXPORTER_OTLP_COMPRESSION;
+    delete process.env.OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT;
+    delete process.env.OTEL_EXPORTER_OTLP_TIMEOUT;
   });
 
   test("OTEL_SDK_DISABLED leaves the API in its no-op state", async () => {
-    process.env["OTEL_SDK_DISABLED"] = "true";
-    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
+    process.env.OTEL_SDK_DISABLED = "true";
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = UNREACHABLE_COLLECTOR;
 
     const telemetry = new otel.Telemetry();
     telemetry.start({ serviceName: "test", resourceAttributes: {} });
 
     expect(telemetry.enabled).toBe(false);
     // A disabled run configures nothing, so a child process inherits nothing.
-    expect(process.env["OTEL_EXPORTER_OTLP_HEADERS"]).toBeUndefined();
+    expect(process.env.OTEL_EXPORTER_OTLP_HEADERS).toBeUndefined();
 
     const span = otel.getTracer().startSpan("nobody-is-listening");
     expect(span.isRecording()).toBe(false);
@@ -41,10 +41,10 @@ describe("Telemetry", () => {
   });
 
   test("starting registers a real tracer and configures the exporters", async () => {
-    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = UNREACHABLE_COLLECTOR;
     // Otherwise the exporter spends its whole default budget retrying the
     // refused connection, and the shutdown timeout is what ends the test.
-    process.env["OTEL_EXPORTER_OTLP_TIMEOUT"] = "100";
+    process.env.OTEL_EXPORTER_OTLP_TIMEOUT = "100";
 
     const telemetry = new otel.Telemetry();
     telemetry.start({
@@ -54,15 +54,13 @@ describe("Telemetry", () => {
     });
 
     expect(telemetry.enabled).toBe(true);
-    expect(process.env["OTEL_EXPORTER_OTLP_COMPRESSION"]).toBe("gzip");
-    expect(process.env["OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT"]).toBe("8192");
+    expect(process.env.OTEL_EXPORTER_OTLP_COMPRESSION).toBe("gzip");
+    expect(process.env.OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT).toBe("8192");
 
     const span = otel.getTracer().startSpan("recorded");
     expect(span.isRecording()).toBe(true);
     expect(otelApi.isSpanContextValid(span.spanContext())).toBe(true);
-    expect(otel.traceparentOf(span)).toMatch(
-      /^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/,
-    );
+    expect(otel.traceparentOf(span)).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/);
     span.end();
 
     // A collector that refuses the connection must not fail the workflow.
@@ -70,22 +68,18 @@ describe("Telemetry", () => {
   });
 
   test("a phase span is the root of a trace of its own", async () => {
-    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
-    process.env["OTEL_EXPORTER_OTLP_TIMEOUT"] = "100";
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = UNREACHABLE_COLLECTOR;
+    process.env.OTEL_EXPORTER_OTLP_TIMEOUT = "100";
 
     const telemetry = new otel.Telemetry();
     telemetry.start({ serviceName: "test", resourceAttributes: {} });
 
     // A phase opens its span in the root context, and thus joins no trace,
     // not even one the environment offers.
-    process.env["TRACEPARENT"] = `00-${"a".repeat(32)}-${"b".repeat(16)}-01`;
+    process.env.TRACEPARENT = `00-${"a".repeat(32)}-${"b".repeat(16)}-01`;
 
-    const main = otel
-      .getTracer()
-      .startSpan("action:main", {}, otelApi.ROOT_CONTEXT);
-    const post = otel
-      .getTracer()
-      .startSpan("action:post", {}, otelApi.ROOT_CONTEXT);
+    const main = otel.getTracer().startSpan("action:main", {}, otelApi.ROOT_CONTEXT);
+    const post = otel.getTracer().startSpan("action:post", {}, otelApi.ROOT_CONTEXT);
 
     expect((main as SdkSpan).parentSpanContext).toBeUndefined();
     expect((post as SdkSpan).parentSpanContext).toBeUndefined();
@@ -95,34 +89,30 @@ describe("Telemetry", () => {
     main.end();
     post.end();
 
-    delete process.env["TRACEPARENT"];
+    delete process.env.TRACEPARENT;
 
     await telemetry.shutdown();
   });
 
   test("the trace context headers describe the span in progress", async () => {
-    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
-    process.env["OTEL_EXPORTER_OTLP_TIMEOUT"] = "100";
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = UNREACHABLE_COLLECTOR;
+    process.env.OTEL_EXPORTER_OTLP_TIMEOUT = "100";
 
     const telemetry = new otel.Telemetry();
     telemetry.start({ serviceName: "test", resourceAttributes: {} });
 
     await otel.withSpan("request", async (span) => {
-      expect(otel.traceContextHeaders()["traceparent"]).toBe(
-        otel.traceparentOf(span),
-      );
+      expect(otel.traceContextHeaders().traceparent).toBe(otel.traceparentOf(span));
     });
 
     await telemetry.shutdown();
   });
 
   test("starting twice is a no-op", () => {
-    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = UNREACHABLE_COLLECTOR;
 
     const telemetry = new otel.Telemetry();
     telemetry.start({ serviceName: "test", resourceAttributes: {} });
-    expect(() =>
-      telemetry.start({ serviceName: "test", resourceAttributes: {} }),
-    ).not.toThrow();
+    expect(() => telemetry.start({ serviceName: "test", resourceAttributes: {} })).not.toThrow();
   });
 });

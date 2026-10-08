@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-import {
-  type GitHubContext,
-  githubSemconvAttributes,
-} from "./github-semconv.js";
+import { type GitHubContext, githubSemconvAttributes } from "./github-semconv.js";
 
 const HEAD_SHA = "5aa9f9ba3b4d4dc4f4dcd5f0ba0f0e4a1d1b3c2e";
 const MERGE_SHA = "1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d";
@@ -32,7 +29,6 @@ function pullRequest(): GitHubContext {
     sha: MERGE_SHA,
     payload: {
       // GitHub names this key, and not us.
-      // eslint-disable-next-line camelcase
       pull_request: {
         number: 1075,
         head: { ref: "my-feature-branch", sha: HEAD_SHA },
@@ -44,11 +40,11 @@ function pullRequest(): GitHubContext {
 
 describe("githubSemconvAttributes", () => {
   beforeEach(() => {
-    process.env["RUNNER_NAME"] = "GitHub Actions 4";
+    process.env.RUNNER_NAME = "GitHub Actions 4";
   });
 
   afterEach(() => {
-    delete process.env["RUNNER_NAME"];
+    delete process.env.RUNNER_NAME;
   });
 
   test("describes a push to a branch", () => {
@@ -62,8 +58,7 @@ describe("githubSemconvAttributes", () => {
       "vcs.provider.name": "github",
       "vcs.owner.name": "DeterminateSystems",
       "vcs.repository.name": "detsys-ts",
-      "vcs.repository.url.full":
-        "https://github.com/DeterminateSystems/detsys-ts",
+      "vcs.repository.url.full": "https://github.com/DeterminateSystems/detsys-ts",
       "vcs.ref.head.name": "main",
       "vcs.ref.head.type": "branch",
       "vcs.ref.head.revision": HEAD_SHA,
@@ -150,7 +145,7 @@ describe("githubSemconvAttributes", () => {
   });
 
   test("keeps only the provider outside of GitHub Actions", () => {
-    delete process.env["RUNNER_NAME"];
+    delete process.env.RUNNER_NAME;
 
     expect(
       githubSemconvAttributes({

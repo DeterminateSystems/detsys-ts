@@ -43,9 +43,7 @@ describe("parseChecksumsFile", () => {
   test("throws on a non-hex digest", () => {
     const text =
       "not_a_valid_hex_digest_with_underscores_in_it_at_64_long_xxxxxxxxx  nix-installer-x86_64-linux";
-    expect(() => parseChecksumsFile(text)).toThrow(
-      /Invalid digest in checksums file/,
-    );
+    expect(() => parseChecksumsFile(text)).toThrow(/Invalid digest in checksums file/);
   });
 
   test("uppercase hex digests are normalised to lowercase", () => {

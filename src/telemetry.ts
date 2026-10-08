@@ -49,9 +49,7 @@ declare const __DETSYS_TS_VERSION__: string | undefined;
  * nobody anything.
  */
 export const LIBRARY_VERSION =
-  typeof __DETSYS_TS_VERSION__ === "string"
-    ? __DETSYS_TS_VERSION__
-    : "0.0.0-dev";
+  typeof __DETSYS_TS_VERSION__ === "string" ? __DETSYS_TS_VERSION__ : "0.0.0-dev";
 
 /**
  * The OTLP/HTTP collector for all Actions.
@@ -73,8 +71,7 @@ const DEFAULT_OTLP_ENDPOINT = "https://otel.determinate.systems";
  * It permits telemetry writes and no other operation.
  * Change it in the collector configuration and in this file at the same time.
  */
-const OTLP_INGEST_TOKEN =
-  "8bfa2d8b689352981286f0149c4e55cc0dff30a4f7a735b560e31479904a74e1";
+const OTLP_INGEST_TOKEN = "8bfa2d8b689352981286f0149c4e55cc0dff30a4f7a735b560e31479904a74e1";
 
 /**
  * How long to wait for buffered spans and logs to reach the collector before
@@ -139,10 +136,7 @@ const RANDOMNESS_HEX_DIGITS = 56 / 4;
  * if the value is uniformly distributed.
  */
 export function samplingRandomnessOf(source: string): string {
-  return createHash("sha256")
-    .update(source)
-    .digest("hex")
-    .slice(0, RANDOMNESS_HEX_DIGITS);
+  return createHash("sha256").update(source).digest("hex").slice(0, RANDOMNESS_HEX_DIGITS);
 }
 
 /**
@@ -157,10 +151,7 @@ class SharedRandomnessSampler implements sdkTrace.Sampler {
   private readonly traceState: otelApi.TraceState;
 
   constructor(randomness: string) {
-    this.traceState = new otelCore.TraceState().set(
-      TRACE_STATE_KEY,
-      `rv:${randomness}`,
-    );
+    this.traceState = new otelCore.TraceState().set(TRACE_STATE_KEY, `rv:${randomness}`);
   }
 
   shouldSample(context: otelApi.Context): otelApi.SamplingResult {
@@ -190,7 +181,7 @@ const SEVERITY: Record<LogLevel, SeverityNumber> = {
   error: SeverityNumber.ERROR,
 };
 
-export type TelemetryOptions = {
+export interface TelemetryOptions {
   /** The `service.name` for this run, unless `OTEL_SERVICE_NAME` overrides it. */
   serviceName: string;
 
@@ -206,7 +197,7 @@ export type TelemetryOptions = {
    * writes no randomness.
    */
   samplingRandomnessSource?: string;
-};
+}
 
 /**
  * Whether this run exports telemetry at all.
@@ -220,7 +211,7 @@ export function exportEnabled(): boolean {
     return false;
   }
 
-  const endpoint = process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
+  const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
   if (endpoint !== undefined && endpoint.trim() === "") {
     return false;
   }
@@ -238,7 +229,7 @@ export function exportEnabled(): boolean {
  */
 export function applyOtlpEnvironmentDefaults(): void {
   if (otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_ENDPOINT") === undefined) {
-    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = DEFAULT_OTLP_ENDPOINT;
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = DEFAULT_OTLP_ENDPOINT;
   }
 
   if (exportsToDefaultCollector()) {
@@ -248,29 +239,22 @@ export function applyOtlpEnvironmentDefaults(): void {
       otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_HEADERS"),
     );
 
-    const authorized = Object.keys(headers).some(
-      (name) => name.toLowerCase() === "authorization",
-    );
+    const authorized = Object.keys(headers).some((name) => name.toLowerCase() === "authorization");
 
     if (!authorized) {
-      headers["Authorization"] = `Bearer ${OTLP_INGEST_TOKEN}`;
-      process.env["OTEL_EXPORTER_OTLP_HEADERS"] = encodeKeyPairs(headers);
+      headers.Authorization = `Bearer ${OTLP_INGEST_TOKEN}`;
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = encodeKeyPairs(headers);
     }
   }
 
-  if (
-    otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_COMPRESSION") === undefined
-  ) {
+  if (otelCore.getStringFromEnv("OTEL_EXPORTER_OTLP_COMPRESSION") === undefined) {
     // Installer logs go out as log records, so the bodies are large and
     // highly compressible.
-    process.env["OTEL_EXPORTER_OTLP_COMPRESSION"] = "gzip";
+    process.env.OTEL_EXPORTER_OTLP_COMPRESSION = "gzip";
   }
 
-  if (
-    otelCore.getNumberFromEnv("OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT") === undefined
-  ) {
-    process.env["OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT"] =
-      `${DEFAULT_ATTRIBUTE_VALUE_LENGTH_LIMIT}`;
+  if (otelCore.getNumberFromEnv("OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT") === undefined) {
+    process.env.OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT = `${DEFAULT_ATTRIBUTE_VALUE_LENGTH_LIMIT}`;
   }
 
   if (actionsCore.isDebug()) {
@@ -297,7 +281,7 @@ function markRunAsHighPriority(): void {
   }
 
   attributes[ATTR_SAMPLING_PRIORITY] = `${SAMPLING_PRIORITY_KEEP}`;
-  process.env["OTEL_RESOURCE_ATTRIBUTES"] = encodeKeyPairs(attributes);
+  process.env.OTEL_RESOURCE_ATTRIBUTES = encodeKeyPairs(attributes);
 }
 
 /**
@@ -314,9 +298,7 @@ function exportsToDefaultCollector(): boolean {
   }
 
   try {
-    return (
-      new URL(endpoint).toString() === new URL(DEFAULT_OTLP_ENDPOINT).toString()
-    );
+    return new URL(endpoint).toString() === new URL(DEFAULT_OTLP_ENDPOINT).toString();
   } catch {
     return false;
   }
@@ -350,10 +332,7 @@ export function otlpExportEnvironment(): Record<string, string> {
  */
 export function encodeKeyPairs(pairs: Record<string, string>): string {
   return Object.entries(pairs)
-    .map(
-      ([name, value]) =>
-        `${encodeURIComponent(name)}=${encodeURIComponent(value)}`,
-    )
+    .map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`)
     .join(",");
 }
 
@@ -416,9 +395,7 @@ export class Telemetry {
                 samplingRandomnessOf(options.samplingRandomnessSource),
               ),
             }),
-        spanProcessors: [
-          new sdkTrace.BatchSpanProcessor(new OTLPTraceExporter()),
-        ],
+        spanProcessors: [new sdkTrace.BatchSpanProcessor(new OTLPTraceExporter())],
       });
 
       this.loggerProvider = new sdkLogs.LoggerProvider({
@@ -426,9 +403,7 @@ export class Telemetry {
         // Unlike the tracer provider, this one does not read the limit from
         // the environment itself.
         logRecordLimits: {
-          attributeValueLengthLimit: otelCore.getNumberFromEnv(
-            "OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT",
-          ),
+          attributeValueLengthLimit: otelCore.getNumberFromEnv("OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT"),
         },
         processors: [
           new sdkLogs.BatchLogRecordProcessor({
@@ -440,9 +415,7 @@ export class Telemetry {
       // AsyncLocalStorage keeps the active span attached across `await`s, so
       // nested spans parent themselves correctly without threading a Context
       // argument through every function.
-      otelApi.context.setGlobalContextManager(
-        new AsyncLocalStorageContextManager().enable(),
-      );
+      otelApi.context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
       otelApi.propagation.setGlobalPropagator(PROPAGATOR);
       otelApi.trace.setGlobalTracerProvider(this.tracerProvider);
       logs.setGlobalLoggerProvider(this.loggerProvider);
@@ -466,23 +439,16 @@ export class Telemetry {
    * broken or slow collector must not be able to fail or stall the workflow.
    */
   async shutdown(): Promise<void> {
-    const providers = [this.tracerProvider, this.loggerProvider].flatMap(
-      (p) => p ?? [],
-    );
+    const providers = [this.tracerProvider, this.loggerProvider].flatMap((p) => p ?? []);
 
     if (providers.length === 0) {
       return;
     }
 
     try {
-      await withTimeout(
-        Promise.all(providers.map(async (p) => p.shutdown())),
-        SHUTDOWN_TIMEOUT_MS,
-      );
+      await withTimeout(Promise.all(providers.map(async (p) => p.shutdown())), SHUTDOWN_TIMEOUT_MS);
     } catch (e: unknown) {
-      actionsCore.debug(
-        `Error flushing OpenTelemetry data: ${stringifyError(e)}`,
-      );
+      actionsCore.debug(`Error flushing OpenTelemetry data: ${stringifyError(e)}`);
     } finally {
       this.tracerProvider = undefined;
       this.loggerProvider = undefined;
@@ -531,9 +497,7 @@ export function emitLogRecord(
  * Returns undefined when telemetry is disabled, since the no-op span's context
  * is all zeroes and would not be a valid parent.
  */
-export function traceparentOf(
-  span: otelApi.Span | undefined,
-): string | undefined {
+export function traceparentOf(span: otelApi.Span | undefined): string | undefined {
   if (span === undefined || !otelApi.isSpanContextValid(span.spanContext())) {
     return undefined;
   }
@@ -545,7 +509,7 @@ export function traceparentOf(
     otelApi.defaultTextMapSetter,
   );
 
-  return carrier["traceparent"];
+  return carrier.traceparent;
 }
 
 /**
@@ -567,7 +531,7 @@ export function traceContextHeaders(): Record<string, string> {
   const active = otelApi.context.active();
   const context =
     otelApi.trace.getSpanContext(active) === undefined
-      ? contextFromTraceparent(process.env["TRACEPARENT"])
+      ? contextFromTraceparent(process.env.TRACEPARENT)
       : active;
 
   const carrier: Record<string, string> = {};
@@ -581,27 +545,17 @@ export function traceContextHeaders(): Record<string, string> {
  * process can parent spans started in another. Falls back to the root context
  * when `traceparent` is absent or unparseable.
  */
-export function contextFromTraceparent(
-  traceparent: string | undefined,
-): otelApi.Context {
+export function contextFromTraceparent(traceparent: string | undefined): otelApi.Context {
   if (traceparent === undefined || traceparent === "") {
     return otelApi.ROOT_CONTEXT;
   }
 
-  return PROPAGATOR.extract(
-    otelApi.ROOT_CONTEXT,
-    { traceparent },
-    otelApi.defaultTextMapGetter,
-  );
+  return PROPAGATOR.extract(otelApi.ROOT_CONTEXT, { traceparent }, otelApi.defaultTextMapGetter);
 }
 
-/**
- * Mark `span` as failed and attach the exception to it.
- */
+/** Mark `span` as failed and attach the exception to it. */
 export function recordSpanError(span: otelApi.Span, error: unknown): void {
-  span.recordException(
-    error instanceof Error ? error : new Error(stringifyError(error)),
-  );
+  span.recordException(error instanceof Error ? error : new Error(stringifyError(error)));
   span.setStatus({
     code: otelApi.SpanStatusCode.ERROR,
     message: stringifyError(error),
@@ -618,37 +572,27 @@ export async function withSpan<T>(
   fn: (span: otelApi.Span) => Promise<T>,
   attributes?: otelApi.Attributes,
 ): Promise<T> {
-  return await getTracer().startActiveSpan(
-    name,
-    { attributes },
-    async (span) => {
-      try {
-        return await fn(span);
-      } catch (e: unknown) {
-        recordSpanError(span, e);
-        throw e;
-      } finally {
-        span.end();
-      }
-    },
-  );
+  return getTracer().startActiveSpan(name, { attributes }, async (span) => {
+    try {
+      return await fn(span);
+    } catch (e: unknown) {
+      recordSpanError(span, e);
+      throw e;
+    } finally {
+      span.end();
+    }
+  });
 }
 
 /** Reject if `promise` has not settled within `timeoutMs`. */
-async function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   try {
     return await Promise.race([
       promise,
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`timed out after ${timeoutMs}ms`)),
-          timeoutMs,
-        );
+        timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs}ms`)), timeoutMs);
       }),
     ]);
   } finally {

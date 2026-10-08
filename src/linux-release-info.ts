@@ -20,21 +20,21 @@ const readFileAsync = promisify(fs.readFile);
 
 export interface LinuxReleaseInfoOptions {
   /**
-   * read mode, possible values: 'async' and 'sync'
+   * Read mode, possible values: 'async' and 'sync'
    *
-   * @default 'async'
+   * @default "async"
    */
   mode?: "async" | "sync";
   /**
-   * custom complete file path with os info default null/none
+   * Custom complete file path with os info default null/none
    * if not provided the system will search on the '/etc/os-release'
-   * and  '/usr/lib/os-release' files
+   * and  '/usr/lib/os-release' files.
    *
    * @default null
    */
   customFile?: string | null | undefined;
   /**
-   * if true, show console debug messages
+   * If true, show console debug messages.
    *
    * @default false
    */
@@ -51,37 +51,32 @@ const linuxReleaseInfoOptionsDefaults: LinuxReleaseInfoOptions = {
  * Get OS release info from 'os-release' file and from native os module
  * on Windows or Darwin it only returns common os module info
  * (uses native fs module)
- * @returns {object} info from the current os
+ *
+ * @returns {object} Info from the current os
  */
 export function releaseInfo(infoOptions: LinuxReleaseInfoOptions): object {
   const options = { ...linuxReleaseInfoOptionsDefaults, ...infoOptions };
 
-  const searchOsReleaseFileList: string[] = osReleaseFileList(
-    options.customFile,
-  );
+  const searchOsReleaseFileList: string[] = osReleaseFileList(options.customFile);
 
   if (os.type() !== "Linux") {
     if (options.mode === "sync") {
       return getOsInfo();
-    } else {
-      return Promise.resolve(getOsInfo());
     }
+    return Promise.resolve(getOsInfo());
   }
 
   if (options.mode === "sync") {
     return readSyncOsreleaseFile(searchOsReleaseFileList, options);
-  } else {
-    return Promise.resolve(
-      readAsyncOsReleaseFile(searchOsReleaseFileList, options),
-    );
   }
+  return Promise.resolve(readAsyncOsReleaseFile(searchOsReleaseFileList, options));
 }
 
 /**
- * Format file data: convert data to object keys/values
+ * Format file data: convert data to object keys/values.
  *
- * @param {object} sourceData Source object to be appended
- * @param {string} srcParseData Input file data to be parsed
+ * @param {object} sourceData Source object to be appended.
+ * @param {string} srcParseData Input file data to be parsed.
  * @returns {object} Formated object
  */
 function formatFileData(sourceData: OsInfo, srcParseData: string): OsInfo {
@@ -106,37 +101,34 @@ function formatFileData(sourceData: OsInfo, srcParseData: string): OsInfo {
 }
 
 /**
- * Export a list of os-release files
+ * Export a list of os-release files.
  *
- * @param {string} customFile optional custom complete filepath
- * @returns {array} list of os-release files
+ * @param {string} customFile Optional custom complete filepath.
+ * @returns {array} List of os-release files
  */
 function osReleaseFileList(customFile: string | null | undefined): string[] {
   const DEFAULT_OS_RELEASE_FILES = ["/etc/os-release", "/usr/lib/os-release"];
 
-  if (!customFile) {
-    return DEFAULT_OS_RELEASE_FILES;
-  } else {
+  if (customFile) {
     return Array(customFile);
   }
+  return DEFAULT_OS_RELEASE_FILES;
 }
 
-/**
- * Operating system info.
- */
-type OsInfo = {
+/** Operating system info. */
+interface OsInfo {
   type: string;
   platform: string;
   hostname: string;
   arch: string;
   release: string;
-};
+}
 
 /**
  * Get OS Basic Info
  * (uses node 'os' native module)
  *
- * @returns {OsInfo} os basic info
+ * @returns {OsInfo} Os basic info
  */
 function getOsInfo(): OsInfo {
   return {
@@ -159,7 +151,6 @@ async function readAsyncOsReleaseFile(
   for (const osReleaseFile of fileList) {
     try {
       if (options.debug) {
-        /* eslint-disable no-console */
         console.log(`Trying to read '${osReleaseFile}'...`);
       }
 

@@ -6,11 +6,7 @@ import { afterEach, assert, describe, expect, test } from "vitest";
 
 import * as idsHost from "./ids-host.js";
 
-function mkRecord(
-  weight: number,
-  priority = 0,
-  suffix = "install.determinate.systems",
-): SrvRecord {
+function mkRecord(weight: number, priority = 0, suffix = "install.determinate.systems"): SrvRecord {
   return {
     weight,
     priority,
@@ -27,7 +23,7 @@ describe("the trace context of a request", () => {
   let server: Server | undefined;
 
   afterEach(async () => {
-    delete process.env["TRACEPARENT"];
+    delete process.env.TRACEPARENT;
     server?.close();
     server = undefined;
   });
@@ -39,7 +35,7 @@ describe("the trace context of a request", () => {
     let received: string | undefined;
 
     const listener = createServer((request, response) => {
-      received = request.headers["traceparent"];
+      received = request.headers.traceparent;
       response.end("");
     });
     server = listener;
@@ -61,7 +57,7 @@ describe("the trace context of a request", () => {
 
   test("is the inherited trace when no span is in progress", async () => {
     const traceparent = `00-${"a".repeat(32)}-${"b".repeat(16)}-01`;
-    process.env["TRACEPARENT"] = traceparent;
+    process.env.TRACEPARENT = traceparent;
 
     expect(await traceparentOfOneRequest()).toBe(traceparent);
   });
@@ -72,10 +68,10 @@ describe("the trace context of a request", () => {
 });
 
 describe("isUrlSubjectToDynamicUrls", () => {
-  type TestCase = {
+  interface TestCase {
     inputUrl: string;
     inScope: boolean;
-  };
+  }
 
   const testCases: TestCase[] = [
     {
@@ -120,9 +116,7 @@ describe("isUrlSubjectToDynamicUrls", () => {
     test(`${inputUrl} should ${inScope ? "" : "not "}be subject to dynamic URLs`, async () => {
       const host = new idsHost.IdsHost("foo", "bar", "-");
 
-      expect(host.isUrlSubjectToDynamicUrls(new URL(inputUrl))).toStrictEqual(
-        inScope,
-      );
+      expect(host.isUrlSubjectToDynamicUrls(new URL(inputUrl))).toStrictEqual(inScope);
     });
   }
 });
@@ -131,9 +125,7 @@ describe("getRootUrl", () => {
   test("handles no URLs", async () => {
     const host = new idsHost.IdsHost("foo", "bar", "-");
     host.setPrioritizedUrls([]);
-    expect(await host.getRootUrl()).toStrictEqual(
-      new URL("https://install.determinate.systems"),
-    );
+    expect(await host.getRootUrl()).toStrictEqual(new URL("https://install.determinate.systems"));
   });
 
   test("handles multiple URLs", async () => {
@@ -149,25 +141,21 @@ describe("getRootUrl", () => {
     host.markCurrentHostBroken();
     expect(await host.getRootUrl()).toStrictEqual(new URL("https://bar"));
     host.markCurrentHostBroken();
-    expect(await host.getRootUrl()).toStrictEqual(
-      new URL("https://install.determinate.systems"),
-    );
+    expect(await host.getRootUrl()).toStrictEqual(new URL("https://install.determinate.systems"));
     host.markCurrentHostBroken();
     host.markCurrentHostBroken();
-    expect(await host.getRootUrl()).toStrictEqual(
-      new URL("https://install.determinate.systems"),
-    );
+    expect(await host.getRootUrl()).toStrictEqual(new URL("https://install.determinate.systems"));
   });
 });
 
 describe("getDiagnosticsUrl", () => {
-  type TestCase = {
+  interface TestCase {
     description: string;
     idsProjectName: string;
     suffix?: string;
     runtimeDiagnosticsUrl?: string;
     expectedUrl?: string;
-  };
+  }
 
   const testCases: TestCase[] = [
     {
@@ -187,8 +175,7 @@ describe("getDiagnosticsUrl", () => {
     },
 
     {
-      description:
-        "No diagnostics URL provided means generate one (custom suffix)",
+      description: "No diagnostics URL provided means generate one (custom suffix)",
       idsProjectName: "project-name",
       suffix: "telemetry",
       runtimeDiagnosticsUrl: undefined,
@@ -196,8 +183,7 @@ describe("getDiagnosticsUrl", () => {
     },
 
     {
-      description:
-        "'-' as the diagnostics URL means generate one (custom suffix)",
+      description: "'-' as the diagnostics URL means generate one (custom suffix)",
       idsProjectName: "project-name",
       suffix: "telemetry",
       runtimeDiagnosticsUrl: "-",
@@ -205,8 +191,7 @@ describe("getDiagnosticsUrl", () => {
     },
 
     {
-      description:
-        "No diagnostics URL provided means generate one (default suffix)",
+      description: "No diagnostics URL provided means generate one (default suffix)",
       idsProjectName: "project-name",
       suffix: undefined,
       runtimeDiagnosticsUrl: undefined,
@@ -230,20 +215,14 @@ describe("getDiagnosticsUrl", () => {
     expectedUrl,
   } of testCases) {
     test(description, async () => {
-      const preEnv = process.env["IDS_HOST"];
-      process.env["IDS_HOST"] = "https://install.determinate.systems";
+      const preEnv = process.env.IDS_HOST;
+      process.env.IDS_HOST = "https://install.determinate.systems";
 
-      const host = new idsHost.IdsHost(
-        idsProjectName,
-        suffix,
-        runtimeDiagnosticsUrl,
-      );
+      const host = new idsHost.IdsHost(idsProjectName, suffix, runtimeDiagnosticsUrl);
       const diagUrl = await host.getDiagnosticsUrl();
-      process.env["IDS_HOST"] = preEnv;
+      process.env.IDS_HOST = preEnv;
 
-      expect(diagUrl).toStrictEqual(
-        expectedUrl ? new URL(expectedUrl) : undefined,
-      );
+      expect(diagUrl).toStrictEqual(expectedUrl ? new URL(expectedUrl) : undefined);
     });
   }
 });
@@ -273,12 +252,12 @@ describe("recordToUrl", () => {
 });
 
 describe("discoverServicesStub", async () => {
-  type TestCase = {
+  interface TestCase {
     description: string;
     lookup: () => Promise<SrvRecord[]>;
     timeout?: number;
     expected: SrvRecord[];
-  };
+  }
 
   const testCases: TestCase[] = [
     {
@@ -320,7 +299,9 @@ describe("discoverServicesStub", async () => {
     {
       description: "lookup loses the race",
       lookup: async () => {
-        return new Promise((r) => setTimeout(r, 1000, [mkRecord(123)]));
+        return new Promise((r) => {
+          setTimeout(r, 1000, [mkRecord(123)]);
+        });
       },
       expected: [],
       timeout: 100,
@@ -328,7 +309,9 @@ describe("discoverServicesStub", async () => {
     {
       description: "lookup wins the race",
       lookup: async () => {
-        return new Promise((r) => setTimeout(r, 100, [mkRecord(456)]));
+        return new Promise((r) => {
+          setTimeout(r, 100, [mkRecord(456)]);
+        });
       },
       expected: [mkRecord(456)],
       timeout: 1000,
@@ -351,24 +334,15 @@ test("orderRecordsByPriorityWeight does that", () => {
       mkRecord(2, 2),
       mkRecord(1, 1),
     ]),
-  ).toStrictEqual([
-    mkRecord(1000, 1),
-    mkRecord(1, 1),
-    mkRecord(2, 2),
-    mkRecord(3, 3),
-  ]);
+  ).toStrictEqual([mkRecord(1000, 1), mkRecord(1, 1), mkRecord(2, 2), mkRecord(3, 3)]);
 });
 
 test("weightedRandom handles empty and single-element records", () => {
-  expect(
-    idsHost.weightedRandom([]),
-    "one element passes through",
-  ).toStrictEqual([]);
+  expect(idsHost.weightedRandom([]), "one element passes through").toStrictEqual([]);
 
-  expect(
-    idsHost.weightedRandom([mkRecord(1)]),
-    "empty lists aren't crashing",
-  ).toStrictEqual([mkRecord(1)]);
+  expect(idsHost.weightedRandom([mkRecord(1)]), "empty lists aren't crashing").toStrictEqual([
+    mkRecord(1),
+  ]);
 });
 
 test("weightedRandom orders records acceptably predictably", () => {
@@ -383,18 +357,11 @@ test("weightedRandom orders records acceptably predictably", () => {
 
   for (let i = 0; i < iterations; i++) {
     const weighted = idsHost.weightedRandom(records);
-    counts.set(
-      weighted[0].weight,
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      counts.get(weighted[0].weight)! + 1,
-    );
+    counts.set(weighted[0].weight, counts.get(weighted[0].weight)! + 1);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   const firstPlaceSum1 = counts.get(1)!;
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   const firstPlaceSum2 = counts.get(2)!;
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   const firstPlaceSum3 = counts.get(3)!;
 
   assert.equal(firstPlaceSum1 + firstPlaceSum2 + firstPlaceSum3, iterations);
