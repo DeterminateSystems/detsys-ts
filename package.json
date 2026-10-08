@@ -25,7 +25,6 @@
     "check-fmt": "oxfmt --check .",
     "format": "oxfmt --write .",
     "lint": "oxlint src",
-    "docs": "typedoc",
     "test": "vitest --watch false",
     "test-dev": "vitest",
     "all": "rm -rf dist && npm run format && npm run lint && npm run build"
@@ -54,7 +53,6 @@
     "oxlint": "^1.87.0",
     "oxlint-tsgolint": "^7.0.2003",
     "tsdown": "^0.22.14",
-    "typedoc": "^0.28.17",
     "typescript": "^7.0.2",
     "vitest": "^4.1.0"
   }

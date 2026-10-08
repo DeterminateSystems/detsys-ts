@@ -42,12 +42,6 @@ jobs:
       - name: Ensure no staged changes
         run: git diff --exit-code
 
-      # Docs are hosted on Netlify but we should get feedback on that here in Actions as well
-      - name: Build docs
-        run: |
-          rm -rf dist
-          nix develop --command npm run docs
-
   # Build nix-installer-action against this checkout of detsys-ts, then run it.
   # This tells us if a change here breaks a downstream consumer.
   nix-installer-action:
