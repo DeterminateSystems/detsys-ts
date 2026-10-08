@@ -10,9 +10,7 @@ import * as otel from "./telemetry.js";
 // branching: this is where we hold that guarantee down.
 
 test("the tracer and logger are safe to use with no provider registered", () => {
-  expect(() =>
-    otel.getTracer().startSpan("nobody-is-listening").end(),
-  ).not.toThrow();
+  expect(() => otel.getTracer().startSpan("nobody-is-listening").end()).not.toThrow();
   expect(() => otel.getLogger().emit({ body: "into the void" })).not.toThrow();
 });
 
@@ -31,9 +29,7 @@ test("withSpan re-throws rather than swallowing", async () => {
 test("traceparentOf declines to serialize a non-recording span", () => {
   // Without a provider the span context is all zeroes, which is not a valid
   // parent. Serializing it would strand the child in a bogus trace.
-  expect(
-    otel.traceparentOf(otel.getTracer().startSpan("no-op")),
-  ).toBeUndefined();
+  expect(otel.traceparentOf(otel.getTracer().startSpan("no-op"))).toBeUndefined();
   expect(otel.traceparentOf(undefined)).toBeUndefined();
 });
 
@@ -51,14 +47,12 @@ test("contextFromTraceparent recovers the span context from a traceparent", () =
 test("contextFromTraceparent falls back to the root context on junk input", () => {
   expect(otel.contextFromTraceparent(undefined)).toBe(ROOT_CONTEXT);
   expect(otel.contextFromTraceparent("")).toBe(ROOT_CONTEXT);
-  expect(
-    trace.getSpanContext(otel.contextFromTraceparent("not-a-traceparent")),
-  ).toBe(undefined);
+  expect(trace.getSpanContext(otel.contextFromTraceparent("not-a-traceparent"))).toBe(undefined);
 });
 
 describe("traceContextHeaders", () => {
   afterEach(() => {
-    delete process.env["TRACEPARENT"];
+    delete process.env.TRACEPARENT;
   });
 
   test("are empty when there is no trace to join", () => {
@@ -72,13 +66,13 @@ describe("traceContextHeaders", () => {
     // of the program that started it is what puts those requests somewhere
     // sensible.
     const traceparent = `00-${"a".repeat(32)}-${"b".repeat(16)}-01`;
-    process.env["TRACEPARENT"] = traceparent;
+    process.env.TRACEPARENT = traceparent;
 
     expect(otel.traceContextHeaders()).toStrictEqual({ traceparent });
   });
 
   test("ignore a traceparent that is not usable", () => {
-    process.env["TRACEPARENT"] = "not-a-traceparent";
+    process.env.TRACEPARENT = "not-a-traceparent";
 
     expect(otel.traceContextHeaders()).toStrictEqual({});
   });
@@ -86,8 +80,8 @@ describe("traceContextHeaders", () => {
 
 describe("exportEnabled", () => {
   afterEach(() => {
-    delete process.env["OTEL_SDK_DISABLED"];
-    delete process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
+    delete process.env.OTEL_SDK_DISABLED;
+    delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
   });
 
   test("every run exports by default", () => {
@@ -95,18 +89,18 @@ describe("exportEnabled", () => {
   });
 
   test("OTEL_SDK_DISABLED turns the export off", () => {
-    process.env["OTEL_SDK_DISABLED"] = "true";
+    process.env.OTEL_SDK_DISABLED = "true";
     expect(otel.exportEnabled()).toBe(false);
   });
 
   test("an empty OTEL_EXPORTER_OTLP_ENDPOINT turns the export off", () => {
     // This escape hatch predates OTEL_SDK_DISABLED, and workflows use it.
-    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = "";
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "";
     expect(otel.exportEnabled()).toBe(false);
   });
 
   test("a collector of the user's own keeps the export on", () => {
-    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = "https://otlp.example.com";
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "https://otlp.example.com";
     expect(otel.exportEnabled()).toBe(true);
   });
 });
@@ -125,62 +119,54 @@ describe("applyOtlpEnvironmentDefaults", () => {
 
   afterEach(() => {
     for (const variable of otlpVariables) {
+      // oxlint-disable-next-line no-dynamic-delete Needed to remove variables from the process environment
       delete process.env[variable];
     }
-    delete process.env["RUNNER_DEBUG"];
+    delete process.env.RUNNER_DEBUG;
   });
 
   test("points an unconfigured run at our collector, with its token", () => {
     otel.applyOtlpEnvironmentDefaults();
 
-    expect(process.env["OTEL_EXPORTER_OTLP_ENDPOINT"]).toBe(
-      "https://otel.determinate.systems",
+    expect(process.env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe("https://otel.determinate.systems");
+    expect(parseKeyPairsIntoRecord(process.env.OTEL_EXPORTER_OTLP_HEADERS).Authorization).toMatch(
+      /^Bearer [0-9a-f]{64}$/,
     );
-    expect(
-      parseKeyPairsIntoRecord(process.env["OTEL_EXPORTER_OTLP_HEADERS"])[
-        "Authorization"
-      ],
-    ).toMatch(/^Bearer [0-9a-f]{64}$/);
   });
 
   test("sends no token to a collector of the user's own", () => {
-    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = "https://otlp.example.com";
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "https://otlp.example.com";
 
     otel.applyOtlpEnvironmentDefaults();
 
-    expect(process.env["OTEL_EXPORTER_OTLP_ENDPOINT"]).toBe(
-      "https://otlp.example.com",
-    );
-    expect(process.env["OTEL_EXPORTER_OTLP_HEADERS"]).toBeUndefined();
+    expect(process.env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe("https://otlp.example.com");
+    expect(process.env.OTEL_EXPORTER_OTLP_HEADERS).toBeUndefined();
   });
 
   test("authenticates when the user names our collector explicitly", () => {
-    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] =
-      "https://otel.determinate.systems";
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "https://otel.determinate.systems";
 
     otel.applyOtlpEnvironmentDefaults();
 
-    expect(process.env["OTEL_EXPORTER_OTLP_HEADERS"]).toBeDefined();
+    expect(process.env.OTEL_EXPORTER_OTLP_HEADERS).toBeDefined();
   });
 
   test("keeps a token the user supplied", () => {
-    process.env["OTEL_EXPORTER_OTLP_HEADERS"] = "authorization=Bearer%20theirs";
+    process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer%20theirs";
 
     otel.applyOtlpEnvironmentDefaults();
 
-    expect(process.env["OTEL_EXPORTER_OTLP_HEADERS"]).toBe(
-      "authorization=Bearer%20theirs",
-    );
+    expect(process.env.OTEL_EXPORTER_OTLP_HEADERS).toBe("authorization=Bearer%20theirs");
   });
 
   test("keeps every other setting the user made", () => {
-    process.env["OTEL_EXPORTER_OTLP_COMPRESSION"] = "none";
-    process.env["OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT"] = "128";
+    process.env.OTEL_EXPORTER_OTLP_COMPRESSION = "none";
+    process.env.OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT = "128";
 
     otel.applyOtlpEnvironmentDefaults();
 
-    expect(process.env["OTEL_EXPORTER_OTLP_COMPRESSION"]).toBe("none");
-    expect(process.env["OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT"]).toBe("128");
+    expect(process.env.OTEL_EXPORTER_OTLP_COMPRESSION).toBe("none");
+    expect(process.env.OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT).toBe("128");
   });
 
   test("hands a child process the settings it needs", () => {
@@ -196,55 +182,48 @@ describe("applyOtlpEnvironmentDefaults", () => {
   test("an ordinary run asks for no special treatment", () => {
     otel.applyOtlpEnvironmentDefaults();
 
-    expect(process.env["OTEL_RESOURCE_ATTRIBUTES"]).toBeUndefined();
+    expect(process.env.OTEL_RESOURCE_ATTRIBUTES).toBeUndefined();
   });
 
   test("a debug run asks the collector to keep its data", () => {
-    process.env["RUNNER_DEBUG"] = "1";
+    process.env.RUNNER_DEBUG = "1";
 
     otel.applyOtlpEnvironmentDefaults();
 
     expect(
-      parseKeyPairsIntoRecord(process.env["OTEL_RESOURCE_ATTRIBUTES"])[
-        otel.ATTR_SAMPLING_PRIORITY
-      ],
+      parseKeyPairsIntoRecord(process.env.OTEL_RESOURCE_ATTRIBUTES)[otel.ATTR_SAMPLING_PRIORITY],
     ).toBe("1");
   });
 
   test("a debug run tells each program it runs to do the same", () => {
-    process.env["RUNNER_DEBUG"] = "1";
+    process.env.RUNNER_DEBUG = "1";
 
     otel.applyOtlpEnvironmentDefaults();
 
-    expect(otel.otlpExportEnvironment()["OTEL_RESOURCE_ATTRIBUTES"]).toBe(
-      process.env["OTEL_RESOURCE_ATTRIBUTES"],
+    expect(otel.otlpExportEnvironment().OTEL_RESOURCE_ATTRIBUTES).toBe(
+      process.env.OTEL_RESOURCE_ATTRIBUTES,
     );
   });
 
   test("a debug run keeps the other attributes of the user", () => {
-    process.env["RUNNER_DEBUG"] = "1";
-    process.env["OTEL_RESOURCE_ATTRIBUTES"] = "deployment.environment=staging";
+    process.env.RUNNER_DEBUG = "1";
+    process.env.OTEL_RESOURCE_ATTRIBUTES = "deployment.environment=staging";
 
     otel.applyOtlpEnvironmentDefaults();
 
-    expect(
-      parseKeyPairsIntoRecord(process.env["OTEL_RESOURCE_ATTRIBUTES"]),
-    ).toStrictEqual({
+    expect(parseKeyPairsIntoRecord(process.env.OTEL_RESOURCE_ATTRIBUTES)).toStrictEqual({
       "deployment.environment": "staging",
       [otel.ATTR_SAMPLING_PRIORITY]: "1",
     });
   });
 
   test("a debug run keeps a priority the user set", () => {
-    process.env["RUNNER_DEBUG"] = "1";
-    process.env["OTEL_RESOURCE_ATTRIBUTES"] =
-      `${otel.ATTR_SAMPLING_PRIORITY}=0`;
+    process.env.RUNNER_DEBUG = "1";
+    process.env.OTEL_RESOURCE_ATTRIBUTES = `${otel.ATTR_SAMPLING_PRIORITY}=0`;
 
     otel.applyOtlpEnvironmentDefaults();
 
-    expect(process.env["OTEL_RESOURCE_ATTRIBUTES"]).toBe(
-      `${otel.ATTR_SAMPLING_PRIORITY}=0`,
-    );
+    expect(process.env.OTEL_RESOURCE_ATTRIBUTES).toBe(`${otel.ATTR_SAMPLING_PRIORITY}=0`);
   });
 });
 
@@ -264,9 +243,7 @@ describe("encodeKeyPairs", () => {
   test("round-trips through the reader's parser", () => {
     const headers = { Authorization: "Bearer abc123", other: "value" };
 
-    expect(parseKeyPairsIntoRecord(otel.encodeKeyPairs(headers))).toStrictEqual(
-      headers,
-    );
+    expect(parseKeyPairsIntoRecord(otel.encodeKeyPairs(headers))).toStrictEqual(headers);
   });
 
   test("joins multiple headers with a comma", () => {

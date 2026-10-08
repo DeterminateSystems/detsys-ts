@@ -34,8 +34,7 @@ import * as otel from "./telemetry.js";
 // Span events this library records itself. Names a caller passes to
 // `addEvent` are used as given.
 const EVENT_IDS_FAILOVER = "detsys.ids_failover";
-const EVENT_PREFLIGHT_REQUIRE_NIX_DENIED =
-  "detsys.preflight_require_nix_denied";
+const EVENT_PREFLIGHT_REQUIRE_NIX_DENIED = "detsys.preflight_require_nix_denied";
 const EVENT_REQUEST_TIMEOUT = "detsys.request_timeout";
 
 // Attributes describing the run. Where the OpenTelemetry semantic conventions
@@ -106,9 +105,7 @@ const CHECK_IN_ENDPOINT_TIMEOUT_MS = 1_000; // 1 second in ms
  */
 export type FetchSuffixStyle = "nix-style" | "gh-env-style" | "universal";
 
-/**
- * GitHub Actions has two possible execution phases: `main` and `post`.
- */
+/** GitHub Actions has two possible execution phases: `main` and `post`. */
 export type ExecutionPhase = "main" | "post";
 
 /**
@@ -131,7 +128,7 @@ export type NixRequirementHandling = "fail" | "warn" | "ignore";
  */
 export type NixStoreTrust = "trusted" | "untrusted" | "unknown";
 
-export type ActionOptions = {
+export interface ActionOptions {
   // Name of the project generally, and the name of the binary on disk.
   name: string;
 
@@ -160,39 +157,33 @@ export type ActionOptions = {
   //
   // Default: `diagnostics`.
   diagnosticsSuffix?: string;
-};
+}
 
-/**
- * A confident version of Options, where defaults have been resolved into final values.
- */
-export type ConfidentActionOptions = {
+/** A confident version of Options, where defaults have been resolved into final values. */
+export interface ConfidentActionOptions {
   name: string;
   idsProjectName: string;
   fetchStyle: FetchSuffixStyle;
   legacySourcePrefix?: string;
   requireNix: NixRequirementHandling;
   providedDiagnosticsUrl?: URL;
-};
+}
 
 const determinateStateDir = "/var/lib/determinate";
 const determinateIdentityFile = path.join(determinateStateDir, "identity.json");
 
 const isRoot = typeof process.geteuid === "function" && process.geteuid() === 0;
 
-/** Create the Determinate state directory by escalating via sudo */
+/** Create the Determinate state directory by escalating via sudo. */
 async function sudoEnsureDeterminateStateDir(): Promise<void> {
-  const code = await actionsExec.exec("sudo", [
-    "mkdir",
-    "-p",
-    determinateStateDir,
-  ]);
+  const code = await actionsExec.exec("sudo", ["mkdir", "-p", determinateStateDir]);
 
   if (code !== 0) {
     throw new Error(`sudo mkdir -p exit: ${code}`);
   }
 }
 
-/** Ensures the Determinate state directory exists, escalating if necessary */
+/** Ensures the Determinate state directory exists, escalating if necessary. */
 async function ensureDeterminateStateDir(): Promise<void> {
   if (isRoot) {
     await mkdir(determinateStateDir, { recursive: true });
@@ -201,27 +192,23 @@ async function ensureDeterminateStateDir(): Promise<void> {
   }
 }
 
-/** Writes correlation hashes to the Determinate state directory by writing to a `sudo tee` pipe */
+/** Writes correlation hashes to the Determinate state directory by writing to a `sudo tee` pipe. */
 async function sudoWriteCorrelationHashes(hashes: string): Promise<void> {
   const buffer = Buffer.from(hashes);
 
-  const code = await actionsExec.exec(
-    "sudo",
-    ["tee", determinateIdentityFile],
-    {
-      input: buffer,
+  const code = await actionsExec.exec("sudo", ["tee", determinateIdentityFile], {
+    input: buffer,
 
-      // Ignore output from tee
-      outStream: nodeFs.createWriteStream("/dev/null"),
-    },
-  );
+    // Ignore output from tee
+    outStream: nodeFs.createWriteStream("/dev/null"),
+  });
 
   if (code !== 0) {
     throw new Error(`sudo tee exit: ${code}`);
   }
 }
 
-/** Writes correlation hashes to the Determinate state directory, escalating if necessary */
+/** Writes correlation hashes to the Determinate state directory, escalating if necessary. */
 async function writeCorrelationHashes(hashes: string): Promise<void> {
   await ensureDeterminateStateDir();
 
@@ -266,9 +253,8 @@ export abstract class DetSysAction {
     if (currentPhase === "") {
       actionsCore.saveState(STATE_KEY_EXECUTION_PHASE, "post");
       return "main";
-    } else {
-      return "post";
     }
+    return "post";
   }
 
   constructor(actionOptions: ActionOptions) {
@@ -287,12 +273,10 @@ export abstract class DetSysAction {
     this.strictMode = inputs.getBool("_internal-strict-mode");
 
     if (
-      inputs.getBoolOrUndefined(
-        "_internal-obliterate-actions-id-token-request-variables",
-      ) === true
+      inputs.getBoolOrUndefined("_internal-obliterate-actions-id-token-request-variables") === true
     ) {
-      process.env["ACTIONS_ID_TOKEN_REQUEST_URL"] = undefined;
-      process.env["ACTIONS_ID_TOKEN_REQUEST_TOKEN"] = undefined;
+      process.env.ACTIONS_ID_TOKEN_REQUEST_URL = undefined;
+      process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = undefined;
     }
 
     this.features = {};
@@ -310,13 +294,9 @@ export abstract class DetSysAction {
 
     this.systemDetails = ghActionsCorePlatform
       .getDetails()
-      // eslint-disable-next-line github/no-then
       .then((details) => ({ name: details.name, version: details.version }))
-      // eslint-disable-next-line github/no-then
       .catch((e: unknown) => {
-        actionsCore.debug(
-          `Failure getting platform details: ${stringifyError(e)}`,
-        );
+        actionsCore.debug(`Failure getting platform details: ${stringifyError(e)}`);
         return undefined;
       });
 
@@ -329,9 +309,7 @@ export abstract class DetSysAction {
     } else if (this.actionOptions.fetchStyle === "universal") {
       this.architectureFetchSuffix = "universal";
     } else {
-      throw new Error(
-        `fetchStyle ${this.actionOptions.fetchStyle} is not a valid style`,
-      );
+      throw new Error(`fetchStyle ${this.actionOptions.fetchStyle} is not a valid style`);
     }
 
     this.sourceParameters = sourcedef.constructSourceParameters(
@@ -353,30 +331,22 @@ export abstract class DetSysAction {
     this.exceptionAttachments.set(name, location);
   }
 
-  /**
-   * The main execution phase.
-   */
+  /** The main execution phase. */
   abstract main(): Promise<void>;
 
-  /**
-   * The post execution phase.
-   */
+  /** The post execution phase. */
   abstract post(): Promise<void>;
 
-  /**
-   * Execute the Action as defined.
-   */
+  /** Execute the Action as defined. */
   execute(): void {
-    // eslint-disable-next-line github/no-then
-    this.executeAsync().catch((error: Error) => {
-      // eslint-disable-next-line no-console
+    this.executeAsync().catch((error: unknown) => {
       console.log(error);
       process.exitCode = 1;
     });
   }
 
   getTemporaryName(): string {
-    const tmpDir = process.env["RUNNER_TEMP"] || tmpdir();
+    const tmpDir = process.env.RUNNER_TEMP || tmpdir();
     return path.join(tmpDir, `${this.actionOptions.name}-${randomUUID()}`);
   }
 
@@ -408,7 +378,7 @@ export abstract class DetSysAction {
    * telemetry in this run's trace.
    */
   async getDiagnosticsUrl(): Promise<URL | undefined> {
-    return await this.idsHost.getDiagnosticsUrl();
+    return this.idsHost.getDiagnosticsUrl();
   }
 
   getUniqueId(): string {
@@ -494,9 +464,7 @@ export abstract class DetSysAction {
    */
   async unpackClosure(bin: string): Promise<string> {
     const artifact = await this.fetchArtifact();
-    const { stdout } = await promisify(exec)(
-      `cat "${artifact}" | xz -d | nix-store --import`,
-    );
+    const { stdout } = await promisify(exec)(`cat "${artifact}" | xz -d | nix-store --import`);
     const paths = stdout.split(os.EOL);
     const lastPath = paths.at(-2);
     return `${lastPath}/bin/${bin}`;
@@ -508,10 +476,7 @@ export abstract class DetSysAction {
    */
   async fetchExecutable(): Promise<string> {
     const binaryPath = await this.fetchArtifact();
-    await chmod(
-      binaryPath,
-      nodeFs.constants.S_IXUSR | nodeFs.constants.S_IXGRP,
-    );
+    await chmod(binaryPath, nodeFs.constants.S_IXUSR | nodeFs.constants.S_IXGRP);
     return binaryPath;
   }
 
@@ -553,13 +518,13 @@ export abstract class DetSysAction {
           }
         });
 
-        if (!(await this.preflightRequireNix())) {
-          this.addEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
-          return;
-        } else {
+        if (await this.preflightRequireNix()) {
           await this.preflightNixStoreInfo();
           await this.preflightNixVersion();
           this.setAttribute(ATTR_NIX_STORE_TRUST, this.nixStoreTrust);
+        } else {
+          this.addEvent(EVENT_PREFLIGHT_REQUIRE_NIX_DENIED);
+          return;
         }
 
         if (this.isMain) {
@@ -602,13 +567,10 @@ export abstract class DetSysAction {
     const span = this.phaseSpan;
 
     if (span === undefined) {
-      return await fn();
+      return fn();
     }
 
-    return await otelApi.context.with(
-      otelApi.trace.setSpan(otelApi.context.active(), span),
-      fn,
-    );
+    return otelApi.context.with(otelApi.trace.setSpan(otelApi.context.active(), span), fn);
   }
 
   /**
@@ -628,7 +590,7 @@ export abstract class DetSysAction {
       serviceName: `${this.actionOptions.name}-action`,
       // The Action's own version, which is the ref the workflow pinned.
       // A run that does not name a ref leaves the variable empty.
-      serviceVersion: text(process.env["GITHUB_ACTION_REF"]),
+      serviceVersion: text(process.env.GITHUB_ACTION_REF),
       resourceAttributes: await this.telemetryResourceAttributes(),
       samplingRandomnessSource: this.getInvocationId(),
     });
@@ -708,8 +670,8 @@ export abstract class DetSysAction {
       [ATTR_ARCH_OS]: this.archOs,
       [ATTR_NIX_SYSTEM]: this.nixSystem,
 
-      [ATTR_GITHUB_EVENT_NAME]: process.env["GITHUB_EVENT_NAME"],
-      [ATTR_GITHUB_ACTION_REPOSITORY]: process.env["GITHUB_ACTION_REPOSITORY"],
+      [ATTR_GITHUB_EVENT_NAME]: process.env.GITHUB_EVENT_NAME,
+      [ATTR_GITHUB_ACTION_REPOSITORY]: process.env.GITHUB_ACTION_REPOSITORY,
 
       ...githubSemconvAttributes(),
     });
@@ -757,16 +719,14 @@ export abstract class DetSysAction {
   }
 
   async getClient(): Promise<Got> {
-    return await this.idsHost.getGot(
-      (incitingError: unknown, prevUrl: URL, nextUrl: URL) => {
-        this.recordPlausibleTimeout(incitingError);
+    return this.idsHost.getGot((incitingError: unknown, prevUrl: URL, nextUrl: URL) => {
+      this.recordPlausibleTimeout(incitingError);
 
-        this.addEvent(EVENT_IDS_FAILOVER, {
-          "detsys.ids.previous_url": prevUrl.toString(),
-          "detsys.ids.next_url": nextUrl.toString(),
-        });
-      },
-    );
+      this.addEvent(EVENT_IDS_FAILOVER, {
+        "detsys.ids.previous_url": prevUrl.toString(),
+        "detsys.ids.next_url": nextUrl.toString(),
+      });
+    });
   }
 
   /**
@@ -808,7 +768,7 @@ export abstract class DetSysAction {
       if (summaries.length > 0) {
         actionsCore.info(
           // Bright red, Bold, Underline
-          `${"\u001b[0;31m"}${"\u001b[1m"}${"\u001b[4m"}${checkin.status.page.name} Status`,
+          `\u001b[0;31m\u001b[1m\u001b[4m${checkin.status.page.name} Status`,
         );
         for (const notice of summaries) {
           actionsCore.info(notice);
@@ -848,7 +808,6 @@ export abstract class DetSysAction {
    * does.
    */
   private async checkInPersonProperties(): Promise<Record<string, unknown>> {
-    /* eslint-disable camelcase */
     const properties: Record<string, string | boolean | number> = {
       ci: "github",
       $lib: "detsys-ts",
@@ -884,7 +843,6 @@ export abstract class DetSysAction {
         properties.$os_version = details.version;
       }
     }
-    /* eslint-enable camelcase */
 
     return { ...properties, ...this.identity };
   }
@@ -897,11 +855,7 @@ export abstract class DetSysAction {
    * 3. Get feature flag data so we can gently roll out new features.
    */
   private async requestCheckIn(): Promise<CheckIn | undefined> {
-    for (
-      let attemptsRemaining = 5;
-      attemptsRemaining > 0;
-      attemptsRemaining--
-    ) {
+    for (let attemptsRemaining = 5; attemptsRemaining > 0; attemptsRemaining--) {
       const checkInUrl = await this.getCheckInUrl();
       if (checkInUrl === undefined) {
         return undefined;
@@ -910,7 +864,6 @@ export abstract class DetSysAction {
       try {
         actionsCore.debug(`Preflighting via ${checkInUrl}`);
 
-        /* eslint-disable camelcase */
         const props = {
           // Use a distinct_id when we actually have one
           distinct_id: this.identity.$anon_distinct_id,
@@ -918,7 +871,6 @@ export abstract class DetSysAction {
           groups: this.identity.$groups,
           person_properties: await this.checkInPersonProperties(),
         };
-        /* eslint-enable camelcase */
 
         return await (
           await this.getClient()
@@ -979,7 +931,7 @@ export abstract class DetSysAction {
       return sourceBinary;
     }
 
-    return await otel.withSpan(
+    return otel.withSpan(
       "fetch_artifact",
       async (span) => {
         const expectedArtifactHash = await this.resolveExpectedArtifactHash();
@@ -993,21 +945,14 @@ export abstract class DetSysAction {
 
           const correlatedUrl = await this.getSourceUrl();
           correlatedUrl.searchParams.set("ci", "github");
-          correlatedUrl.searchParams.set(
-            "correlation",
-            JSON.stringify(this.identity),
-          );
+          correlatedUrl.searchParams.set("correlation", JSON.stringify(this.identity));
 
-          const versionCheckup = await (
-            await this.getClient()
-          ).head(correlatedUrl);
+          const versionCheckup = await (await this.getClient()).head(correlatedUrl);
           if (versionCheckup.headers.etag) {
             const v = versionCheckup.headers.etag;
             this.setAttribute(ATTR_SOURCE_ETAG, v);
 
-            log.debug(
-              `Checking the tool cache for ${await this.getSourceUrl()} at ${v}`,
-            );
+            log.debug(`Checking the tool cache for ${await this.getSourceUrl()} at ${v}`);
             const cached = await this.getCachedVersion(v, expectedArtifactHash);
             if (cached) {
               span.setAttribute(ATTR_ARTIFACT_CACHE_HIT, true);
@@ -1025,10 +970,7 @@ export abstract class DetSysAction {
 
           const destFile = this.getTemporaryName();
 
-          const fetchStream = await this.downloadFile(
-            new URL(versionCheckup.url),
-            destFile,
-          );
+          const fetchStream = await this.downloadFile(new URL(versionCheckup.url), destFile);
 
           await this.verifyArtifactHash(destFile, expectedArtifactHash);
 
@@ -1072,9 +1014,7 @@ export abstract class DetSysAction {
       return null;
     }
     if (checksumsUrl === null || checksumsSha256 === null) {
-      throw new Error(
-        "`source-checksums-url` and `source-checksums-sha256` must be set together",
-      );
+      throw new Error("`source-checksums-url` and `source-checksums-sha256` must be set together");
     }
 
     sourcedef.assertChecksumSourceIsPinned(this.sourceParameters);
@@ -1087,7 +1027,7 @@ export abstract class DetSysAction {
 
     actionsCore.info(`Fetching checksums file from ${safeUrl}`);
     const response = await (await this.getClient()).get(checksumsUrl);
-    const body = response.body;
+    const { body } = response;
 
     const actualFileHash = checksums.sha256OfBuffer(body);
     if (actualFileHash !== expectedFileHash) {
@@ -1109,10 +1049,7 @@ export abstract class DetSysAction {
    * Verify a downloaded artifact's SHA-256 matches the expected hash. No-op
    * when `expected` is `null` (verification disabled).
    */
-  private async verifyArtifactHash(
-    filePath: string,
-    expected: string | null,
-  ): Promise<void> {
+  private async verifyArtifactHash(filePath: string, expected: string | null): Promise<void> {
     if (expected === null) {
       return;
     }
@@ -1134,19 +1071,11 @@ export abstract class DetSysAction {
     }
   }
 
-  private async downloadFile(
-    url: URL,
-    destination: nodeFs.PathLike,
-  ): Promise<Request> {
-    return await otel.withSpan("download_file", async () =>
-      this.download(url, destination),
-    );
+  private async downloadFile(url: URL, destination: nodeFs.PathLike): Promise<Request> {
+    return otel.withSpan("download_file", async () => this.download(url, destination));
   }
 
-  private async download(
-    url: URL,
-    destination: nodeFs.PathLike,
-  ): Promise<Request> {
+  private async download(url: URL, destination: nodeFs.PathLike): Promise<Request> {
     const client = await this.getClient();
 
     return new Promise((resolve, reject) => {
@@ -1253,7 +1182,7 @@ export abstract class DetSysAction {
     version: string,
     expectedHash: string | null,
   ): Promise<undefined | string> {
-    return await otel.withSpan("artifact_cache_restore", async (span) => {
+    return otel.withSpan("artifact_cache_restore", async (span) => {
       const startCwd = process.cwd();
 
       try {
@@ -1293,7 +1222,7 @@ export abstract class DetSysAction {
     toolPath: string,
     expectedHash: string | null,
   ): Promise<void> {
-    return await otel.withSpan("artifact_cache_persist", async () => {
+    return otel.withSpan("artifact_cache_persist", async () => {
       const startCwd = process.cwd();
 
       try {
@@ -1332,11 +1261,7 @@ export abstract class DetSysAction {
       };
 
       try {
-        otel.emitLogRecord(
-          "error",
-          await readFile(location, "utf-8"),
-          attributes,
-        );
+        otel.emitLogRecord("error", await readFile(location, "utf-8"), attributes);
       } catch (innerError: unknown) {
         otel.emitLogRecord("error", `Attachment unavailable`, {
           ...attributes,
@@ -1347,10 +1272,10 @@ export abstract class DetSysAction {
   }
 
   private async preflightRequireNix(): Promise<boolean> {
-    return await otel.withSpan("preflight_require_nix", async () => {
+    return otel.withSpan("preflight_require_nix", async () => {
       let nixLocation: string | undefined;
 
-      const pathParts = (process.env["PATH"] || "").split(":");
+      const pathParts = (process.env.PATH || "").split(":");
       for (const location of pathParts) {
         const candidateNix = path.join(location, "nix");
 
@@ -1373,9 +1298,7 @@ export abstract class DetSysAction {
         return true;
       }
 
-      const currentNotFoundState = actionsCore.getState(
-        STATE_KEY_NIX_NOT_FOUND,
-      );
+      const currentNotFoundState = actionsCore.getState(STATE_KEY_NIX_NOT_FOUND);
       if (currentNotFoundState === STATE_NOT_FOUND) {
         // It was previously not found, so don't run subsequent actions
         return false;
@@ -1403,6 +1326,8 @@ export abstract class DetSysAction {
             ].join(" "),
           );
           break;
+
+        // no default
       }
 
       return false;
@@ -1410,7 +1335,7 @@ export abstract class DetSysAction {
   }
 
   private async preflightNixStoreInfo(): Promise<void> {
-    return await otel.withSpan("preflight_nix_store_info", async (span) => {
+    return otel.withSpan("preflight_nix_store_info", async (span) => {
       let output = "";
 
       const options: actionsExec.ExecOptions = {};
@@ -1437,8 +1362,14 @@ export abstract class DetSysAction {
         }
       }
 
+      interface NixStoreInfo {
+        trusted: boolean | number;
+        url: string;
+        version: string;
+      }
+
       try {
-        const parsed = JSON.parse(output);
+        const parsed = JSON.parse(output) as NixStoreInfo;
         if (parsed.trusted === true || parsed.trusted === 1) {
           this.nixStoreTrust = "trusted";
         } else if (parsed.trusted === false || parsed.trusted === 0) {
@@ -1462,17 +1393,13 @@ export abstract class DetSysAction {
   }
 
   private async preflightNixVersion(): Promise<void> {
-    return await otel.withSpan("preflight_nix_version", async (span) => {
+    return otel.withSpan("preflight_nix_version", async (span) => {
       let output = "unknown";
 
       try {
-        ({ stdout: output } = await actionsExec.getExecOutput(
-          "nix",
-          ["--version"],
-          {
-            silent: true,
-          },
-        ));
+        ({ stdout: output } = await actionsExec.getExecOutput("nix", ["--version"], {
+          silent: true,
+        }));
         output = output.trim() || "unknown";
       } catch {
         // That's fine.
@@ -1485,7 +1412,7 @@ export abstract class DetSysAction {
 }
 
 function stringifyError(error: unknown): string {
-  return error instanceof Error || typeof error == "string"
+  return error instanceof Error || typeof error === "string"
     ? error.toString()
     : JSON.stringify(error);
 }
@@ -1508,19 +1435,13 @@ function text(value: string | undefined): string | undefined {
  * It makes a column that says nothing, and it hides the difference between a
  * value the run did not supply and a value that is empty.
  */
-function withoutEmptyValues(
-  attributes: otelApi.Attributes,
-): otelApi.Attributes {
+function withoutEmptyValues(attributes: otelApi.Attributes): otelApi.Attributes {
   return Object.fromEntries(
-    Object.entries(attributes).filter(
-      ([, value]) => value !== undefined && value !== "",
-    ),
+    Object.entries(attributes).filter(([, value]) => value !== undefined && value !== ""),
   );
 }
 
-/**
- * The runner's operating system, as `os.type` spells it.
- */
+/** The runner's operating system, as `os.type` spells it. */
 function osType(): string {
   switch (ghActionsCorePlatform.platform) {
     case "win32":
@@ -1534,9 +1455,7 @@ function osType(): string {
   }
 }
 
-/**
- * The runner's architecture, as `host.arch` spells it.
- */
+/** The runner's architecture, as `host.arch` spells it. */
 function hostArch(): string {
   switch (ghActionsCorePlatform.arch) {
     case "x64":
@@ -1552,9 +1471,7 @@ function hostArch(): string {
   }
 }
 
-function makeOptionsConfident(
-  actionOptions: ActionOptions,
-): ConfidentActionOptions {
+function makeOptionsConfident(actionOptions: ActionOptions): ConfidentActionOptions {
   const idsProjectName = actionOptions.idsProjectName ?? actionOptions.name;
 
   const finalOpts: ConfidentActionOptions = {
@@ -1572,20 +1489,10 @@ function makeOptionsConfident(
 }
 
 // Public exports from other files
-export type {
-  CheckIn,
-  Feature,
-  Incident,
-  Maintenance,
-  Page,
-  StatusSummary,
-} from "./check-in.js";
+export type { CheckIn, Feature, Incident, Maintenance, Page, StatusSummary } from "./check-in.js";
 export type { CorrelationProperties } from "./correlation.js";
 export { stringifyError } from "./errors.js";
-export {
-  type GitHubContext,
-  githubSemconvAttributes,
-} from "./github-semconv.js";
+export { type GitHubContext, githubSemconvAttributes } from "./github-semconv.js";
 export { IdsHost } from "./ids-host.js";
 export type { SourceDef } from "./sourcedef.js";
 export * as inputs from "./inputs.js";

@@ -4,7 +4,6 @@ import * as actionsCore from "@actions/core";
 
 const OPTIONAL_VARIABLES = ["INVOCATION_ID"];
 
-/* eslint-disable camelcase */
 /**
  * The hashed, non-identifying description of this run.
  *
@@ -13,7 +12,7 @@ const OPTIONAL_VARIABLES = ["INVOCATION_ID"];
  * `$DETSYS_CORRELATION`. The OpenTelemetry data carries the same values under
  * `detsys.` attribute names.
  */
-export type CorrelationProperties = {
+export interface CorrelationProperties {
   $anon_distinct_id: string;
   $groups: Record<string, string | undefined>;
   $session_id?: string;
@@ -24,7 +23,7 @@ export type CorrelationProperties = {
   github_workflow_run_differentiator_hash?: string;
   github_workflow_run_hash?: string;
   is_ci: boolean;
-};
+}
 
 export function identify(): CorrelationProperties {
   const repository = hashEnvironmentVariables("GHR", [
@@ -50,7 +49,7 @@ export function identify(): CorrelationProperties {
   ]);
 
   const ident: CorrelationProperties = {
-    $anon_distinct_id: process.env["RUNNER_TRACKING_ID"] || randomUUID(),
+    $anon_distinct_id: process.env.RUNNER_TRACKING_ID || randomUUID(),
 
     correlation_source: "github-actions",
 
@@ -101,10 +100,7 @@ export function identify(): CorrelationProperties {
   return ident;
 }
 
-function hashEnvironmentVariables(
-  prefix: string,
-  variables: string[],
-): undefined | string {
+function hashEnvironmentVariables(prefix: string, variables: string[]): undefined | string {
   const hash = createHash("sha256");
 
   for (const varName of variables) {

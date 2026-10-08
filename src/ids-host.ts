@@ -12,19 +12,14 @@ import { stringifyError } from "./errors.js";
 import { traceContextHeaders } from "./telemetry.js";
 
 const DEFAULT_LOOKUP = "_detsys_ids._tcp.install.determinate.systems.";
-const ALLOWED_SUFFIXES = [
-  ".install.determinate.systems",
-  ".install.detsys.dev",
-];
+const ALLOWED_SUFFIXES = [".install.determinate.systems", ".install.detsys.dev"];
 
 const DEFAULT_IDS_HOST = "https://install.determinate.systems";
-const LOOKUP = process.env["IDS_LOOKUP"] ?? DEFAULT_LOOKUP;
+const LOOKUP = process.env.IDS_LOOKUP ?? DEFAULT_LOOKUP;
 
 const DEFAULT_TIMEOUT = 10_000; // 10 seconds in ms
 
-/**
- * Host information for install.determinate.systems.
- */
+/** Host information for install.determinate.systems. */
 export class IdsHost {
   private idsProjectName: string;
   private diagnosticsSuffix?: string;
@@ -47,11 +42,7 @@ export class IdsHost {
   }
 
   async getGot(
-    recordFailoverCallback?: (
-      incitingError: unknown,
-      prevUrl: URL,
-      nextUrl: URL,
-    ) => void,
+    recordFailoverCallback?: (incitingError: unknown, prevUrl: URL, nextUrl: URL) => void,
   ): Promise<Got> {
     if (this.client === undefined) {
       this.client = got.extend({
@@ -75,9 +66,7 @@ export class IdsHost {
                 recordFailoverCallback(error, prevUrl, nextUrl);
               }
 
-              actionsCore.info(
-                `Retrying after error ${error.code}, retry #: ${retryCount}`,
-              );
+              actionsCore.info(`Retrying after error ${error.code}, retry #: ${retryCount}`);
             },
           ],
 
@@ -85,14 +74,12 @@ export class IdsHost {
             async (options) => {
               // Send the trace context, so the service puts the work it does
               // for this request in this Action's trace.
-              for (const [name, value] of Object.entries(
-                traceContextHeaders(),
-              )) {
+              for (const [name, value] of Object.entries(traceContextHeaders())) {
                 options.headers[name] = value;
               }
 
               // The getter always returns a URL, even though the setter accepts a string
-              const currentUrl: URL = options.url as URL;
+              const currentUrl: URL = options.url!;
 
               if (this.isUrlSubjectToDynamicUrls(currentUrl)) {
                 const newUrl: URL = new URL(currentUrl);
@@ -137,7 +124,7 @@ export class IdsHost {
   }
 
   async getDynamicRootUrl(): Promise<URL | undefined> {
-    const idsHost = process.env["IDS_HOST"];
+    const idsHost = process.env.IDS_HOST;
     if (idsHost !== undefined) {
       try {
         return new URL(idsHost);
@@ -150,21 +137,19 @@ export class IdsHost {
 
     let url: URL | undefined = undefined;
     try {
-      const urls = await this.getUrlsByPreference();
-      url = urls[0];
+      [url] = await this.getUrlsByPreference();
+      // const urls = await this.getUrlsByPreference();
+      // url = urls[0];
     } catch (err: unknown) {
-      actionsCore.error(
-        `Error collecting IDS URLs by preference: ${stringifyError(err)}`,
-      );
+      actionsCore.error(`Error collecting IDS URLs by preference: ${stringifyError(err)}`);
     }
 
     if (url === undefined) {
       return undefined;
-    } else {
-      // This is a load-bearing `new URL(url)` so that callers can't mutate
-      // getRootUrl's return value.
-      return new URL(url);
     }
+    // This is a load-bearing `new URL(url)` so that callers can't mutate
+    // getRootUrl's return value.
+    return new URL(url);
   }
 
   async getRootUrl(): Promise<URL> {
@@ -191,10 +176,7 @@ export class IdsHost {
       return undefined;
     }
 
-    if (
-      this.runtimeDiagnosticsUrl !== "-" &&
-      this.runtimeDiagnosticsUrl !== undefined
-    ) {
+    if (this.runtimeDiagnosticsUrl !== "-" && this.runtimeDiagnosticsUrl !== undefined) {
       try {
         // Caller specified a specific diagnostics URL
         return new URL(this.runtimeDiagnosticsUrl);
@@ -219,9 +201,9 @@ export class IdsHost {
 
   private async getUrlsByPreference(): Promise<URL[]> {
     if (this.prioritizedURLs === undefined) {
-      this.prioritizedURLs = orderRecordsByPriorityWeight(
-        await discoverServiceRecords(),
-      ).flatMap((record) => recordToUrl(record) || []);
+      this.prioritizedURLs = orderRecordsByPriorityWeight(await discoverServiceRecords()).flatMap(
+        (record) => recordToUrl(record) || [],
+      );
     }
 
     return this.prioritizedURLs;
@@ -241,18 +223,16 @@ export function recordToUrl(record: SrvRecord): URL | undefined {
 }
 
 async function discoverServiceRecords(): Promise<SrvRecord[]> {
-  return await discoverServicesStub(resolveSrv(LOOKUP), 1_000);
+  return discoverServicesStub(resolveSrv(LOOKUP), 1_000);
 }
 
 export async function discoverServicesStub(
   lookup: Promise<SrvRecord[]>,
   timeout: number,
 ): Promise<SrvRecord[]> {
-  const defaultFallback: Promise<SrvRecord[]> = new Promise(
-    (resolve, _reject) => {
-      setTimeout(resolve, timeout, []);
-    },
-  );
+  const defaultFallback: Promise<SrvRecord[]> = new Promise((resolve, _reject) => {
+    setTimeout(resolve, timeout, []);
+  });
 
   let records: SrvRecord[];
 
@@ -270,9 +250,7 @@ export async function discoverServicesStub(
       }
     }
 
-    actionsCore.debug(
-      `Unacceptable domain due to an invalid suffix: ${record.name}`,
-    );
+    actionsCore.debug(`Unacceptable domain due to an invalid suffix: ${record.name}`);
 
     return false;
   });
@@ -280,17 +258,13 @@ export async function discoverServicesStub(
   if (acceptableRecords.length === 0) {
     actionsCore.debug(`No records found for ${LOOKUP}`);
   } else {
-    actionsCore.debug(
-      `Resolved ${LOOKUP} to ${JSON.stringify(acceptableRecords)}`,
-    );
+    actionsCore.debug(`Resolved ${LOOKUP} to ${JSON.stringify(acceptableRecords)}`);
   }
 
   return acceptableRecords;
 }
 
-export function orderRecordsByPriorityWeight(
-  records: SrvRecord[],
-): SrvRecord[] {
+export function orderRecordsByPriorityWeight(records: SrvRecord[]): SrvRecord[] {
   const byPriorityWeight: Map<number, SrvRecord[]> = new Map();
   for (const record of records) {
     const existing = byPriorityWeight.get(record.priority);
@@ -302,9 +276,7 @@ export function orderRecordsByPriorityWeight(
   }
 
   const prioritizedRecords: SrvRecord[] = [];
-  const keys: number[] = Array.from(byPriorityWeight.keys()).sort(
-    (a, b) => a - b,
-  );
+  const keys: number[] = Array.from(byPriorityWeight.keys()).sort((a, b) => a - b);
 
   for (const priority of keys) {
     const recordsByPrio = byPriorityWeight.get(priority);
@@ -328,19 +300,13 @@ export function weightedRandom(records: SrvRecord[]): SrvRecord[] {
 
     {
       for (let i = 0; i < scratchRecords.length; i++) {
-        weights.push(
-          scratchRecords[i].weight + (i > 0 ? scratchRecords[i - 1].weight : 0),
-        );
+        weights.push(scratchRecords[i].weight + (i > 0 ? scratchRecords[i - 1].weight : 0));
       }
     }
 
     const point = Math.random() * weights[weights.length - 1];
 
-    for (
-      let selectedIndex = 0;
-      selectedIndex < weights.length;
-      selectedIndex++
-    ) {
+    for (let selectedIndex = 0; selectedIndex < weights.length; selectedIndex++) {
       if (weights[selectedIndex] > point) {
         // Remove our selected record and add it to the result
         result.push(scratchRecords.splice(selectedIndex, 1)[0]);

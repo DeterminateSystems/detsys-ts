@@ -22,11 +22,7 @@ import { type LogLevel, emitLogRecord, withSpan } from "./telemetry.js";
  */
 type Message = string | Error;
 
-function tee(
-  level: LogLevel,
-  message: Message,
-  attributes?: Attributes,
-): string {
+function tee(level: LogLevel, message: Message, attributes?: Attributes): string {
   const text = typeof message === "string" ? message : stringifyError(message);
 
   emitLogRecord(level, text, attributes);
@@ -77,17 +73,13 @@ export function error(
   actionsCore.error(message, properties);
 }
 
-/**
- * Fail the workflow step, recording the reason as an OpenTelemetry error log.
- */
+/** Fail the workflow step, recording the reason as an OpenTelemetry error log. */
 export function setFailed(message: Message, attributes?: Attributes): void {
   tee("error", message, attributes);
   actionsCore.setFailed(message);
 }
 
-/**
- * Represents a collapsable log group and span.
- */
+/** Represents a collapsable log group and span. */
 export interface Group {
   /** The span of this group. */
   span: Span;
@@ -101,7 +93,7 @@ export interface Group {
  * and the span ends even if `fn` throws, and a throwing `fn` marks the span
  * failed before re-throwing.
  *
- * `name` is the span name and `label` is the console heading
+ * `name` is the span name and `label` is the console heading.
  *
  * @param name - The span name, such as `install_nix`.
  * @param label - The heading of the group in the workflow log.
@@ -114,7 +106,7 @@ export async function group<T>(
   fn: (group: Group) => Promise<T>,
   attributes?: Attributes,
 ): Promise<T> {
-  return await withSpan(
+  return withSpan(
     name,
     async (span) => {
       actionsCore.startGroup(label);

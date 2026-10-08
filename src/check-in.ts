@@ -1,36 +1,36 @@
-export type CheckIn = {
+export interface CheckIn {
   status: StatusSummary | null;
   options: { [k: string]: Feature };
-};
+}
 
-export type StatusSummary = {
+export interface StatusSummary {
   page: Page;
   incidents: Incident[];
   scheduled_maintenances: Maintenance[];
-};
+}
 
-export type Page = {
+export interface Page {
   name: string;
   url: string;
-};
+}
 
-export type Incident = {
+export interface Incident {
   name: string;
   status: string;
   impact: string;
   shortlink: string;
-};
+}
 
-export type Maintenance = {
+export interface Maintenance {
   name: string;
   status: string;
   impact: string;
   shortlink: string;
   scheduled_for: string;
   scheduled_until: string;
-};
+}
 
-export type Feature = {
+export interface Feature {
   variant: boolean | string;
   payload?: string;
-};
+}

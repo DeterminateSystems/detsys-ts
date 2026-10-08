@@ -19,8 +19,8 @@ describe("sampling randomness", () => {
   });
 
   test("the traces of one source report one randomness value", async () => {
-    process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] = UNREACHABLE_COLLECTOR;
-    process.env["OTEL_EXPORTER_OTLP_TIMEOUT"] = "1";
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = UNREACHABLE_COLLECTOR;
+    process.env.OTEL_EXPORTER_OTLP_TIMEOUT = "1";
 
     const telemetry = new otel.Telemetry();
     telemetry.start({
@@ -42,7 +42,7 @@ describe("sampling randomness", () => {
 
     await telemetry.shutdown();
 
-    delete process.env["OTEL_EXPORTER_OTLP_ENDPOINT"];
-    delete process.env["OTEL_EXPORTER_OTLP_TIMEOUT"];
+    delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    delete process.env.OTEL_EXPORTER_OTLP_TIMEOUT;
   });
 });

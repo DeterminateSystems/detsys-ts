@@ -1,13 +1,13 @@
 import { describe, expect, test } from "vitest";
 
-import { Separator, handleString } from "./inputs.js";
+import { type Separator, handleString } from "./inputs.js";
 
 describe("converting strings into arrays", () => {
-  type TestCase = {
+  interface TestCase {
     input: string;
     separator: Separator;
     expected: string[];
-  };
+  }
 
   const testCases: TestCase[] = [
     // Properly formed strings
