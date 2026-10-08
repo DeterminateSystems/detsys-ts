@@ -1,8 +1,0 @@
-[build]
-command = "npm run docs"
-publish = "docs"
-
-[build.environment]
-# Netlify defaults to Node 18.
-# tsdown needs node:util styleText, which is Node 20 and later.
-NODE_VERSION = "24"
