@@ -1,3 +1,5 @@
 # detsys-ts
 
-TypeScript goodies for DetSys projects.
+TypeScript goodies for [Determinate Systems][detsys]' GitHub Actions projects.
+
+[detsys]: https://determinate.systems
