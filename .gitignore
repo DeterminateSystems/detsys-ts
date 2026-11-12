@@ -1,9 +1,6 @@
 # Dependency directory
 node_modules
 
-# Generated docs
-docs
-
 # Build output
 dist
 

@@ -1,8 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "compilerOptions": {
-    "lib": ["ESNext"],
-    "skipLibCheck": true
-  },
-  "exclude": ["src/**/*.test.ts"]
-}
